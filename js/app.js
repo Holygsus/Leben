@@ -1,7 +1,7 @@
 import { getSession, onAuthStateChange, signInWithMagicLink, ensureAreasSeeded } from "./auth.js";
-import { listTasks, updateTask, createTask } from "./tasks.js";
+import { listTasks, updateTask, createTask, deleteTask } from "./tasks.js";
 import { listAreas, createArea, updateArea, deleteArea, swapAreaOrder } from "./areas.js";
-import { listProjects } from "./projects.js";
+import { listProjects, createProject, updateProject, deleteProject, buildProjectTree } from "./projects.js";
 import { suggestTasksForPlan, formatTasksForExport, savePlanForDate } from "./planner.js";
 
 const app = document.getElementById("app");
@@ -17,7 +17,9 @@ const overviewState = {
   areas: [],
   projects: [],
   tasks: [],
-  filters: { areaId: null, effort: "", status: "" },
+  filters: { effort: "", status: "" },
+  collapsedAreas: new Set(),
+  collapsedNodes: new Set(),
 };
 
 const planState = {
@@ -42,6 +44,35 @@ function tomorrowISO() {
 function currentRoute() {
   const hash = location.hash.replace(/^#\/?/, "");
   return routes[hash] ? hash : "today";
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[c]));
+}
+
+// Baut eingerückte <option>-Elemente für den Projektbaum eines Bereichs.
+function projectOptionsHtml(projects, areaId, selectedId) {
+  if (!areaId) return "";
+  const tree = buildProjectTree(projects, areaId);
+  const out = [];
+  const walk = (nodes, depth) => {
+    for (const n of nodes) {
+      const prefix = "  ".repeat(depth);
+      const badge = n.is_project ? "📌 " : "";
+      out.push(
+        `<option value="${n.id}"${n.id === selectedId ? " selected" : ""}>${prefix}${badge}${escapeHtml(n.name)}</option>`
+      );
+      walk(n.children, depth + 1);
+    }
+  };
+  walk(tree, 0);
+  return out.join("");
 }
 
 let seedPromise = null;
@@ -212,19 +243,6 @@ function isTaskStale(task) {
   return ageMs > 14 * 24 * 60 * 60 * 1000;
 }
 
-function wireBrainstormForm(formId, inputId, onAdded) {
-  const form = document.getElementById(formId);
-  const input = document.getElementById(inputId);
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const title = input.value.trim();
-    if (!title) return;
-    input.value = "";
-    await createTask({ title, isBrainstorm: true });
-    onAdded();
-  });
-}
-
 // Heute-Schnellerfassung: Titel + optional Bereich + optional Aufwand, aufklappbar bei Fokus.
 function wireQuickCapture(areas, onAdded) {
   const form = document.getElementById("brainstorm-form");
@@ -279,62 +297,34 @@ async function renderOverviewView() {
   const res = await fetch("views/overview.html");
   container.innerHTML = await res.text();
 
+  await loadOverviewData();
+  renderMarkedProjects();
+  renderAreaTree();
+  renderNoAreaSection();
+  wireOverviewFilters();
+  wireNewTaskForm();
+}
+
+async function loadOverviewData() {
   const [areas, projects, tasks] = await Promise.all([listAreas(), listProjects(), listTasks()]);
   overviewState.areas = areas;
   overviewState.projects = projects;
   overviewState.tasks = tasks;
-
-  renderAreaChips();
-  wireOverviewFilters();
-  renderOverviewTasks();
-  renderProjectsSummary();
-  renderBrainstormSection();
-  wireNewTaskForm();
-  wireBrainstormForm("overview-brainstorm-form", "overview-brainstorm-input", reloadOverviewTasks);
 }
 
-async function reloadOverviewTasks() {
-  overviewState.tasks = await listTasks();
-  renderOverviewTasks();
-  renderProjectsSummary();
-  renderBrainstormSection();
+async function reloadOverview() {
+  await loadOverviewData();
+  renderMarkedProjects();
+  renderAreaTree();
+  renderNoAreaSection();
+  populateNewTaskAreaOptions();
 }
 
-function renderAreaChips() {
-  const container = document.getElementById("area-chips");
-  container.innerHTML = "";
-
-  const allChip = document.createElement("button");
-  allChip.type = "button";
-  allChip.className = "area-chip";
-  allChip.dataset.active = String(overviewState.filters.areaId === null);
-  allChip.textContent = "Alle";
-  allChip.addEventListener("click", () => {
-    overviewState.filters.areaId = null;
-    renderAreaChips();
-    renderOverviewTasks();
-  });
-  container.appendChild(allChip);
-
-  for (const area of overviewState.areas) {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "area-chip";
-    chip.style.color = area.color;
-    chip.dataset.active = String(overviewState.filters.areaId === area.id);
-
-    const dot = document.createElement("span");
-    dot.className = "dot";
-    dot.style.background = area.color;
-
-    chip.append(dot, document.createTextNode(area.name));
-    chip.addEventListener("click", () => {
-      overviewState.filters.areaId = overviewState.filters.areaId === area.id ? null : area.id;
-      renderAreaChips();
-      renderOverviewTasks();
-    });
-    container.appendChild(chip);
-  }
+function taskPassesFilter(task) {
+  const { effort, status } = overviewState.filters;
+  if (effort && String(task.effort) !== effort) return false;
+  if (status && task.status !== status) return false;
+  return true;
 }
 
 function wireOverviewFilters() {
@@ -342,102 +332,331 @@ function wireOverviewFilters() {
   const statusSelect = document.getElementById("filter-status");
   effortSelect.addEventListener("change", () => {
     overviewState.filters.effort = effortSelect.value;
-    renderOverviewTasks();
+    renderAreaTree();
+    renderNoAreaSection();
   });
   statusSelect.addEventListener("change", () => {
     overviewState.filters.status = statusSelect.value;
-    renderOverviewTasks();
+    renderAreaTree();
+    renderNoAreaSection();
   });
 }
 
-function renderOverviewTasks() {
-  const list = document.getElementById("overview-task-list");
-  const emptyState = document.getElementById("overview-empty-state");
-  const areaColorById = Object.fromEntries(overviewState.areas.map((a) => [a.id, a.color]));
-  const { areaId, effort, status } = overviewState.filters;
+// ----- Markierte Projekte (schnell auffindbar) -----
 
-  const filtered = overviewState.tasks.filter((task) => {
-    if (task.is_brainstorm) return false;
-    if (areaId && task.area_id !== areaId) return false;
-    if (effort && String(task.effort) !== effort) return false;
-    if (status && task.status !== status) return false;
-    return true;
-  });
-
-  list.innerHTML = "";
-  if (filtered.length === 0) {
-    emptyState.hidden = false;
+function renderMarkedProjects() {
+  const panel = document.getElementById("marked-projects-panel");
+  const list = document.getElementById("marked-project-list");
+  const marked = overviewState.projects.filter((p) => p.is_project);
+  if (marked.length === 0) {
+    panel.hidden = true;
     return;
   }
-  emptyState.hidden = true;
-
-  for (const task of filtered) {
-    list.appendChild(buildTaskItem(task, areaColorById, reloadOverviewTasks));
-  }
-}
-
-function renderProjectsSummary() {
-  const list = document.getElementById("project-list");
+  panel.hidden = false;
+  const areaName = Object.fromEntries(overviewState.areas.map((a) => [a.id, a.name]));
   list.innerHTML = "";
 
-  if (overviewState.projects.length === 0) {
-    const empty = document.createElement("li");
-    empty.className = "empty-state";
-    empty.textContent = "Noch keine Projekte angelegt.";
-    list.appendChild(empty);
-    return;
-  }
-
-  for (const project of overviewState.projects) {
-    const count = overviewState.tasks.filter((t) => t.project_id === project.id).length;
+  for (const p of marked) {
+    const count = overviewState.tasks.filter((t) => t.project_id === p.id).length;
     const li = document.createElement("li");
-    li.className = "project-item";
+    li.className = "project-item project-item-clickable";
 
     const name = document.createElement("span");
-    name.textContent = project.name;
+    name.textContent = "📌 " + p.name;
 
-    const countEl = document.createElement("span");
-    countEl.className = "count";
-    countEl.textContent = `${count} Aufgabe${count === 1 ? "" : "n"}`;
+    const meta = document.createElement("span");
+    meta.className = "count";
+    meta.textContent = `${areaName[p.area_id] || ""} · ${count}`;
 
-    li.append(name, countEl);
+    li.append(name, meta);
+    li.addEventListener("click", () => {
+      overviewState.collapsedAreas.delete(p.area_id);
+      renderAreaTree();
+      const el = document.getElementById("area-sec-" + p.area_id);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
     list.appendChild(li);
   }
 }
 
-function renderBrainstormSection() {
-  const list = document.getElementById("brainstorm-list");
-  list.innerHTML = "";
-  const brainstormTasks = overviewState.tasks.filter((t) => t.is_brainstorm);
+// ----- Bereichs-Baum (Akkordeon) -----
 
-  if (brainstormTasks.length === 0) {
-    const empty = document.createElement("li");
-    empty.className = "empty-state";
-    empty.textContent = "Keine Brainstorm-Ideen offen.";
-    list.appendChild(empty);
+function renderAreaTree() {
+  const root = document.getElementById("area-tree");
+  root.innerHTML = "";
+  if (overviewState.areas.length === 0) {
+    root.innerHTML = `<p class="empty-state">Noch keine Bereiche. Lege welche unter „Bereiche" an.</p>`;
     return;
   }
+  for (const area of overviewState.areas) {
+    root.appendChild(buildAreaSection(area));
+  }
+}
 
-  for (const task of brainstormTasks) {
+function buildAreaSection(area) {
+  const section = document.createElement("section");
+  section.className = "area-section";
+  section.id = "area-sec-" + area.id;
+  const collapsed = overviewState.collapsedAreas.has(area.id);
+
+  const header = document.createElement("div");
+  header.className = "area-section-header";
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "tree-toggle";
+  toggle.textContent = collapsed ? "▸" : "▾";
+  toggle.setAttribute("aria-label", collapsed ? "Aufklappen" : "Zuklappen");
+
+  const dot = document.createElement("span");
+  dot.className = "task-area-dot";
+  dot.style.background = area.color;
+
+  const name = document.createElement("span");
+  name.className = "area-section-name";
+  name.textContent = area.name;
+
+  const openCount = overviewState.tasks.filter((t) => t.area_id === area.id && t.status !== "done").length;
+  const count = document.createElement("span");
+  count.className = "count";
+  count.textContent = String(openCount);
+
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.className = "icon-btn";
+  addBtn.textContent = "+";
+  addBtn.setAttribute("aria-label", "Ordner oder Projekt hinzufügen");
+  addBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    addFolder(area.id, null);
+  });
+
+  const toggleFn = () => {
+    if (overviewState.collapsedAreas.has(area.id)) overviewState.collapsedAreas.delete(area.id);
+    else overviewState.collapsedAreas.add(area.id);
+    renderAreaTree();
+  };
+  toggle.addEventListener("click", toggleFn);
+  name.addEventListener("click", toggleFn);
+
+  header.append(toggle, dot, name, count, addBtn);
+  section.appendChild(header);
+
+  if (!collapsed) {
+    const body = document.createElement("div");
+    body.className = "area-section-body";
+
+    const loose = overviewState.tasks.filter((t) => t.area_id === area.id && !t.project_id && taskPassesFilter(t));
+    if (loose.length) {
+      const sub = document.createElement("div");
+      sub.className = "tree-subheading";
+      sub.textContent = "Kleine Aufgaben";
+      body.appendChild(sub);
+      const ul = document.createElement("ul");
+      ul.className = "task-list tree-task-list";
+      loose.forEach((t) => ul.appendChild(buildOverviewTaskRow(t)));
+      body.appendChild(ul);
+    }
+
+    const tree = buildProjectTree(overviewState.projects, area.id);
+    tree.forEach((node) => body.appendChild(buildProjectNodeEl(node, area)));
+
+    if (!loose.length && tree.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "empty-state";
+      empty.textContent = "Noch nichts in diesem Bereich.";
+      body.appendChild(empty);
+    }
+
+    section.appendChild(body);
+  }
+  return section;
+}
+
+function buildProjectNodeEl(node, area) {
+  const wrap = document.createElement("div");
+  wrap.className = "tree-node";
+  const collapsed = overviewState.collapsedNodes.has(node.id);
+
+  const header = document.createElement("div");
+  header.className = "tree-node-header";
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "tree-toggle";
+  toggle.textContent = collapsed ? "▸" : "▾";
+  toggle.addEventListener("click", () => {
+    if (collapsed) overviewState.collapsedNodes.delete(node.id);
+    else overviewState.collapsedNodes.add(node.id);
+    renderAreaTree();
+  });
+
+  const name = document.createElement("span");
+  name.className = "tree-node-name";
+  name.textContent = (node.is_project ? "📌 " : "📁 ") + node.name;
+
+  const menuBtn = document.createElement("button");
+  menuBtn.type = "button";
+  menuBtn.className = "icon-btn tree-node-menu";
+  menuBtn.textContent = "⋯";
+  menuBtn.setAttribute("aria-label", "Aktionen");
+
+  header.append(toggle, name, menuBtn);
+  wrap.appendChild(header);
+
+  const actions = document.createElement("div");
+  actions.className = "tree-node-actions";
+  actions.hidden = true;
+  actions.append(
+    actionButton("Umbenennen", async () => {
+      const nn = prompt("Neuer Name", node.name);
+      if (nn && nn.trim()) {
+        await updateProject(node.id, { name: nn.trim() });
+        reloadOverview();
+      }
+    }),
+    actionButton("Unterordner", () => addFolder(area.id, node.id)),
+    actionButton(node.is_project ? "Projekt-Markierung entfernen" : "Als Projekt markieren", async () => {
+      await updateProject(node.id, { is_project: !node.is_project });
+      reloadOverview();
+    }),
+    actionButton(
+      "Löschen",
+      async () => {
+        if (confirm(`„${node.name}" löschen? Unterordner werden mitgelöscht, Aufgaben bleiben als Kleine Aufgaben erhalten.`)) {
+          await deleteProject(node.id);
+          reloadOverview();
+        }
+      },
+      "danger"
+    )
+  );
+  menuBtn.addEventListener("click", () => {
+    actions.hidden = !actions.hidden;
+  });
+  wrap.appendChild(actions);
+
+  if (!collapsed) {
+    const body = document.createElement("div");
+    body.className = "tree-node-body";
+
+    const nodeTasks = overviewState.tasks.filter((t) => t.project_id === node.id && taskPassesFilter(t));
+    if (nodeTasks.length) {
+      const ul = document.createElement("ul");
+      ul.className = "task-list tree-task-list";
+      nodeTasks.forEach((t) => ul.appendChild(buildOverviewTaskRow(t)));
+      body.appendChild(ul);
+    }
+    node.children.forEach((child) => body.appendChild(buildProjectNodeEl(child, area)));
+    wrap.appendChild(body);
+  }
+  return wrap;
+}
+
+function actionButton(label, onClick, variant) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "action-btn" + (variant === "danger" ? " action-btn-danger" : "");
+  b.textContent = label;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+async function addFolder(areaId, parentProjectId) {
+  const name = prompt(parentProjectId ? "Name des Unterordners" : "Name des Ordners / Projekts");
+  if (!name || !name.trim()) return;
+  const markProject = parentProjectId
+    ? false
+    : confirm("Als Projekt markieren?\nOK = Projekt, Abbrechen = normaler Ordner");
+  await createProject({ areaId, parentProjectId, name: name.trim(), isProject: markProject });
+  overviewState.collapsedAreas.delete(areaId);
+  if (parentProjectId) overviewState.collapsedNodes.delete(parentProjectId);
+  reloadOverview();
+}
+
+function buildOverviewTaskRow(task) {
+  const li = document.createElement("li");
+  const isStale = isTaskStale(task);
+  li.className = "task-item" + (task.status === "done" ? " is-done" : "") + (isStale ? " is-stale" : "");
+
+  const checkbox = document.createElement("button");
+  checkbox.className = "task-checkbox";
+  checkbox.type = "button";
+  checkbox.dataset.checked = String(task.status === "done");
+  checkbox.setAttribute("aria-pressed", String(task.status === "done"));
+  checkbox.setAttribute("aria-label", task.title);
+  checkbox.textContent = task.status === "done" ? "✓" : "";
+  checkbox.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    await updateTask(task.id, { status: task.status === "done" ? "open" : "done" });
+    reloadOverview();
+  });
+
+  const title = document.createElement("button");
+  title.type = "button";
+  title.className = "task-title task-title-btn";
+  title.textContent = task.title + (task.effort ? ` · ${task.effort}m` : "");
+  title.addEventListener("click", () => openTaskDetail(task));
+
+  li.append(checkbox, title);
+  return li;
+}
+
+// ----- Ohne Bereich (Brainstorm / lose Aufgaben) -----
+
+function renderNoAreaSection() {
+  const panel = document.getElementById("no-area-panel");
+  const list = document.getElementById("brainstorm-list");
+  const noArea = overviewState.tasks.filter((t) => !t.area_id && taskPassesFilter(t));
+  if (noArea.length === 0) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  list.innerHTML = "";
+
+  for (const task of noArea) {
     const li = document.createElement("li");
     li.className = "brainstorm-item";
 
-    const title = document.createElement("span");
-    title.className = "task-title";
+    const title = document.createElement("button");
+    title.type = "button";
+    title.className = "task-title task-title-btn";
     title.textContent = task.title;
+    title.addEventListener("click", () => openTaskDetail(task));
 
-    const projectSelect = document.createElement("select");
-    projectSelect.className = "select";
-    projectSelect.innerHTML = `<option value="">Projekt zuweisen</option>` +
-      overviewState.projects.map((p) => `<option value="${p.id}"${p.id === task.project_id ? " selected" : ""}>${p.name}</option>`).join("");
-    projectSelect.addEventListener("change", async () => {
-      await updateTask(task.id, { project_id: projectSelect.value || null });
-      await reloadOverviewTasks();
+    const areaSelect = document.createElement("select");
+    areaSelect.className = "select";
+    areaSelect.innerHTML =
+      `<option value="">Bereich zuweisen</option>` +
+      overviewState.areas.map((a) => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join("");
+    areaSelect.addEventListener("change", async () => {
+      await updateTask(task.id, { area_id: areaSelect.value || null, is_brainstorm: false });
+      reloadOverview();
     });
 
-    li.append(title, projectSelect);
+    li.append(title, areaSelect);
     list.appendChild(li);
   }
+}
+
+// ----- Neue Aufgabe -----
+
+function populateNewTaskAreaOptions() {
+  const areaSelect = document.getElementById("new-task-area");
+  if (!areaSelect) return;
+  areaSelect.innerHTML =
+    `<option value="">Bereich wählen</option>` +
+    overviewState.areas.map((a) => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join("");
+  refreshNewTaskProjectOptions();
+}
+
+function refreshNewTaskProjectOptions() {
+  const areaSelect = document.getElementById("new-task-area");
+  const projectSelect = document.getElementById("new-task-project");
+  if (!areaSelect || !projectSelect) return;
+  projectSelect.innerHTML =
+    `<option value="">Kein Projekt</option>` + projectOptionsHtml(overviewState.projects, areaSelect.value || null, null);
 }
 
 function wireNewTaskForm() {
@@ -447,12 +666,8 @@ function wireNewTaskForm() {
   const projectSelect = document.getElementById("new-task-project");
   const effortSelect = document.getElementById("new-task-effort");
 
-  areaSelect.innerHTML =
-    `<option value="">Bereich wählen</option>` +
-    overviewState.areas.map((a) => `<option value="${a.id}">${a.name}</option>`).join("");
-  projectSelect.innerHTML =
-    `<option value="">Projekt (optional)</option>` +
-    overviewState.projects.map((p) => `<option value="${p.id}">${p.name}</option>`).join("");
+  populateNewTaskAreaOptions();
+  areaSelect.addEventListener("change", refreshNewTaskProjectOptions);
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -463,12 +678,100 @@ function wireNewTaskForm() {
       areaId: areaSelect.value || null,
       projectId: projectSelect.value || null,
       effort: effortSelect.value ? Number(effortSelect.value) : null,
+      isBrainstorm: !areaSelect.value,
     });
     titleInput.value = "";
     areaSelect.value = "";
-    projectSelect.value = "";
     effortSelect.value = "";
-    await reloadOverviewTasks();
+    refreshNewTaskProjectOptions();
+    reloadOverview();
+  });
+}
+
+// ----- Aufgaben-Detail (Modal) -----
+
+function openTaskDetail(task) {
+  const root = document.getElementById("modal-root");
+  const areaOpts =
+    `<option value="">Kein Bereich</option>` +
+    overviewState.areas
+      .map((a) => `<option value="${a.id}"${a.id === task.area_id ? " selected" : ""}>${escapeHtml(a.name)}</option>`)
+      .join("");
+  const projOpts = `<option value="">Kein Projekt</option>` + projectOptionsHtml(overviewState.projects, task.area_id, task.project_id);
+  const effortOpts = [["", "–"], ["5", "5"], ["10", "10"], ["30", "30"], ["60", "60"]]
+    .map(([v, l]) => `<option value="${v}"${String(task.effort || "") === v ? " selected" : ""}>${l}</option>`)
+    .join("");
+  const statusOpts = [["open", "Offen"], ["planned", "Geplant"], ["done", "Erledigt"]]
+    .map(([v, l]) => `<option value="${v}"${task.status === v ? " selected" : ""}>${l}</option>`)
+    .join("");
+
+  root.innerHTML = `
+    <div class="modal-backdrop" id="modal-backdrop">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-label="Aufgabe bearbeiten">
+        <h2>Aufgabe</h2>
+        <label class="modal-label">Titel
+          <input class="input" id="td-title" type="text" value="${escapeHtml(task.title)}" />
+        </label>
+        <label class="modal-label">Bereich
+          <select class="select" id="td-area">${areaOpts}</select>
+        </label>
+        <label class="modal-label">Projekt / Ordner
+          <select class="select" id="td-project">${projOpts}</select>
+        </label>
+        <div class="modal-row">
+          <label class="modal-label">Aufwand
+            <select class="select" id="td-effort">${effortOpts}</select>
+          </label>
+          <label class="modal-label">Status
+            <select class="select" id="td-status">${statusOpts}</select>
+          </label>
+        </div>
+        <label class="modal-label">Plandatum
+          <input class="input" id="td-date" type="date" value="${task.planned_date || ""}" />
+        </label>
+        <div class="modal-actions">
+          <button class="btn" id="td-save" type="button">Speichern</button>
+          <button class="btn btn-secondary" id="td-cancel" type="button">Abbrechen</button>
+          <button class="icon-btn icon-btn-danger" id="td-delete" type="button" aria-label="Aufgabe löschen">×</button>
+        </div>
+      </div>
+    </div>`;
+
+  const areaSel = document.getElementById("td-area");
+  const projSel = document.getElementById("td-project");
+  areaSel.addEventListener("change", () => {
+    projSel.innerHTML =
+      `<option value="">Kein Projekt</option>` + projectOptionsHtml(overviewState.projects, areaSel.value || null, null);
+  });
+
+  const close = () => {
+    root.innerHTML = "";
+  };
+  document.getElementById("modal-backdrop").addEventListener("click", (e) => {
+    if (e.target.id === "modal-backdrop") close();
+  });
+  document.getElementById("td-cancel").addEventListener("click", close);
+  document.getElementById("td-save").addEventListener("click", async () => {
+    const areaId = areaSel.value || null;
+    const effortVal = document.getElementById("td-effort").value;
+    await updateTask(task.id, {
+      title: document.getElementById("td-title").value.trim() || task.title,
+      area_id: areaId,
+      project_id: projSel.value || null,
+      effort: effortVal ? Number(effortVal) : null,
+      status: document.getElementById("td-status").value,
+      planned_date: document.getElementById("td-date").value || null,
+      is_brainstorm: !areaId,
+    });
+    close();
+    reloadOverview();
+  });
+  document.getElementById("td-delete").addEventListener("click", async () => {
+    if (confirm("Aufgabe löschen?")) {
+      await deleteTask(task.id);
+      close();
+      reloadOverview();
+    }
   });
 }
 

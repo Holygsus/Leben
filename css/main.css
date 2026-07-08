@@ -519,3 +519,186 @@ body {
 .new-area-form .input {
   flex: 1;
 }
+
+/* Übersicht — Bereichs-Baum */
+
+.project-item-clickable {
+  cursor: pointer;
+}
+
+.area-tree {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.area-section {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.area-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--touch-target);
+  padding: var(--space-2) var(--space-3);
+}
+
+.area-section-name {
+  flex: 1;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tree-toggle {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.area-section-body {
+  padding: 0 var(--space-3) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.tree-subheading {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-subtle);
+  margin-top: var(--space-2);
+}
+
+.tree-task-list {
+  margin-top: 0;
+}
+
+.tree-node {
+  display: flex;
+  flex-direction: column;
+}
+
+.tree-node-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+}
+
+.tree-node-name {
+  flex: 1;
+  font-weight: 500;
+}
+
+.tree-node-menu {
+  width: 32px;
+  height: 32px;
+}
+
+.tree-node-body {
+  margin-left: var(--space-3);
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.tree-node-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: var(--space-1) 0 var(--space-2) var(--space-6);
+}
+
+.action-btn {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.action-btn-danger {
+  color: var(--color-danger);
+}
+
+.task-title-btn {
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Aufgaben-Detail (Modal) */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  padding: var(--space-4);
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 480px;
+  max-height: 90dvh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-lg);
+  margin-bottom: env(safe-area-inset-bottom);
+}
+
+.modal-card h2 {
+  font-size: var(--font-size-lg);
+}
+
+.modal-label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.modal-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.modal-row .modal-label {
+  flex: 1;
+}
+
+.modal-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: var(--space-2);
+}
+
+.modal-actions .btn {
+  flex: 1;
+}
+
+@media (min-width: 560px) {
+  .modal-backdrop {
+    align-items: center;
+  }
+}

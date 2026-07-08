@@ -2,7 +2,10 @@
   <h1>Übersicht</h1>
 </section>
 
-<section class="area-chips" id="area-chips"></section>
+<section class="panel" id="marked-projects-panel" hidden>
+  <h2>Projekte</h2>
+  <ul class="project-list" id="marked-project-list"></ul>
+</section>
 
 <section class="filter-bar">
   <select id="filter-effort" class="select" aria-label="Nach Aufwand filtern">
@@ -20,20 +23,24 @@
   </select>
 </section>
 
-<ul class="task-list" id="overview-task-list"></ul>
-<p class="empty-state" id="overview-empty-state" hidden>Keine Aufgaben gefunden.</p>
+<div class="area-tree" id="area-tree"></div>
+
+<section class="panel" id="no-area-panel" hidden>
+  <h2>Ohne Bereich</h2>
+  <ul class="brainstorm-list" id="brainstorm-list"></ul>
+</section>
 
 <section class="panel">
   <h2>Neue Aufgabe</h2>
   <form id="new-task-form" class="new-task-form">
     <input class="input" type="text" id="new-task-title" placeholder="Titel" required autocomplete="off" />
-    <select id="new-task-area" class="select">
+    <select id="new-task-area" class="select" aria-label="Bereich">
       <option value="">Bereich wählen</option>
     </select>
-    <select id="new-task-project" class="select">
-      <option value="">Projekt (optional)</option>
+    <select id="new-task-project" class="select" aria-label="Projekt / Ordner">
+      <option value="">Kein Projekt</option>
     </select>
-    <select id="new-task-effort" class="select">
+    <select id="new-task-effort" class="select" aria-label="Aufwand">
       <option value="">Aufwand</option>
       <option value="5">5 Min</option>
       <option value="10">10 Min</option>
@@ -42,18 +49,4 @@
     </select>
     <button class="btn" type="submit">Anlegen</button>
   </form>
-</section>
-
-<section class="panel">
-  <h2>Projekte</h2>
-  <ul class="project-list" id="project-list"></ul>
-</section>
-
-<section class="panel">
-  <h2>Brainstorm</h2>
-  <form id="overview-brainstorm-form" class="field-row">
-    <input class="input" type="text" id="overview-brainstorm-input" placeholder="Schnell notieren…" autocomplete="off" />
-    <button class="btn" type="submit" aria-label="Hinzufügen">+</button>
-  </form>
-  <ul class="brainstorm-list" id="brainstorm-list"></ul>
 </section>
