@@ -5,14 +5,14 @@
 <section class="area-chips" id="area-chips"></section>
 
 <section class="filter-bar">
-  <select id="filter-effort" class="select">
+  <select id="filter-effort" class="select" aria-label="Nach Aufwand filtern">
     <option value="">Alle Aufwände</option>
     <option value="5">5 Min</option>
     <option value="10">10 Min</option>
     <option value="30">30 Min</option>
     <option value="60">60 Min</option>
   </select>
-  <select id="filter-status" class="select">
+  <select id="filter-status" class="select" aria-label="Nach Status filtern">
     <option value="">Alle Status</option>
     <option value="open">Offen</option>
     <option value="planned">Geplant</option>
@@ -53,7 +53,7 @@
   <h2>Brainstorm</h2>
   <form id="overview-brainstorm-form" class="field-row">
     <input class="input" type="text" id="overview-brainstorm-input" placeholder="Schnell notieren…" autocomplete="off" />
-    <button class="btn" type="submit">+</button>
+    <button class="btn" type="submit" aria-label="Hinzufügen">+</button>
   </form>
   <ul class="brainstorm-list" id="brainstorm-list"></ul>
 </section>

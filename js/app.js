@@ -43,10 +43,18 @@ function currentRoute() {
   return routes[hash] ? hash : "today";
 }
 
+let seedPromise = null;
+function ensureAreasSeededOnce(userId) {
+  // init() and onAuthStateChange can both fire around the same first login;
+  // without memoizing, both could see "no areas yet" and insert the defaults twice.
+  if (!seedPromise) seedPromise = ensureAreasSeeded(userId);
+  return seedPromise;
+}
+
 async function init() {
   const session = await getSession();
   if (session) {
-    await ensureAreasSeeded(session.user.id);
+    await ensureAreasSeededOnce(session.user.id);
     renderShell();
   } else {
     renderLogin();
@@ -54,8 +62,9 @@ async function init() {
 
   onAuthStateChange((newSession) => {
     if (newSession) {
-      ensureAreasSeeded(newSession.user.id).then(renderShell);
+      ensureAreasSeededOnce(newSession.user.id).then(renderShell);
     } else {
+      seedPromise = null;
       renderLogin();
     }
   });
@@ -178,6 +187,8 @@ function buildTaskItem(task, areaColorById, onChange) {
   checkbox.className = "task-checkbox";
   checkbox.type = "button";
   checkbox.dataset.checked = String(task.status === "done");
+  checkbox.setAttribute("aria-pressed", String(task.status === "done"));
+  checkbox.setAttribute("aria-label", task.title);
   checkbox.textContent = task.status === "done" ? "✓" : "";
   checkbox.addEventListener("click", async () => {
     const nextStatus = task.status === "done" ? "planned" : "done";
