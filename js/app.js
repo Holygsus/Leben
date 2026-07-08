@@ -137,6 +137,10 @@ function renderLogin() {
 
 function renderShell() {
   const route = currentRoute();
+  // Offenes Detail-Modal schließen — es liegt außerhalb von #app und würde sonst
+  // beim Ansichtswechsel über der neuen Ansicht hängen bleiben.
+  const modalRoot = document.getElementById("modal-root");
+  if (modalRoot) modalRoot.innerHTML = "";
   app.innerHTML = `
     <nav class="app-nav">
       <a href="#/today" class="nav-link${route === "today" ? " is-active" : ""}">Heute</a>
@@ -253,7 +257,7 @@ function wireQuickCapture(areas, onAdded) {
 
   areaSelect.innerHTML =
     `<option value="">Bereich (optional)</option>` +
-    areas.map((a) => `<option value="${a.id}">${a.name}</option>`).join("");
+    areas.map((a) => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join("");
 
   let selectedEffort = null;
   effortGroup.querySelectorAll(".effort-chip").forEach((chip) => {
@@ -296,6 +300,9 @@ async function renderOverviewView() {
   const container = document.getElementById("view-content");
   const res = await fetch("views/overview.html");
   container.innerHTML = await res.text();
+
+  // Frisch gerenderte Dropdowns stehen auf "Alle" — Filterzustand dazu passend zurücksetzen.
+  overviewState.filters = { effort: "", status: "" };
 
   await loadOverviewData();
   renderMarkedProjects();
@@ -899,7 +906,7 @@ function renderAddTaskSelect() {
 
   select.innerHTML =
     `<option value="">Aufgabe wählen…</option>` +
-    available.map((t) => `<option value="${t.id}">${t.title}</option>`).join("");
+    available.map((t) => `<option value="${t.id}">${escapeHtml(t.title)}</option>`).join("");
 }
 
 /* ---------- Bereiche (Verwaltung) ---------- */
