@@ -17,6 +17,19 @@
 <p class="empty-state" id="empty-state" hidden>Keine Aufgaben für heute geplant.</p>
 
 <form class="brainstorm-pill" id="brainstorm-form">
-  <input type="text" id="brainstorm-input" placeholder="Schnell notieren…" autocomplete="off" />
-  <button type="submit" aria-label="Hinzufügen">+</button>
+  <div class="brainstorm-options" id="brainstorm-options" hidden>
+    <select class="select" id="brainstorm-area" aria-label="Bereich">
+      <option value="">Bereich (optional)</option>
+    </select>
+    <div class="effort-chips" id="brainstorm-effort" role="group" aria-label="Aufwand">
+      <button type="button" class="effort-chip" data-effort="5">5</button>
+      <button type="button" class="effort-chip" data-effort="10">10</button>
+      <button type="button" class="effort-chip" data-effort="30">30</button>
+      <button type="button" class="effort-chip" data-effort="60">60</button>
+    </div>
+  </div>
+  <div class="brainstorm-row">
+    <input type="text" id="brainstorm-input" placeholder="Schnell notieren…" autocomplete="off" />
+    <button type="submit" aria-label="Hinzufügen">+</button>
+  </div>
 </form>

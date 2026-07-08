@@ -47,8 +47,13 @@ export async function ensureAreasSeeded(userId) {
   if (error) throw error;
   if (existing.length > 0) return;
 
+  // Upsert mit ignoreDuplicates: zusammen mit dem UNIQUE(user_id, name)-Constraint
+  // kann so auch bei parallelen Ladevorgängen kein Bereich doppelt entstehen.
   const { error: insertError } = await supabase
     .from("areas")
-    .insert(DEFAULT_AREAS.map((area) => ({ ...area, user_id: userId })));
+    .upsert(
+      DEFAULT_AREAS.map((area) => ({ ...area, user_id: userId })),
+      { onConflict: "user_id,name", ignoreDuplicates: true }
+    );
   if (insertError) throw insertError;
 }

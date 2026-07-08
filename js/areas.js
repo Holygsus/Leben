@@ -36,3 +36,9 @@ export async function deleteArea(id) {
   const { error } = await supabase.from("areas").delete().eq("id", id);
   if (error) throw error;
 }
+
+// Vertauscht die sort_order zweier Bereiche (für Hoch/Runter-Sortierung).
+export async function swapAreaOrder(a, b) {
+  await updateArea(a.id, { sort_order: b.sort_order });
+  await updateArea(b.id, { sort_order: a.sort_order });
+}

@@ -9,16 +9,19 @@ create table if not exists areas (
   color text not null default '#888888',
   icon text,
   sort_order integer default 0,
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  unique (user_id, name)
 );
 
--- Projekte
+-- Projekte / Ordner (frei verschachtelbar; is_project markiert eine Gruppierung als Projekt)
 create table if not exists projects (
   id uuid default gen_random_uuid() primary key,
   user_id uuid references auth.users not null,
   area_id uuid references areas on delete cascade,
+  parent_project_id uuid references projects(id) on delete cascade,
   name text not null,
   color text,
+  is_project boolean default false,
   status text default 'active' check (status in ('active', 'completed', 'archived')),
   created_at timestamptz default now()
 );

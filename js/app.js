@@ -1,6 +1,6 @@
 import { getSession, onAuthStateChange, signInWithMagicLink, ensureAreasSeeded } from "./auth.js";
 import { listTasks, updateTask, createTask } from "./tasks.js";
-import { listAreas } from "./areas.js";
+import { listAreas, createArea, updateArea, deleteArea, swapAreaOrder } from "./areas.js";
 import { listProjects } from "./projects.js";
 import { suggestTasksForPlan, formatTasksForExport, savePlanForDate } from "./planner.js";
 
@@ -10,6 +10,7 @@ const routes = {
   today: renderTodayView,
   overview: renderOverviewView,
   plan: renderPlanView,
+  areas: renderAreasView,
 };
 
 const overviewState = {
@@ -110,6 +111,7 @@ function renderShell() {
       <a href="#/today" class="nav-link${route === "today" ? " is-active" : ""}">Heute</a>
       <a href="#/overview" class="nav-link${route === "overview" ? " is-active" : ""}">Übersicht</a>
       <a href="#/plan" class="nav-link${route === "plan" ? " is-active" : ""}">Plan</a>
+      <a href="#/areas" class="nav-link${route === "areas" ? " is-active" : ""}">Bereiche</a>
     </nav>
     <div id="view-content"></div>
   `;
@@ -129,7 +131,7 @@ async function renderTodayView() {
   renderGreeting();
   renderGymIndicator();
   renderTodayTasks(tasks, areaColorById);
-  wireBrainstormForm("brainstorm-form", "brainstorm-input", renderTodayView);
+  wireQuickCapture(areas, renderTodayView);
 }
 
 function renderGreeting() {
@@ -219,6 +221,53 @@ function wireBrainstormForm(formId, inputId, onAdded) {
     if (!title) return;
     input.value = "";
     await createTask({ title, isBrainstorm: true });
+    onAdded();
+  });
+}
+
+// Heute-Schnellerfassung: Titel + optional Bereich + optional Aufwand, aufklappbar bei Fokus.
+function wireQuickCapture(areas, onAdded) {
+  const form = document.getElementById("brainstorm-form");
+  const input = document.getElementById("brainstorm-input");
+  const options = document.getElementById("brainstorm-options");
+  const areaSelect = document.getElementById("brainstorm-area");
+  const effortGroup = document.getElementById("brainstorm-effort");
+
+  areaSelect.innerHTML =
+    `<option value="">Bereich (optional)</option>` +
+    areas.map((a) => `<option value="${a.id}">${a.name}</option>`).join("");
+
+  let selectedEffort = null;
+  effortGroup.querySelectorAll(".effort-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const value = Number(chip.dataset.effort);
+      selectedEffort = selectedEffort === value ? null : value;
+      effortGroup.querySelectorAll(".effort-chip").forEach((c) => {
+        c.dataset.active = String(Number(c.dataset.effort) === selectedEffort);
+      });
+    });
+  });
+
+  input.addEventListener("focus", () => {
+    options.hidden = false;
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = input.value.trim();
+    if (!title) return;
+    const areaId = areaSelect.value || null;
+    await createTask({
+      title,
+      areaId,
+      effort: selectedEffort,
+      isBrainstorm: !areaId,
+    });
+    input.value = "";
+    areaSelect.value = "";
+    selectedEffort = null;
+    effortGroup.querySelectorAll(".effort-chip").forEach((c) => (c.dataset.active = "false"));
+    options.hidden = true;
     onAdded();
   });
 }
@@ -548,6 +597,136 @@ function renderAddTaskSelect() {
   select.innerHTML =
     `<option value="">Aufgabe wählen…</option>` +
     available.map((t) => `<option value="${t.id}">${t.title}</option>`).join("");
+}
+
+/* ---------- Bereiche (Verwaltung) ---------- */
+
+async function renderAreasView() {
+  const container = document.getElementById("view-content");
+  const res = await fetch("views/areas.html");
+  container.innerHTML = await res.text();
+
+  await renderAreaManageList();
+  wireNewAreaForm();
+}
+
+async function renderAreaManageList() {
+  const list = document.getElementById("area-manage-list");
+  const areas = await listAreas();
+  list.innerHTML = "";
+
+  if (areas.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "empty-state";
+    empty.textContent = "Noch keine Bereiche.";
+    list.appendChild(empty);
+    return;
+  }
+
+  areas.forEach((area, index) => {
+    list.appendChild(buildAreaManageItem(area, areas, index));
+  });
+}
+
+function buildAreaManageItem(area, areas, index) {
+  const li = document.createElement("li");
+  li.className = "area-manage-item";
+
+  const color = document.createElement("input");
+  color.type = "color";
+  color.className = "color-input";
+  color.value = area.color || "#888888";
+  color.setAttribute("aria-label", "Farbe von " + area.name);
+  color.addEventListener("change", async () => {
+    await updateArea(area.id, { color: color.value });
+    renderAreaManageList();
+  });
+
+  const name = document.createElement("input");
+  name.type = "text";
+  name.className = "input area-name-input";
+  name.value = area.name;
+  name.setAttribute("aria-label", "Name des Bereichs");
+  const commitName = async () => {
+    const newName = name.value.trim();
+    if (!newName || newName === area.name) {
+      name.value = area.name;
+      return;
+    }
+    try {
+      await updateArea(area.id, { name: newName });
+      renderAreaManageList();
+    } catch (err) {
+      name.value = area.name;
+      alert("Umbenennen fehlgeschlagen: " + err.message);
+    }
+  };
+  name.addEventListener("blur", commitName);
+  name.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") name.blur();
+  });
+
+  const controls = document.createElement("div");
+  controls.className = "area-manage-controls";
+
+  const upBtn = document.createElement("button");
+  upBtn.type = "button";
+  upBtn.className = "icon-btn";
+  upBtn.textContent = "↑";
+  upBtn.setAttribute("aria-label", "Nach oben");
+  upBtn.disabled = index === 0;
+  upBtn.addEventListener("click", async () => {
+    await swapAreaOrder(area, areas[index - 1]);
+    renderAreaManageList();
+  });
+
+  const downBtn = document.createElement("button");
+  downBtn.type = "button";
+  downBtn.className = "icon-btn";
+  downBtn.textContent = "↓";
+  downBtn.setAttribute("aria-label", "Nach unten");
+  downBtn.disabled = index === areas.length - 1;
+  downBtn.addEventListener("click", async () => {
+    await swapAreaOrder(area, areas[index + 1]);
+    renderAreaManageList();
+  });
+
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.className = "icon-btn icon-btn-danger";
+  deleteBtn.textContent = "×";
+  deleteBtn.setAttribute("aria-label", "Bereich löschen");
+  deleteBtn.addEventListener("click", async () => {
+    if (!confirm(`Bereich „${area.name}" löschen? Zugeordnete Projekte werden mitgelöscht.`)) return;
+    await deleteArea(area.id);
+    renderAreaManageList();
+  });
+
+  controls.append(upBtn, downBtn, deleteBtn);
+  li.append(color, name, controls);
+  return li;
+}
+
+function wireNewAreaForm() {
+  const form = document.getElementById("new-area-form");
+  const nameInput = document.getElementById("new-area-name");
+  const colorInput = document.getElementById("new-area-color");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = nameInput.value.trim();
+    if (!name) return;
+    const areas = await listAreas();
+    const maxSort = areas.reduce((m, a) => Math.max(m, a.sort_order ?? 0), -1);
+    try {
+      await createArea({ name, color: colorInput.value, sort_order: maxSort + 1 });
+      nameInput.value = "";
+      colorInput.value = "#378ADD";
+      renderAreaManageList();
+    } catch (err) {
+      alert("Anlegen fehlgeschlagen: " + err.message);
+    }
+  });
 }
 
 init();
