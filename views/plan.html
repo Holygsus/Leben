@@ -1,0 +1,29 @@
+<section class="view-header">
+  <h1>Plan für morgen</h1>
+  <p class="plan-date" id="plan-date"></p>
+</section>
+
+<section class="panel">
+  <h2>Vorschlag</h2>
+  <ul class="task-list" id="suggested-task-list"></ul>
+  <p class="empty-state" id="suggested-empty-state" hidden>Keine offenen Aufgaben für einen Vorschlag verfügbar.</p>
+  <button class="btn btn-secondary" type="button" id="refresh-suggestion">Neu vorschlagen</button>
+</section>
+
+<section class="panel">
+  <h2>Weitere Aufgabe hinzufügen</h2>
+  <select id="add-task-select" class="select">
+    <option value="">Aufgabe wählen…</option>
+  </select>
+</section>
+
+<section class="panel">
+  <button class="btn" type="button" id="confirm-plan">Plan bestätigen</button>
+  <p class="status-message" id="plan-status"></p>
+</section>
+
+<section class="panel">
+  <h2>Export</h2>
+  <button class="btn btn-secondary" type="button" id="export-tasks">Offene Aufgaben kopieren</button>
+  <p class="status-message" id="export-status"></p>
+</section>

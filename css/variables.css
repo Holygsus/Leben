@@ -1,0 +1,88 @@
+:root {
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* Radius */
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-full: 999px;
+
+  /* Touch targets */
+  --touch-target: 48px;
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.5rem;
+  --font-size-2xl: 2rem;
+
+  /* Transitions */
+  --transition-fast: 120ms ease;
+  --transition-base: 200ms ease;
+
+  /* Shadow */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.12);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.14);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.18);
+
+  color-scheme: light dark;
+}
+
+/* Light mode (default) */
+:root,
+:root[data-theme="light"] {
+  --color-bg: #F7F6F3;
+  --color-surface: #FFFFFF;
+  --color-surface-raised: #FFFFFF;
+  --color-border: #E5E2DC;
+  --color-text: #1F1D1A;
+  --color-text-muted: #6B6660;
+  --color-text-subtle: #9A948C;
+  --color-accent: #378ADD;
+  --color-accent-contrast: #FFFFFF;
+  --color-success: #1D9E75;
+  --color-warning: #BA7517;
+  --color-danger: #D85A30;
+}
+
+/* Dark mode */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #171614;
+    --color-surface: #211F1C;
+    --color-surface-raised: #29271F;
+    --color-border: #3A3731;
+    --color-text: #F2F0EC;
+    --color-text-muted: #B3ADA3;
+    --color-text-subtle: #7D776D;
+    --color-accent: #5CA3EA;
+    --color-accent-contrast: #101010;
+    --color-success: #38B892;
+    --color-warning: #D89234;
+    --color-danger: #E67851;
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-bg: #171614;
+  --color-surface: #211F1C;
+  --color-surface-raised: #29271F;
+  --color-border: #3A3731;
+  --color-text: #F2F0EC;
+  --color-text-muted: #B3ADA3;
+  --color-text-subtle: #7D776D;
+  --color-accent: #5CA3EA;
+  --color-accent-contrast: #101010;
+  --color-success: #38B892;
+  --color-warning: #D89234;
+  --color-danger: #E67851;
+}

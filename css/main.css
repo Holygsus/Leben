@@ -1,0 +1,409 @@
+body {
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+#app {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: calc(var(--space-5) + env(safe-area-inset-top)) var(--space-4) var(--space-7);
+  min-height: 100dvh;
+  position: relative;
+}
+
+/* Today-View: Platz für die fixierte Brainstorm-Pill schaffen */
+#app:has(.brainstorm-pill) {
+  padding-bottom: calc(var(--space-7) + 72px + env(safe-area-inset-bottom));
+}
+
+/* Nav */
+
+.app-nav {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: var(--space-3) 0;
+  background: color-mix(in srgb, var(--color-bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.nav-link {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-full);
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.nav-link.is-active {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+/* Login */
+
+.login-screen {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-4);
+}
+
+.login-screen h1 {
+  font-size: var(--font-size-2xl);
+}
+
+.login-screen p {
+  color: var(--color-text-muted);
+}
+
+.field-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.input {
+  flex: 1;
+  min-height: var(--touch-target);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+}
+
+.btn {
+  min-height: var(--touch-target);
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-md);
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  transition: opacity var(--transition-fast);
+}
+
+.btn:active {
+  opacity: 0.8;
+}
+
+.btn-secondary {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+
+.status-message {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* Today view */
+
+.today-greeting h1 {
+  font-size: var(--font-size-2xl);
+  margin-bottom: var(--space-1);
+}
+
+.today-greeting .today-date {
+  color: var(--color-text-muted);
+}
+
+.gym-indicator {
+  margin-top: var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-full);
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.progress-section {
+  margin-top: var(--space-6);
+}
+
+.progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-2);
+}
+
+.progress-bar {
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-raised);
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: var(--color-success);
+  border-radius: var(--radius-full);
+  transition: width var(--transition-base);
+}
+
+.task-list {
+  margin-top: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.task-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--touch-target);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.task-checkbox {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--color-border);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.task-checkbox[data-checked="true"] {
+  background: var(--color-success);
+  border-color: var(--color-success);
+  color: var(--color-accent-contrast);
+}
+
+.task-item.is-done .task-title {
+  color: var(--color-text-subtle);
+  text-decoration: line-through;
+}
+
+.task-title {
+  flex: 1;
+  text-align: left;
+}
+
+.task-area-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.empty-state {
+  margin-top: var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* Brainstorm pill */
+
+.brainstorm-pill {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--space-5) + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: calc(100% - var(--space-6));
+  max-width: 560px;
+  z-index: 10;
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--color-border);
+}
+
+.brainstorm-pill input {
+  flex: 1;
+  min-height: var(--touch-target);
+  padding: 0 var(--space-4);
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+}
+
+.brainstorm-pill input:focus {
+  outline: none;
+}
+
+.brainstorm-pill button {
+  min-width: var(--touch-target);
+  min-height: var(--touch-target);
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+/* Overview view */
+
+.view-header h1 {
+  font-size: var(--font-size-2xl);
+  margin-bottom: var(--space-5);
+}
+
+.area-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.area-chip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.area-chip[data-active="true"] {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  border-color: currentColor;
+}
+
+.area-chip .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+}
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.select {
+  min-height: var(--touch-target);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+}
+
+.task-item.is-stale {
+  border-color: var(--color-warning);
+}
+
+.task-item.is-stale .task-title {
+  color: var(--color-warning);
+}
+
+.panel {
+  margin-top: var(--space-7);
+}
+
+.panel h2 {
+  font-size: var(--font-size-lg);
+  margin-bottom: var(--space-3);
+}
+
+.new-task-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.new-task-form .input {
+  flex: 1 1 160px;
+}
+
+.new-task-form .select {
+  flex: 1 1 120px;
+}
+
+.project-list,
+.brainstorm-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.project-item {
+  display: flex;
+  justify-content: space-between;
+  min-height: var(--touch-target);
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.project-item .count {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.brainstorm-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+/* Plan view */
+
+.plan-date {
+  color: var(--color-text-muted);
+  margin-top: var(--space-1);
+}
+
+.badge {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.badge-brainstorm {
+  background: color-mix(in srgb, var(--color-warning) 20%, transparent);
+  color: var(--color-warning);
+}
+
+.task-remove-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.task-remove-btn:active {
+  background: var(--color-surface-raised);
+}
