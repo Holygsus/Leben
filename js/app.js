@@ -28,6 +28,40 @@ const planState = {
   selected: [],
 };
 
+let toastTimeout = null;
+function showToast(message, isError = false) {
+  let toast = document.getElementById("toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "toast";
+    document.body.appendChild(toast);
+  }
+  toast.className = "toast" + (isError ? " toast-error" : "");
+  toast.textContent = message;
+  toast.hidden = false;
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => {
+    toast.hidden = true;
+  }, 3000);
+}
+
+// Führt eine mutierende Aktion aus und zeigt bei Fehlern einen Toast statt still zu scheitern.
+async function withErrorToast(action) {
+  try {
+    await action();
+  } catch (err) {
+    showToast(err.message || "Etwas ist schiefgelaufen.", true);
+  }
+}
+
+// Ein "erledigt"-Häkchen wird rückgängig gemacht: zurück zu "geplant" wenn ein Plandatum
+// gesetzt ist, sonst zurück zu "offen". So verliert eine geplante Aufgabe nicht still ihren
+// Planungsstatus, egal ob man sie in Heute oder in der Übersicht abhakt.
+function toggleTaskDoneStatus(task) {
+  if (task.status === "done") return task.planned_date ? "planned" : "open";
+  return "done";
+}
+
 function todayISO() {
   const d = new Date();
   const offset = d.getTimezoneOffset();
@@ -228,9 +262,10 @@ function buildTaskItem(task, areaColorById, onChange) {
   checkbox.setAttribute("aria-label", task.title);
   checkbox.textContent = task.status === "done" ? "✓" : "";
   checkbox.addEventListener("click", async () => {
-    const nextStatus = task.status === "done" ? "planned" : "done";
-    await updateTask(task.id, { status: nextStatus });
-    onChange();
+    await withErrorToast(async () => {
+      await updateTask(task.id, { status: toggleTaskDoneStatus(task) });
+      onChange();
+    });
   });
 
   const title = document.createElement("span");
@@ -279,18 +314,22 @@ function wireQuickCapture(areas, onAdded) {
     const title = input.value.trim();
     if (!title) return;
     const areaId = areaSelect.value || null;
-    await createTask({
-      title,
-      areaId,
-      effort: selectedEffort,
-      isBrainstorm: !areaId,
+    await withErrorToast(async () => {
+      await createTask({
+        title,
+        areaId,
+        effort: selectedEffort,
+        isBrainstorm: !areaId,
+      });
+      const areaName = areaId ? areas.find((a) => a.id === areaId)?.name : null;
+      showToast(areaName ? `„${title}" zu ${areaName} hinzugefügt.` : `„${title}" hinzugefügt.`);
+      input.value = "";
+      areaSelect.value = "";
+      selectedEffort = null;
+      effortGroup.querySelectorAll(".effort-chip").forEach((c) => (c.dataset.active = "false"));
+      options.hidden = true;
+      onAdded();
     });
-    input.value = "";
-    areaSelect.value = "";
-    selectedEffort = null;
-    effortGroup.querySelectorAll(".effort-chip").forEach((c) => (c.dataset.active = "false"));
-    options.hidden = true;
-    onAdded();
   });
 }
 
@@ -517,23 +556,27 @@ function buildProjectNodeEl(node, area) {
   actions.append(
     actionButton("Umbenennen", async () => {
       const nn = prompt("Neuer Name", node.name);
-      if (nn && nn.trim()) {
+      if (!nn || !nn.trim()) return;
+      await withErrorToast(async () => {
         await updateProject(node.id, { name: nn.trim() });
         reloadOverview();
-      }
+      });
     }),
     actionButton("Unterordner", () => addFolder(area.id, node.id)),
     actionButton(node.is_project ? "Projekt-Markierung entfernen" : "Als Projekt markieren", async () => {
-      await updateProject(node.id, { is_project: !node.is_project });
-      reloadOverview();
+      await withErrorToast(async () => {
+        await updateProject(node.id, { is_project: !node.is_project });
+        reloadOverview();
+      });
     }),
     actionButton(
       "Löschen",
       async () => {
-        if (confirm(`„${node.name}" löschen? Unterordner werden mitgelöscht, Aufgaben bleiben als Kleine Aufgaben erhalten.`)) {
+        if (!confirm(`„${node.name}" löschen? Unterordner werden mitgelöscht, Aufgaben bleiben als Kleine Aufgaben erhalten.`)) return;
+        await withErrorToast(async () => {
           await deleteProject(node.id);
           reloadOverview();
-        }
+        });
       },
       "danger"
     )
@@ -575,10 +618,12 @@ async function addFolder(areaId, parentProjectId) {
   const markProject = parentProjectId
     ? false
     : confirm("Als Projekt markieren?\nOK = Projekt, Abbrechen = normaler Ordner");
-  await createProject({ areaId, parentProjectId, name: name.trim(), isProject: markProject });
-  overviewState.collapsedAreas.delete(areaId);
-  if (parentProjectId) overviewState.collapsedNodes.delete(parentProjectId);
-  reloadOverview();
+  await withErrorToast(async () => {
+    await createProject({ areaId, parentProjectId, name: name.trim(), isProject: markProject });
+    overviewState.collapsedAreas.delete(areaId);
+    if (parentProjectId) overviewState.collapsedNodes.delete(parentProjectId);
+    reloadOverview();
+  });
 }
 
 function buildOverviewTaskRow(task) {
@@ -595,8 +640,10 @@ function buildOverviewTaskRow(task) {
   checkbox.textContent = task.status === "done" ? "✓" : "";
   checkbox.addEventListener("click", async (e) => {
     e.stopPropagation();
-    await updateTask(task.id, { status: task.status === "done" ? "open" : "done" });
-    reloadOverview();
+    await withErrorToast(async () => {
+      await updateTask(task.id, { status: toggleTaskDoneStatus(task) });
+      reloadOverview();
+    });
   });
 
   const title = document.createElement("button");
@@ -638,8 +685,10 @@ function renderNoAreaSection() {
       `<option value="">Bereich zuweisen</option>` +
       overviewState.areas.map((a) => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join("");
     areaSelect.addEventListener("change", async () => {
-      await updateTask(task.id, { area_id: areaSelect.value || null, is_brainstorm: false });
-      reloadOverview();
+      await withErrorToast(async () => {
+        await updateTask(task.id, { area_id: areaSelect.value || null, is_brainstorm: false });
+        reloadOverview();
+      });
     });
 
     li.append(title, areaSelect);
@@ -680,18 +729,21 @@ function wireNewTaskForm() {
     e.preventDefault();
     const title = titleInput.value.trim();
     if (!title) return;
-    await createTask({
-      title,
-      areaId: areaSelect.value || null,
-      projectId: projectSelect.value || null,
-      effort: effortSelect.value ? Number(effortSelect.value) : null,
-      isBrainstorm: !areaSelect.value,
+    await withErrorToast(async () => {
+      await createTask({
+        title,
+        areaId: areaSelect.value || null,
+        projectId: projectSelect.value || null,
+        effort: effortSelect.value ? Number(effortSelect.value) : null,
+        isBrainstorm: !areaSelect.value,
+      });
+      showToast(`„${title}" angelegt.`);
+      titleInput.value = "";
+      areaSelect.value = "";
+      effortSelect.value = "";
+      refreshNewTaskProjectOptions();
+      reloadOverview();
     });
-    titleInput.value = "";
-    areaSelect.value = "";
-    effortSelect.value = "";
-    refreshNewTaskProjectOptions();
-    reloadOverview();
   });
 }
 
@@ -761,24 +813,27 @@ function openTaskDetail(task) {
   document.getElementById("td-save").addEventListener("click", async () => {
     const areaId = areaSel.value || null;
     const effortVal = document.getElementById("td-effort").value;
-    await updateTask(task.id, {
-      title: document.getElementById("td-title").value.trim() || task.title,
-      area_id: areaId,
-      project_id: projSel.value || null,
-      effort: effortVal ? Number(effortVal) : null,
-      status: document.getElementById("td-status").value,
-      planned_date: document.getElementById("td-date").value || null,
-      is_brainstorm: !areaId,
+    await withErrorToast(async () => {
+      await updateTask(task.id, {
+        title: document.getElementById("td-title").value.trim() || task.title,
+        area_id: areaId,
+        project_id: projSel.value || null,
+        effort: effortVal ? Number(effortVal) : null,
+        status: document.getElementById("td-status").value,
+        planned_date: document.getElementById("td-date").value || null,
+        is_brainstorm: !areaId,
+      });
+      close();
+      reloadOverview();
     });
-    close();
-    reloadOverview();
   });
   document.getElementById("td-delete").addEventListener("click", async () => {
-    if (confirm("Aufgabe löschen?")) {
+    if (!confirm("Aufgabe löschen?")) return;
+    await withErrorToast(async () => {
       await deleteTask(task.id);
       close();
       reloadOverview();
-    }
+    });
   });
 }
 
@@ -948,8 +1003,10 @@ function buildAreaManageItem(area, areas, index) {
   color.value = area.color || "#888888";
   color.setAttribute("aria-label", "Farbe von " + area.name);
   color.addEventListener("change", async () => {
-    await updateArea(area.id, { color: color.value });
-    renderAreaManageList();
+    await withErrorToast(async () => {
+      await updateArea(area.id, { color: color.value });
+      renderAreaManageList();
+    });
   });
 
   const name = document.createElement("input");
@@ -986,8 +1043,10 @@ function buildAreaManageItem(area, areas, index) {
   upBtn.setAttribute("aria-label", "Nach oben");
   upBtn.disabled = index === 0;
   upBtn.addEventListener("click", async () => {
-    await swapAreaOrder(area, areas[index - 1]);
-    renderAreaManageList();
+    await withErrorToast(async () => {
+      await swapAreaOrder(area, areas[index - 1]);
+      renderAreaManageList();
+    });
   });
 
   const downBtn = document.createElement("button");
@@ -997,8 +1056,10 @@ function buildAreaManageItem(area, areas, index) {
   downBtn.setAttribute("aria-label", "Nach unten");
   downBtn.disabled = index === areas.length - 1;
   downBtn.addEventListener("click", async () => {
-    await swapAreaOrder(area, areas[index + 1]);
-    renderAreaManageList();
+    await withErrorToast(async () => {
+      await swapAreaOrder(area, areas[index + 1]);
+      renderAreaManageList();
+    });
   });
 
   const deleteBtn = document.createElement("button");
@@ -1008,8 +1069,10 @@ function buildAreaManageItem(area, areas, index) {
   deleteBtn.setAttribute("aria-label", "Bereich löschen");
   deleteBtn.addEventListener("click", async () => {
     if (!confirm(`Bereich „${area.name}" löschen? Zugeordnete Projekte werden mitgelöscht.`)) return;
-    await deleteArea(area.id);
-    renderAreaManageList();
+    await withErrorToast(async () => {
+      await deleteArea(area.id);
+      renderAreaManageList();
+    });
   });
 
   controls.append(upBtn, downBtn, deleteBtn);

@@ -17,6 +17,30 @@ body {
   padding-bottom: calc(var(--space-7) + 72px + env(safe-area-inset-bottom));
 }
 
+/* Toast */
+
+#toast {
+  position: fixed;
+  left: 50%;
+  top: calc(var(--space-4) + env(safe-area-inset-top));
+  transform: translateX(-50%);
+  z-index: 200;
+  max-width: calc(100% - var(--space-6));
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-md);
+  background: var(--color-text);
+  color: var(--color-bg);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  box-shadow: var(--shadow-md);
+  text-align: center;
+}
+
+#toast.toast-error {
+  background: var(--color-danger);
+  color: #ffffff;
+}
+
 /* Nav */
 
 .app-nav {
