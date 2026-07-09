@@ -34,6 +34,11 @@ const overviewState = {
   movingNodeId: null, // Projekt-ID, für die gerade das Verschieben-Panel offen ist, oder null
 };
 
+// Räumt ein offenes Detail-Modal vollständig auf (DOM, Scroll-Sperre, Escape-Listener).
+// Wird von openTaskDetail() gesetzt und von renderShell() aufgerufen, falls beim
+// Ansichtswechsel noch ein Modal offen ist — sonst bliebe der Escape-Listener für immer hängen.
+let closeActiveModal = null;
+
 const planState = {
   areas: [],
   pool: [],
@@ -189,8 +194,7 @@ function renderShell() {
   const route = currentRoute();
   // Offenes Detail-Modal schließen — es liegt außerhalb von #app und würde sonst
   // beim Ansichtswechsel über der neuen Ansicht hängen bleiben.
-  const modalRoot = document.getElementById("modal-root");
-  if (modalRoot) modalRoot.innerHTML = "";
+  if (closeActiveModal) closeActiveModal();
   app.innerHTML = `
     <nav class="app-nav">
       <a href="#/today" class="nav-link${route === "today" ? " is-active" : ""}">Heute</a>
@@ -994,12 +998,26 @@ function openTaskDetail(task) {
       `<option value="">Kein Projekt</option>` + projectOptionsHtml(overviewState.projects, areaSel.value || null, null);
   });
 
+  document.body.style.overflow = "hidden";
+  const onKeydown = (e) => {
+    if (e.key === "Escape") close();
+  };
+  document.addEventListener("keydown", onKeydown);
+
   const close = () => {
     root.innerHTML = "";
+    document.body.style.overflow = "";
+    document.removeEventListener("keydown", onKeydown);
+    closeActiveModal = null;
   };
+  closeActiveModal = close;
   document.getElementById("modal-backdrop").addEventListener("click", (e) => {
     if (e.target.id === "modal-backdrop") close();
   });
+
+  const titleInput = document.getElementById("td-title");
+  titleInput.focus();
+  titleInput.select();
   document.getElementById("td-cancel").addEventListener("click", close);
   document.getElementById("td-save").addEventListener("click", async () => {
     const areaId = areaSel.value || null;
