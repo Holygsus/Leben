@@ -21,6 +21,8 @@ const overviewState = {
   showDone: false,
   collapsedAreas: new Set(),
   collapsedNodes: new Set(),
+  addFormTarget: null, // { areaId, parentProjectId } | null — nur ein offenes Anlegen-Formular gleichzeitig
+  renamingId: null, // Projekt-ID, die gerade inline umbenannt wird, oder null
 };
 
 const planState = {
@@ -345,6 +347,8 @@ async function renderOverviewView() {
   // Frisch gerenderte Dropdowns/Checkbox stehen auf "Alle"/aus — Filterzustand dazu passend zurücksetzen.
   overviewState.filters = { effort: "", status: "" };
   overviewState.showDone = false;
+  overviewState.addFormTarget = null;
+  overviewState.renamingId = null;
 
   await loadOverviewData();
   renderMarkedProjects();
@@ -454,7 +458,11 @@ function buildAreaSection(area) {
   const section = document.createElement("section");
   section.className = "area-section";
   section.id = "area-sec-" + area.id;
-  const collapsed = overviewState.collapsedAreas.has(area.id);
+  const isAddingHere =
+    overviewState.addFormTarget &&
+    overviewState.addFormTarget.areaId === area.id &&
+    overviewState.addFormTarget.parentProjectId === null;
+  const collapsed = overviewState.collapsedAreas.has(area.id) && !isAddingHere;
 
   const header = document.createElement("div");
   header.className = "area-section-header";
@@ -485,7 +493,8 @@ function buildAreaSection(area) {
   addBtn.setAttribute("aria-label", "Ordner oder Projekt hinzufügen");
   addBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    addFolder(area.id, null);
+    overviewState.addFormTarget = isAddingHere ? null : { areaId: area.id, parentProjectId: null };
+    renderAreaTree();
   });
 
   const toggleFn = () => {
@@ -503,6 +512,8 @@ function buildAreaSection(area) {
     const body = document.createElement("div");
     body.className = "area-section-body";
 
+    if (isAddingHere) body.appendChild(buildInlineAddForm(area.id, null));
+
     const loose = overviewState.tasks.filter((t) => t.area_id === area.id && !t.project_id && taskPassesFilter(t));
     if (loose.length) {
       const sub = document.createElement("div");
@@ -518,7 +529,7 @@ function buildAreaSection(area) {
     const tree = buildProjectTree(overviewState.projects, area.id);
     tree.forEach((node) => body.appendChild(buildProjectNodeEl(node, area)));
 
-    if (!loose.length && tree.length === 0) {
+    if (!isAddingHere && !loose.length && tree.length === 0) {
       const empty = document.createElement("p");
       empty.className = "empty-state";
       empty.textContent = "Noch nichts in diesem Bereich.";
@@ -533,7 +544,9 @@ function buildAreaSection(area) {
 function buildProjectNodeEl(node, area) {
   const wrap = document.createElement("div");
   wrap.className = "tree-node";
-  const collapsed = overviewState.collapsedNodes.has(node.id);
+  const isAddingHere =
+    overviewState.addFormTarget && overviewState.addFormTarget.parentProjectId === node.id;
+  const collapsed = overviewState.collapsedNodes.has(node.id) && !isAddingHere;
 
   const header = document.createElement("div");
   header.className = "tree-node-header";
@@ -543,37 +556,34 @@ function buildProjectNodeEl(node, area) {
   toggle.className = "tree-toggle";
   toggle.textContent = collapsed ? "▸" : "▾";
   toggle.addEventListener("click", () => {
-    if (collapsed) overviewState.collapsedNodes.delete(node.id);
+    if (overviewState.collapsedNodes.has(node.id)) overviewState.collapsedNodes.delete(node.id);
     else overviewState.collapsedNodes.add(node.id);
     renderAreaTree();
   });
 
-  const name = document.createElement("span");
-  name.className = "tree-node-name";
-  name.textContent = (node.is_project ? "📌 " : "📁 ") + node.name;
+  header.append(toggle, buildNodeNameEl(node));
 
   const menuBtn = document.createElement("button");
   menuBtn.type = "button";
   menuBtn.className = "icon-btn tree-node-menu";
   menuBtn.textContent = "⋯";
   menuBtn.setAttribute("aria-label", "Aktionen");
-
-  header.append(toggle, name, menuBtn);
+  header.appendChild(menuBtn);
   wrap.appendChild(header);
 
   const actions = document.createElement("div");
   actions.className = "tree-node-actions";
   actions.hidden = true;
   actions.append(
-    actionButton("Umbenennen", async () => {
-      const nn = prompt("Neuer Name", node.name);
-      if (!nn || !nn.trim()) return;
-      await withErrorToast(async () => {
-        await updateProject(node.id, { name: nn.trim() });
-        reloadOverview();
-      });
+    actionButton("Umbenennen", () => {
+      overviewState.renamingId = node.id;
+      renderAreaTree();
     }),
-    actionButton("Unterordner", () => addFolder(area.id, node.id)),
+    actionButton("Unterordner", () => {
+      overviewState.addFormTarget = { areaId: area.id, parentProjectId: node.id };
+      overviewState.collapsedNodes.delete(node.id);
+      renderAreaTree();
+    }),
     actionButton(node.is_project ? "Projekt-Markierung entfernen" : "Als Projekt markieren", async () => {
       await withErrorToast(async () => {
         await updateProject(node.id, { is_project: !node.is_project });
@@ -601,6 +611,8 @@ function buildProjectNodeEl(node, area) {
     const body = document.createElement("div");
     body.className = "tree-node-body";
 
+    if (isAddingHere) body.appendChild(buildInlineAddForm(area.id, node.id));
+
     const nodeTasks = overviewState.tasks.filter((t) => t.project_id === node.id && taskPassesFilter(t));
     if (nodeTasks.length) {
       const ul = document.createElement("ul");
@@ -614,6 +626,50 @@ function buildProjectNodeEl(node, area) {
   return wrap;
 }
 
+// Zeigt den Knotennamen als Text — oder, während overviewState.renamingId === node.id,
+// als autofokussiertes Textfeld (Enter/Blur übernimmt, Escape bricht ab).
+function buildNodeNameEl(node) {
+  if (overviewState.renamingId === node.id) {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "input tree-node-rename-input";
+    input.value = node.name;
+    let settled = false;
+    const commit = async () => {
+      if (settled) return;
+      settled = true;
+      const value = input.value.trim();
+      overviewState.renamingId = null;
+      if (value && value !== node.name) {
+        await withErrorToast(async () => {
+          await updateProject(node.id, { name: value });
+          reloadOverview();
+        });
+      } else {
+        renderAreaTree();
+      }
+    };
+    input.addEventListener("blur", commit);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") input.blur();
+      if (e.key === "Escape") {
+        settled = true;
+        overviewState.renamingId = null;
+        renderAreaTree();
+      }
+    });
+    requestAnimationFrame(() => {
+      input.focus();
+      input.select();
+    });
+    return input;
+  }
+  const name = document.createElement("span");
+  name.className = "tree-node-name";
+  name.textContent = (node.is_project ? "📌 " : "📁 ") + node.name;
+  return name;
+}
+
 function actionButton(label, onClick, variant) {
   const b = document.createElement("button");
   b.type = "button";
@@ -623,18 +679,55 @@ function actionButton(label, onClick, variant) {
   return b;
 }
 
-async function addFolder(areaId, parentProjectId) {
-  const name = prompt(parentProjectId ? "Name des Unterordners" : "Name des Ordners / Projekts");
-  if (!name || !name.trim()) return;
-  const markProject = parentProjectId
-    ? false
-    : confirm("Als Projekt markieren?\nOK = Projekt, Abbrechen = normaler Ordner");
-  await withErrorToast(async () => {
-    await createProject({ areaId, parentProjectId, name: name.trim(), isProject: markProject });
-    overviewState.collapsedAreas.delete(areaId);
-    if (parentProjectId) overviewState.collapsedNodes.delete(parentProjectId);
-    reloadOverview();
+// Inline-Formular zum Anlegen eines Ordners/Projekts — ersetzt den früheren prompt()/confirm()-Flow.
+function buildInlineAddForm(areaId, parentProjectId) {
+  const form = document.createElement("form");
+  form.className = "inline-add-form";
+
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.className = "input";
+  nameInput.placeholder = "Name";
+  nameInput.autocomplete = "off";
+  nameInput.required = true;
+
+  const checkboxLabel = document.createElement("label");
+  checkboxLabel.className = "checkbox-label";
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkboxLabel.append(checkbox, document.createTextNode("Als Projekt markieren"));
+
+  const submitBtn = document.createElement("button");
+  submitBtn.type = "submit";
+  submitBtn.className = "btn";
+  submitBtn.textContent = "Anlegen";
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "btn btn-secondary";
+  cancelBtn.textContent = "Abbrechen";
+  cancelBtn.addEventListener("click", () => {
+    overviewState.addFormTarget = null;
+    renderAreaTree();
   });
+
+  form.append(nameInput, checkboxLabel, submitBtn, cancelBtn);
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = nameInput.value.trim();
+    if (!name) return;
+    await withErrorToast(async () => {
+      await createProject({ areaId, parentProjectId, name, isProject: checkbox.checked });
+      overviewState.addFormTarget = null;
+      overviewState.collapsedAreas.delete(areaId);
+      if (parentProjectId) overviewState.collapsedNodes.delete(parentProjectId);
+      reloadOverview();
+    });
+  });
+
+  requestAnimationFrame(() => nameInput.focus());
+  return form;
 }
 
 function buildOverviewTaskRow(task) {
