@@ -18,6 +18,7 @@ const overviewState = {
   projects: [],
   tasks: [],
   filters: { effort: "", status: "" },
+  showDone: false,
   collapsedAreas: new Set(),
   collapsedNodes: new Set(),
 };
@@ -340,8 +341,9 @@ async function renderOverviewView() {
   const res = await fetch("views/overview.html");
   container.innerHTML = await res.text();
 
-  // Frisch gerenderte Dropdowns stehen auf "Alle" — Filterzustand dazu passend zurücksetzen.
+  // Frisch gerenderte Dropdowns/Checkbox stehen auf "Alle"/aus — Filterzustand dazu passend zurücksetzen.
   overviewState.filters = { effort: "", status: "" };
+  overviewState.showDone = false;
 
   await loadOverviewData();
   renderMarkedProjects();
@@ -368,6 +370,8 @@ async function reloadOverview() {
 
 function taskPassesFilter(task) {
   const { effort, status } = overviewState.filters;
+  // Erledigte standardmäßig ausblenden, außer die Checkbox ist an oder explizit nach "Erledigt" gefiltert wird.
+  if (!status && !overviewState.showDone && task.status === "done") return false;
   if (effort && String(task.effort) !== effort) return false;
   if (status && task.status !== status) return false;
   return true;
@@ -376,6 +380,7 @@ function taskPassesFilter(task) {
 function wireOverviewFilters() {
   const effortSelect = document.getElementById("filter-effort");
   const statusSelect = document.getElementById("filter-status");
+  const showDoneCheckbox = document.getElementById("filter-show-done");
   effortSelect.addEventListener("change", () => {
     overviewState.filters.effort = effortSelect.value;
     renderAreaTree();
@@ -383,6 +388,11 @@ function wireOverviewFilters() {
   });
   statusSelect.addEventListener("change", () => {
     overviewState.filters.status = statusSelect.value;
+    renderAreaTree();
+    renderNoAreaSection();
+  });
+  showDoneCheckbox.addEventListener("change", () => {
+    overviewState.showDone = showDoneCheckbox.checked;
     renderAreaTree();
     renderNoAreaSection();
   });
@@ -701,9 +711,11 @@ function renderNoAreaSection() {
 function populateNewTaskAreaOptions() {
   const areaSelect = document.getElementById("new-task-area");
   if (!areaSelect) return;
+  const previous = areaSelect.value;
   areaSelect.innerHTML =
     `<option value="">Bereich wählen</option>` +
     overviewState.areas.map((a) => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join("");
+  if (previous && overviewState.areas.some((a) => a.id === previous)) areaSelect.value = previous;
   refreshNewTaskProjectOptions();
 }
 
