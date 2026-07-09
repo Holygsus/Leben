@@ -1,7 +1,15 @@
 import { getSession, onAuthStateChange, signInWithMagicLink, ensureAreasSeeded } from "./auth.js";
 import { listTasks, updateTask, createTask, deleteTask } from "./tasks.js";
 import { listAreas, createArea, updateArea, deleteArea, swapAreaOrder } from "./areas.js";
-import { listProjects, createProject, updateProject, deleteProject, buildProjectTree } from "./projects.js";
+import {
+  listProjects,
+  createProject,
+  updateProject,
+  deleteProject,
+  buildProjectTree,
+  collectDescendantIds,
+  countTasksRecursive,
+} from "./projects.js";
 import { suggestTasksForPlan, formatTasksForExport, savePlanForDate } from "./planner.js";
 
 const app = document.getElementById("app");
@@ -23,6 +31,7 @@ const overviewState = {
   collapsedNodes: new Set(),
   addFormTarget: null, // { areaId, parentProjectId } | null — nur ein offenes Anlegen-Formular gleichzeitig
   renamingId: null, // Projekt-ID, die gerade inline umbenannt wird, oder null
+  movingNodeId: null, // Projekt-ID, für die gerade das Verschieben-Panel offen ist, oder null
 };
 
 const planState = {
@@ -95,9 +104,12 @@ function escapeHtml(s) {
 }
 
 // Baut eingerückte <option>-Elemente für den Projektbaum eines Bereichs.
-function projectOptionsHtml(projects, areaId, selectedId) {
+// excludeIds lässt sich nutzen, um beim Verschieben einen Knoten und seine eigenen
+// Nachfahren aus der Zielauswahl auszuschließen (Zyklus-Schutz).
+function projectOptionsHtml(projects, areaId, selectedId, excludeIds = null) {
   if (!areaId) return "";
-  const tree = buildProjectTree(projects, areaId);
+  const scoped = excludeIds ? projects.filter((p) => !excludeIds.has(p.id)) : projects;
+  const tree = buildProjectTree(scoped, areaId);
   const out = [];
   const walk = (nodes, depth) => {
     for (const n of nodes) {
@@ -349,6 +361,7 @@ async function renderOverviewView() {
   overviewState.showDone = false;
   overviewState.addFormTarget = null;
   overviewState.renamingId = null;
+  overviewState.movingNodeId = null;
 
   await loadOverviewData();
   renderMarkedProjects();
@@ -418,7 +431,7 @@ function renderMarkedProjects() {
   list.innerHTML = "";
 
   for (const p of marked) {
-    const count = overviewState.tasks.filter((t) => t.project_id === p.id).length;
+    const count = countTasksRecursive(p.id, overviewState.tasks, overviewState.projects);
     const li = document.createElement("li");
     li.className = "project-item project-item-clickable";
 
@@ -546,7 +559,8 @@ function buildProjectNodeEl(node, area) {
   wrap.className = "tree-node";
   const isAddingHere =
     overviewState.addFormTarget && overviewState.addFormTarget.parentProjectId === node.id;
-  const collapsed = overviewState.collapsedNodes.has(node.id) && !isAddingHere;
+  const isMovingHere = overviewState.movingNodeId === node.id;
+  const collapsed = overviewState.collapsedNodes.has(node.id) && !isAddingHere && !isMovingHere;
 
   const header = document.createElement("div");
   header.className = "tree-node-header";
@@ -561,7 +575,11 @@ function buildProjectNodeEl(node, area) {
     renderAreaTree();
   });
 
-  header.append(toggle, buildNodeNameEl(node));
+  const nodeCount = document.createElement("span");
+  nodeCount.className = "count";
+  nodeCount.textContent = String(countTasksRecursive(node.id, overviewState.tasks, overviewState.projects));
+
+  header.append(toggle, buildNodeNameEl(node), nodeCount);
 
   const menuBtn = document.createElement("button");
   menuBtn.type = "button";
@@ -581,6 +599,11 @@ function buildProjectNodeEl(node, area) {
     }),
     actionButton("Unterordner", () => {
       overviewState.addFormTarget = { areaId: area.id, parentProjectId: node.id };
+      overviewState.collapsedNodes.delete(node.id);
+      renderAreaTree();
+    }),
+    actionButton("Verschieben", () => {
+      overviewState.movingNodeId = node.id;
       overviewState.collapsedNodes.delete(node.id);
       renderAreaTree();
     }),
@@ -612,6 +635,7 @@ function buildProjectNodeEl(node, area) {
     body.className = "tree-node-body";
 
     if (isAddingHere) body.appendChild(buildInlineAddForm(area.id, node.id));
+    if (isMovingHere) body.appendChild(buildMovePanel(node));
 
     const nodeTasks = overviewState.tasks.filter((t) => t.project_id === node.id && taskPassesFilter(t));
     if (nodeTasks.length) {
@@ -727,6 +751,67 @@ function buildInlineAddForm(areaId, parentProjectId) {
   });
 
   requestAnimationFrame(() => nameInput.focus());
+  return form;
+}
+
+// Inline-Panel zum Verschieben eines Ordners/Projekts in einen anderen Bereich/übergeordneten
+// Ordner. Schließt den Knoten selbst und alle seine Nachfahren aus der Zielauswahl aus, damit
+// kein Zyklus entstehen kann (ein Ordner kann nicht in sich selbst verschoben werden).
+function buildMovePanel(node) {
+  const excludeIds = collectDescendantIds(overviewState.projects, node.id);
+  excludeIds.add(node.id);
+
+  const form = document.createElement("form");
+  form.className = "inline-add-form";
+
+  const areaSelect = document.createElement("select");
+  areaSelect.className = "select";
+  areaSelect.setAttribute("aria-label", "Ziel-Bereich");
+  areaSelect.innerHTML = overviewState.areas
+    .map((a) => `<option value="${a.id}"${a.id === node.area_id ? " selected" : ""}>${escapeHtml(a.name)}</option>`)
+    .join("");
+
+  const parentSelect = document.createElement("select");
+  parentSelect.className = "select";
+  parentSelect.setAttribute("aria-label", "Ziel-Ordner");
+
+  const refreshParentOptions = () => {
+    parentSelect.innerHTML =
+      `<option value="">Kein übergeordneter Ordner</option>` +
+      projectOptionsHtml(overviewState.projects, areaSelect.value, null, excludeIds);
+  };
+  refreshParentOptions();
+  areaSelect.addEventListener("change", refreshParentOptions);
+
+  const submitBtn = document.createElement("button");
+  submitBtn.type = "submit";
+  submitBtn.className = "btn";
+  submitBtn.textContent = "Verschieben";
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "btn btn-secondary";
+  cancelBtn.textContent = "Abbrechen";
+  cancelBtn.addEventListener("click", () => {
+    overviewState.movingNodeId = null;
+    renderAreaTree();
+  });
+
+  form.append(areaSelect, parentSelect, submitBtn, cancelBtn);
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const newAreaId = areaSelect.value;
+    const newParentId = parentSelect.value || null;
+    await withErrorToast(async () => {
+      await updateProject(node.id, { area_id: newAreaId, parent_project_id: newParentId });
+      overviewState.movingNodeId = null;
+      overviewState.collapsedAreas.delete(newAreaId);
+      if (newParentId) overviewState.collapsedNodes.delete(newParentId);
+      reloadOverview();
+    });
+  });
+
   return form;
 }
 
