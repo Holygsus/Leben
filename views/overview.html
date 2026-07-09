@@ -2,9 +2,9 @@
   <h1>Übersicht</h1>
 </section>
 
-<section class="panel" id="marked-projects-panel" hidden>
-  <h2>Projekte</h2>
-  <ul class="project-list" id="marked-project-list"></ul>
+<section class="panel" id="pinned-tasks-panel" hidden>
+  <h2>Angeheftet</h2>
+  <ul class="project-list" id="pinned-task-list"></ul>
 </section>
 
 <section class="filter-bar">
@@ -41,8 +41,8 @@
     <select id="new-task-area" class="select" aria-label="Bereich">
       <option value="">Bereich wählen</option>
     </select>
-    <select id="new-task-project" class="select" aria-label="Projekt / Ordner">
-      <option value="">Kein Projekt</option>
+    <select id="new-task-parent" class="select" aria-label="Übergeordnete Aufgabe">
+      <option value="">Keine übergeordnete Aufgabe</option>
     </select>
     <select id="new-task-effort" class="select" aria-label="Aufwand">
       <option value="">Aufwand</option>
@@ -51,6 +51,11 @@
       <option value="30">30 Min</option>
       <option value="60">60 Min</option>
     </select>
+    <div class="date-chips" id="new-task-date-chips" role="group" aria-label="Datum">
+      <button type="button" class="date-chip" data-date="today">Heute</button>
+      <button type="button" class="date-chip" data-date="tomorrow">Morgen</button>
+      <button type="button" class="date-chip" data-date="" data-active="true">Kein Datum</button>
+    </div>
     <button class="btn" type="submit">Anlegen</button>
   </form>
 </section>

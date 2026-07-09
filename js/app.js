@@ -1,16 +1,18 @@
 import { getSession, onAuthStateChange, signInWithMagicLink, ensureAreasSeeded } from "./auth.js";
-import { listTasks, updateTask, createTask, deleteTask } from "./tasks.js";
-import { listAreas, createArea, updateArea, deleteArea, swapAreaOrder } from "./areas.js";
 import {
-  listProjects,
-  createProject,
-  updateProject,
-  deleteProject,
-  buildProjectTree,
+  listTasks,
+  updateTask,
+  createTask,
+  deleteTask,
+  buildTaskTree,
   collectDescendantIds,
-  countTasksRecursive,
-} from "./projects.js";
+  countDescendantsRecursive,
+  completeTaskCascade,
+  reopenTaskCascade,
+} from "./tasks.js";
+import { listAreas, createArea, updateArea, deleteArea, swapAreaOrder } from "./areas.js";
 import { suggestTasksForPlan, formatTasksForExport, savePlanForDate } from "./planner.js";
+import { runProjectMigration } from "./migrate-projects.js"; // TEMPORÄR — nach der Datenmigration wieder entfernen
 
 const app = document.getElementById("app");
 
@@ -23,15 +25,14 @@ const routes = {
 
 const overviewState = {
   areas: [],
-  projects: [],
   tasks: [],
   filters: { effort: "", status: "" },
   showDone: false,
   collapsedAreas: new Set(),
   collapsedNodes: new Set(),
-  addFormTarget: null, // { areaId, parentProjectId } | null — nur ein offenes Anlegen-Formular gleichzeitig
-  renamingId: null, // Projekt-ID, die gerade inline umbenannt wird, oder null
-  movingNodeId: null, // Projekt-ID, für die gerade das Verschieben-Panel offen ist, oder null
+  addFormTarget: null, // { areaId, parentTaskId } | null — nur ein offenes Anlegen-Formular gleichzeitig
+  renamingId: null, // Aufgaben-ID, die gerade inline umbenannt wird, oder null
+  movingNodeId: null, // Aufgaben-ID, für die gerade das Verschieben-Panel offen ist, oder null
 };
 
 // Räumt ein offenes Detail-Modal vollständig auf (DOM, Scroll-Sperre, Escape-Listener).
@@ -108,20 +109,20 @@ function escapeHtml(s) {
   }[c]));
 }
 
-// Baut eingerückte <option>-Elemente für den Projektbaum eines Bereichs.
-// excludeIds lässt sich nutzen, um beim Verschieben einen Knoten und seine eigenen
-// Nachfahren aus der Zielauswahl auszuschließen (Zyklus-Schutz).
-function projectOptionsHtml(projects, areaId, selectedId, excludeIds = null) {
+// Baut eingerückte <option>-Elemente für den Aufgabenbaum eines Bereichs (fuer "Uebergeordnete
+// Aufgabe"-Auswahlen). excludeIds laesst sich nutzen, um beim Verschieben/Zuordnen eine Aufgabe
+// und ihre eigenen Nachfahren aus der Zielauswahl auszuschliessen (Zyklus-Schutz).
+function taskOptionsHtml(tasks, areaId, selectedId, excludeIds = null) {
   if (!areaId) return "";
-  const scoped = excludeIds ? projects.filter((p) => !excludeIds.has(p.id)) : projects;
-  const tree = buildProjectTree(scoped, areaId);
+  const scoped = tasks.filter((t) => t.area_id === areaId && (!excludeIds || !excludeIds.has(t.id)));
+  const tree = buildTaskTree(scoped, null);
   const out = [];
   const walk = (nodes, depth) => {
     for (const n of nodes) {
       const prefix = "  ".repeat(depth);
-      const badge = n.is_project ? "📌 " : "";
+      const badge = n.is_pinned ? "📌 " : "";
       out.push(
-        `<option value="${n.id}"${n.id === selectedId ? " selected" : ""}>${prefix}${badge}${escapeHtml(n.name)}</option>`
+        `<option value="${n.id}"${n.id === selectedId ? " selected" : ""}>${prefix}${badge}${escapeHtml(n.title)}</option>`
       );
       walk(n.children, depth + 1);
     }
@@ -340,6 +341,8 @@ function wireQuickCapture(areas, onAdded) {
         areaId,
         effort: selectedEffort,
         isBrainstorm: !areaId,
+        plannedDate: todayISO(),
+        status: "planned",
       });
       const areaName = areaId ? areas.find((a) => a.id === areaId)?.name : null;
       showToast(areaName ? `„${title}" zu ${areaName} hinzugefügt.` : `„${title}" hinzugefügt.`);
@@ -368,7 +371,7 @@ async function renderOverviewView() {
   overviewState.movingNodeId = null;
 
   await loadOverviewData();
-  renderMarkedProjects();
+  renderPinnedTasks();
   renderAreaTree();
   renderNoAreaSection();
   wireOverviewFilters();
@@ -376,15 +379,14 @@ async function renderOverviewView() {
 }
 
 async function loadOverviewData() {
-  const [areas, projects, tasks] = await Promise.all([listAreas(), listProjects(), listTasks()]);
+  const [areas, tasks] = await Promise.all([listAreas(), listTasks()]);
   overviewState.areas = areas;
-  overviewState.projects = projects;
   overviewState.tasks = tasks;
 }
 
 async function reloadOverview() {
   await loadOverviewData();
-  renderMarkedProjects();
+  renderPinnedTasks();
   renderAreaTree();
   renderNoAreaSection();
   populateNewTaskAreaOptions();
@@ -420,13 +422,13 @@ function wireOverviewFilters() {
   });
 }
 
-// ----- Markierte Projekte (schnell auffindbar) -----
+// ----- Angeheftete Aufgaben (schnell auffindbar) -----
 
-function renderMarkedProjects() {
-  const panel = document.getElementById("marked-projects-panel");
-  const list = document.getElementById("marked-project-list");
-  const marked = overviewState.projects.filter((p) => p.is_project);
-  if (marked.length === 0) {
+function renderPinnedTasks() {
+  const panel = document.getElementById("pinned-tasks-panel");
+  const list = document.getElementById("pinned-task-list");
+  const pinned = overviewState.tasks.filter((t) => t.is_pinned);
+  if (pinned.length === 0) {
     panel.hidden = true;
     return;
   }
@@ -434,23 +436,23 @@ function renderMarkedProjects() {
   const areaName = Object.fromEntries(overviewState.areas.map((a) => [a.id, a.name]));
   list.innerHTML = "";
 
-  for (const p of marked) {
-    const count = countTasksRecursive(p.id, overviewState.tasks, overviewState.projects);
+  for (const t of pinned) {
+    const count = countDescendantsRecursive(t.id, overviewState.tasks);
     const li = document.createElement("li");
     li.className = "project-item project-item-clickable";
 
     const name = document.createElement("span");
-    name.textContent = "📌 " + p.name;
+    name.textContent = "📌 " + t.title;
 
     const meta = document.createElement("span");
     meta.className = "count";
-    meta.textContent = `${areaName[p.area_id] || ""} · ${count}`;
+    meta.textContent = `${areaName[t.area_id] || ""} · ${count}`;
 
     li.append(name, meta);
     li.addEventListener("click", () => {
-      overviewState.collapsedAreas.delete(p.area_id);
+      overviewState.collapsedAreas.delete(t.area_id);
       renderAreaTree();
-      const el = document.getElementById("area-sec-" + p.area_id);
+      const el = document.getElementById("area-sec-" + t.area_id);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     });
     list.appendChild(li);
@@ -478,7 +480,7 @@ function buildAreaSection(area) {
   const isAddingHere =
     overviewState.addFormTarget &&
     overviewState.addFormTarget.areaId === area.id &&
-    overviewState.addFormTarget.parentProjectId === null;
+    overviewState.addFormTarget.parentTaskId === null;
   const collapsed = overviewState.collapsedAreas.has(area.id) && !isAddingHere;
 
   const header = document.createElement("div");
@@ -507,10 +509,10 @@ function buildAreaSection(area) {
   addBtn.type = "button";
   addBtn.className = "icon-btn";
   addBtn.textContent = "+";
-  addBtn.setAttribute("aria-label", "Ordner oder Projekt hinzufügen");
+  addBtn.setAttribute("aria-label", "Aufgabe hinzufuegen");
   addBtn.addEventListener("click", (e) => {
     e.stopPropagation();
-    overviewState.addFormTarget = isAddingHere ? null : { areaId: area.id, parentProjectId: null };
+    overviewState.addFormTarget = isAddingHere ? null : { areaId: area.id, parentTaskId: null };
     renderAreaTree();
   });
 
@@ -531,22 +533,11 @@ function buildAreaSection(area) {
 
     if (isAddingHere) body.appendChild(buildInlineAddForm(area.id, null));
 
-    const loose = overviewState.tasks.filter((t) => t.area_id === area.id && !t.project_id && taskPassesFilter(t));
-    if (loose.length) {
-      const sub = document.createElement("div");
-      sub.className = "tree-subheading";
-      sub.textContent = "Kleine Aufgaben";
-      body.appendChild(sub);
-      const ul = document.createElement("ul");
-      ul.className = "task-list tree-task-list";
-      loose.forEach((t) => ul.appendChild(buildOverviewTaskRow(t)));
-      body.appendChild(ul);
-    }
+    const areaTasks = overviewState.tasks.filter((t) => t.area_id === area.id && taskPassesFilter(t));
+    const tree = buildTaskTree(areaTasks, null);
+    tree.forEach((node) => body.appendChild(buildTaskNodeEl(node, area, 0)));
 
-    const tree = buildProjectTree(overviewState.projects, area.id);
-    tree.forEach((node) => body.appendChild(buildProjectNodeEl(node, area)));
-
-    if (!isAddingHere && !loose.length && tree.length === 0) {
+    if (!isAddingHere && tree.length === 0) {
       const empty = document.createElement("p");
       empty.className = "empty-state";
       empty.textContent = "Noch nichts in diesem Bereich.";
@@ -558,11 +549,10 @@ function buildAreaSection(area) {
   return section;
 }
 
-function buildProjectNodeEl(node, area) {
+function buildTaskNodeEl(node, area, depth) {
   const wrap = document.createElement("div");
   wrap.className = "tree-node";
-  const isAddingHere =
-    overviewState.addFormTarget && overviewState.addFormTarget.parentProjectId === node.id;
+  const isAddingHere = overviewState.addFormTarget && overviewState.addFormTarget.parentTaskId === node.id;
   const isMovingHere = overviewState.movingNodeId === node.id;
   const collapsed = overviewState.collapsedNodes.has(node.id) && !isAddingHere && !isMovingHere;
 
@@ -572,18 +562,44 @@ function buildProjectNodeEl(node, area) {
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "tree-toggle";
-  toggle.textContent = collapsed ? "▸" : "▾";
-  toggle.addEventListener("click", () => {
-    if (overviewState.collapsedNodes.has(node.id)) overviewState.collapsedNodes.delete(node.id);
-    else overviewState.collapsedNodes.add(node.id);
-    renderAreaTree();
+  if (node.children.length > 0) {
+    toggle.textContent = collapsed ? "▸" : "▾";
+    toggle.addEventListener("click", () => {
+      if (overviewState.collapsedNodes.has(node.id)) overviewState.collapsedNodes.delete(node.id);
+      else overviewState.collapsedNodes.add(node.id);
+      renderAreaTree();
+    });
+  } else {
+    toggle.disabled = true;
+    toggle.setAttribute("aria-hidden", "true");
+  }
+
+  const checkbox = document.createElement("button");
+  checkbox.type = "button";
+  checkbox.className = "task-checkbox";
+  checkbox.dataset.checked = String(node.status === "done");
+  checkbox.setAttribute("aria-pressed", String(node.status === "done"));
+  checkbox.setAttribute("aria-label", node.title);
+  checkbox.textContent = node.status === "done" ? "✓" : "";
+  checkbox.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    await withErrorToast(async () => {
+      if (node.status === "done") await reopenTaskCascade(node, overviewState.tasks);
+      else await completeTaskCascade(node, overviewState.tasks);
+      reloadOverview();
+    });
   });
 
+  const descendantCount = countDescendantsRecursive(node.id, overviewState.tasks);
   const nodeCount = document.createElement("span");
   nodeCount.className = "count";
-  nodeCount.textContent = String(countTasksRecursive(node.id, overviewState.tasks, overviewState.projects));
+  if (descendantCount > 0) {
+    nodeCount.textContent = `${descendantCount} Unteraufgabe${descendantCount === 1 ? "" : "n"}`;
+  } else {
+    nodeCount.hidden = true;
+  }
 
-  header.append(toggle, buildNodeNameEl(node), nodeCount);
+  header.append(toggle, checkbox, buildTaskNameEl(node), nodeCount);
 
   const menuBtn = document.createElement("button");
   menuBtn.type = "button";
@@ -601,8 +617,8 @@ function buildProjectNodeEl(node, area) {
       overviewState.renamingId = node.id;
       renderAreaTree();
     }),
-    actionButton("Unterordner", () => {
-      overviewState.addFormTarget = { areaId: area.id, parentProjectId: node.id };
+    actionButton("Unteraufgabe hinzufügen", () => {
+      overviewState.addFormTarget = { areaId: area.id, parentTaskId: node.id };
       overviewState.collapsedNodes.delete(node.id);
       renderAreaTree();
     }),
@@ -611,18 +627,23 @@ function buildProjectNodeEl(node, area) {
       overviewState.collapsedNodes.delete(node.id);
       renderAreaTree();
     }),
-    actionButton(node.is_project ? "Projekt-Markierung entfernen" : "Als Projekt markieren", async () => {
+    actionButton(node.is_pinned ? "Anheften entfernen" : "Anheften", async () => {
       await withErrorToast(async () => {
-        await updateProject(node.id, { is_project: !node.is_project });
+        await updateTask(node.id, { is_pinned: !node.is_pinned });
         reloadOverview();
       });
     }),
     actionButton(
       "Löschen",
       async () => {
-        if (!confirm(`„${node.name}" löschen? Unterordner werden mitgelöscht, Aufgaben bleiben als Kleine Aufgaben erhalten.`)) return;
+        const count = collectDescendantIds(overviewState.tasks, node.id).size;
+        const message =
+          count > 0
+            ? `„${node.title}" und ${count} Unteraufgabe(n) löschen?`
+            : `„${node.title}" löschen?`;
+        if (!confirm(message)) return;
         await withErrorToast(async () => {
-          await deleteProject(node.id);
+          await deleteTask(node.id);
           reloadOverview();
         });
       },
@@ -641,36 +662,29 @@ function buildProjectNodeEl(node, area) {
     if (isAddingHere) body.appendChild(buildInlineAddForm(area.id, node.id));
     if (isMovingHere) body.appendChild(buildMovePanel(node));
 
-    const nodeTasks = overviewState.tasks.filter((t) => t.project_id === node.id && taskPassesFilter(t));
-    if (nodeTasks.length) {
-      const ul = document.createElement("ul");
-      ul.className = "task-list tree-task-list";
-      nodeTasks.forEach((t) => ul.appendChild(buildOverviewTaskRow(t)));
-      body.appendChild(ul);
-    }
-    node.children.forEach((child) => body.appendChild(buildProjectNodeEl(child, area)));
+    node.children.forEach((child) => body.appendChild(buildTaskNodeEl(child, area, depth + 1)));
     wrap.appendChild(body);
   }
   return wrap;
 }
 
-// Zeigt den Knotennamen als Text — oder, während overviewState.renamingId === node.id,
-// als autofokussiertes Textfeld (Enter/Blur übernimmt, Escape bricht ab).
-function buildNodeNameEl(node) {
+// Zeigt den Aufgabentitel als Text an. Ein Klick auf den Titel (ausserhalb des
+// Umbenennen-Modus) oeffnet die Aufgaben-Detailansicht.
+function buildTaskNameEl(node) {
   if (overviewState.renamingId === node.id) {
     const input = document.createElement("input");
     input.type = "text";
     input.className = "input tree-node-rename-input";
-    input.value = node.name;
+    input.value = node.title;
     let settled = false;
     const commit = async () => {
       if (settled) return;
       settled = true;
       const value = input.value.trim();
       overviewState.renamingId = null;
-      if (value && value !== node.name) {
+      if (value && value !== node.title) {
         await withErrorToast(async () => {
-          await updateProject(node.id, { name: value });
+          await updateTask(node.id, { title: value });
           reloadOverview();
         });
       } else {
@@ -693,8 +707,9 @@ function buildNodeNameEl(node) {
     return input;
   }
   const name = document.createElement("span");
-  name.className = "tree-node-name";
-  name.textContent = (node.is_project ? "📌 " : "📁 ") + node.name;
+  name.className = "tree-node-name task-title-btn";
+  name.textContent = (node.is_pinned ? "📌 " : "") + node.title;
+  name.addEventListener("click", () => openTaskDetail(node));
   return name;
 }
 
@@ -707,23 +722,20 @@ function actionButton(label, onClick, variant) {
   return b;
 }
 
-// Inline-Formular zum Anlegen eines Ordners/Projekts — ersetzt den früheren prompt()/confirm()-Flow.
-function buildInlineAddForm(areaId, parentProjectId) {
+// Inline-Formular zum Anlegen einer Aufgabe (optional als Unteraufgabe) — ersetzt den frueheren
+// prompt()/confirm()-Flow.
+function buildInlineAddForm(areaId, parentTaskId) {
   const form = document.createElement("form");
   form.className = "inline-add-form";
 
   const nameInput = document.createElement("input");
   nameInput.type = "text";
   nameInput.className = "input";
-  nameInput.placeholder = "Name";
+  nameInput.placeholder = "Titel";
   nameInput.autocomplete = "off";
   nameInput.required = true;
 
-  const checkboxLabel = document.createElement("label");
-  checkboxLabel.className = "checkbox-label";
-  const checkbox = document.createElement("input");
-  checkbox.type = "checkbox";
-  checkboxLabel.append(checkbox, document.createTextNode("Als Projekt markieren"));
+  const dateChips = createDateChipGroup();
 
   const submitBtn = document.createElement("button");
   submitBtn.type = "submit";
@@ -739,17 +751,18 @@ function buildInlineAddForm(areaId, parentProjectId) {
     renderAreaTree();
   });
 
-  form.append(nameInput, checkboxLabel, submitBtn, cancelBtn);
+  form.append(nameInput, dateChips.el, submitBtn, cancelBtn);
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const name = nameInput.value.trim();
-    if (!name) return;
+    const title = nameInput.value.trim();
+    if (!title) return;
+    const plannedDate = dateChips.getPlannedDate();
     await withErrorToast(async () => {
-      await createProject({ areaId, parentProjectId, name, isProject: checkbox.checked });
+      await createTask({ title, areaId, parentTaskId, plannedDate, status: plannedDate ? "planned" : "open" });
       overviewState.addFormTarget = null;
       overviewState.collapsedAreas.delete(areaId);
-      if (parentProjectId) overviewState.collapsedNodes.delete(parentProjectId);
+      if (parentTaskId) overviewState.collapsedNodes.delete(parentTaskId);
       reloadOverview();
     });
   });
@@ -758,11 +771,12 @@ function buildInlineAddForm(areaId, parentProjectId) {
   return form;
 }
 
-// Inline-Panel zum Verschieben eines Ordners/Projekts in einen anderen Bereich/übergeordneten
-// Ordner. Schließt den Knoten selbst und alle seine Nachfahren aus der Zielauswahl aus, damit
-// kein Zyklus entstehen kann (ein Ordner kann nicht in sich selbst verschoben werden).
+// Inline-Panel zum Verschieben einer Aufgabe in einen anderen Bereich/unter eine andere
+// uebergeordnete Aufgabe. Schliesst die Aufgabe selbst und alle ihre Nachfahren aus der
+// Zielauswahl aus, damit kein Zyklus entstehen kann (eine Aufgabe kann nicht unter sich
+// selbst verschoben werden).
 function buildMovePanel(node) {
-  const excludeIds = collectDescendantIds(overviewState.projects, node.id);
+  const excludeIds = collectDescendantIds(overviewState.tasks, node.id);
   excludeIds.add(node.id);
 
   const form = document.createElement("form");
@@ -777,12 +791,12 @@ function buildMovePanel(node) {
 
   const parentSelect = document.createElement("select");
   parentSelect.className = "select";
-  parentSelect.setAttribute("aria-label", "Ziel-Ordner");
+  parentSelect.setAttribute("aria-label", "Ziel-Aufgabe");
 
   const refreshParentOptions = () => {
     parentSelect.innerHTML =
-      `<option value="">Kein übergeordneter Ordner</option>` +
-      projectOptionsHtml(overviewState.projects, areaSelect.value, null, excludeIds);
+      `<option value="">Keine uebergeordnete Aufgabe</option>` +
+      taskOptionsHtml(overviewState.tasks, areaSelect.value, null, excludeIds);
   };
   refreshParentOptions();
   areaSelect.addEventListener("change", refreshParentOptions);
@@ -808,7 +822,7 @@ function buildMovePanel(node) {
     const newAreaId = areaSelect.value;
     const newParentId = parentSelect.value || null;
     await withErrorToast(async () => {
-      await updateProject(node.id, { area_id: newAreaId, parent_project_id: newParentId });
+      await updateTask(node.id, { area_id: newAreaId, parent_task_id: newParentId });
       overviewState.movingNodeId = null;
       overviewState.collapsedAreas.delete(newAreaId);
       if (newParentId) overviewState.collapsedNodes.delete(newParentId);
@@ -817,36 +831,6 @@ function buildMovePanel(node) {
   });
 
   return form;
-}
-
-function buildOverviewTaskRow(task) {
-  const li = document.createElement("li");
-  const isStale = isTaskStale(task);
-  li.className = "task-item" + (task.status === "done" ? " is-done" : "") + (isStale ? " is-stale" : "");
-
-  const checkbox = document.createElement("button");
-  checkbox.className = "task-checkbox";
-  checkbox.type = "button";
-  checkbox.dataset.checked = String(task.status === "done");
-  checkbox.setAttribute("aria-pressed", String(task.status === "done"));
-  checkbox.setAttribute("aria-label", task.title);
-  checkbox.textContent = task.status === "done" ? "✓" : "";
-  checkbox.addEventListener("click", async (e) => {
-    e.stopPropagation();
-    await withErrorToast(async () => {
-      await updateTask(task.id, { status: toggleTaskDoneStatus(task) });
-      reloadOverview();
-    });
-  });
-
-  const title = document.createElement("button");
-  title.type = "button";
-  title.className = "task-title task-title-btn";
-  title.textContent = task.title + (task.effort ? ` · ${task.effort}m` : "");
-  title.addEventListener("click", () => openTaskDetail(task));
-
-  li.append(checkbox, title);
-  return li;
 }
 
 // ----- Ohne Bereich (Brainstorm / lose Aufgaben) -----
@@ -899,44 +883,50 @@ function populateNewTaskAreaOptions() {
     `<option value="">Bereich wählen</option>` +
     overviewState.areas.map((a) => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join("");
   if (previous && overviewState.areas.some((a) => a.id === previous)) areaSelect.value = previous;
-  refreshNewTaskProjectOptions();
+  refreshNewTaskParentOptions();
 }
 
-function refreshNewTaskProjectOptions() {
+function refreshNewTaskParentOptions() {
   const areaSelect = document.getElementById("new-task-area");
-  const projectSelect = document.getElementById("new-task-project");
-  if (!areaSelect || !projectSelect) return;
-  projectSelect.innerHTML =
-    `<option value="">Kein Projekt</option>` + projectOptionsHtml(overviewState.projects, areaSelect.value || null, null);
+  const parentSelect = document.getElementById("new-task-parent");
+  if (!areaSelect || !parentSelect) return;
+  parentSelect.innerHTML =
+    `<option value="">Keine uebergeordnete Aufgabe</option>` +
+    taskOptionsHtml(overviewState.tasks, areaSelect.value || null, null);
 }
 
 function wireNewTaskForm() {
   const form = document.getElementById("new-task-form");
   const titleInput = document.getElementById("new-task-title");
   const areaSelect = document.getElementById("new-task-area");
-  const projectSelect = document.getElementById("new-task-project");
+  const parentSelect = document.getElementById("new-task-parent");
   const effortSelect = document.getElementById("new-task-effort");
+  const dateChips = wireDateChipGroup(document.getElementById("new-task-date-chips"));
 
   populateNewTaskAreaOptions();
-  areaSelect.addEventListener("change", refreshNewTaskProjectOptions);
+  areaSelect.addEventListener("change", refreshNewTaskParentOptions);
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const title = titleInput.value.trim();
     if (!title) return;
+    const plannedDate = dateChips.getPlannedDate();
     await withErrorToast(async () => {
       await createTask({
         title,
         areaId: areaSelect.value || null,
-        projectId: projectSelect.value || null,
+        parentTaskId: parentSelect.value || null,
         effort: effortSelect.value ? Number(effortSelect.value) : null,
         isBrainstorm: !areaSelect.value,
+        plannedDate,
+        status: plannedDate ? "planned" : "open",
       });
       showToast(`„${title}" angelegt.`);
       titleInput.value = "";
       areaSelect.value = "";
       effortSelect.value = "";
-      refreshNewTaskProjectOptions();
+      dateChips.reset();
+      refreshNewTaskParentOptions();
       reloadOverview();
     });
   });
@@ -944,65 +934,13 @@ function wireNewTaskForm() {
 
 // ----- Aufgaben-Detail (Modal) -----
 
-function openTaskDetail(task) {
+// Oeffnet das Detail-Modal fuer eine Aufgabe. Die aeussere Modal-Mechanik (Backdrop, Escape,
+// Scroll-Sperre) wird hier genau einmal aufgesetzt; Navigation zwischen Aufgabe und ihren
+// Unteraufgaben (Reinklicken, Zurueck-Link) rendert danach nur noch den Karteninhalt neu
+// (renderTaskDetailCard), damit dabei keine Listener mehrfach registriert werden.
+async function openTaskDetail(task) {
   const root = document.getElementById("modal-root");
-  const areaOpts =
-    `<option value="">Kein Bereich</option>` +
-    overviewState.areas
-      .map((a) => `<option value="${a.id}"${a.id === task.area_id ? " selected" : ""}>${escapeHtml(a.name)}</option>`)
-      .join("");
-  const projOpts = `<option value="">Kein Projekt</option>` + projectOptionsHtml(overviewState.projects, task.area_id, task.project_id);
-  const effortOpts = [["", "–"], ["5", "5"], ["10", "10"], ["30", "30"], ["60", "60"]]
-    .map(([v, l]) => `<option value="${v}"${String(task.effort || "") === v ? " selected" : ""}>${l}</option>`)
-    .join("");
-  const statusOpts = [["open", "Offen"], ["planned", "Geplant"], ["done", "Erledigt"]]
-    .map(([v, l]) => `<option value="${v}"${task.status === v ? " selected" : ""}>${l}</option>`)
-    .join("");
-
-  root.innerHTML = `
-    <div class="modal-backdrop" id="modal-backdrop">
-      <div class="modal-card" role="dialog" aria-modal="true" aria-label="Aufgabe bearbeiten">
-        <h2>Aufgabe</h2>
-        <label class="modal-label">Titel
-          <input class="input" id="td-title" type="text" value="${escapeHtml(task.title)}" />
-        </label>
-        <label class="modal-label">Bereich
-          <select class="select" id="td-area">${areaOpts}</select>
-        </label>
-        <label class="modal-label">Projekt / Ordner
-          <select class="select" id="td-project">${projOpts}</select>
-        </label>
-        <div class="modal-row">
-          <label class="modal-label">Aufwand
-            <select class="select" id="td-effort">${effortOpts}</select>
-          </label>
-          <label class="modal-label">Status
-            <select class="select" id="td-status">${statusOpts}</select>
-          </label>
-        </div>
-        <label class="modal-label">Plandatum
-          <input class="input" id="td-date" type="date" value="${task.planned_date || ""}" />
-        </label>
-        <div class="modal-actions">
-          <button class="btn" id="td-save" type="button">Speichern</button>
-          <button class="btn btn-secondary" id="td-cancel" type="button">Abbrechen</button>
-          <button class="icon-btn icon-btn-danger" id="td-delete" type="button" aria-label="Aufgabe löschen">×</button>
-        </div>
-      </div>
-    </div>`;
-
-  const areaSel = document.getElementById("td-area");
-  const projSel = document.getElementById("td-project");
-  areaSel.addEventListener("change", () => {
-    projSel.innerHTML =
-      `<option value="">Kein Projekt</option>` + projectOptionsHtml(overviewState.projects, areaSel.value || null, null);
-  });
-
   document.body.style.overflow = "hidden";
-  const onKeydown = (e) => {
-    if (e.key === "Escape") close();
-  };
-  document.addEventListener("keydown", onKeydown);
 
   const close = () => {
     root.innerHTML = "";
@@ -1010,25 +948,138 @@ function openTaskDetail(task) {
     document.removeEventListener("keydown", onKeydown);
     closeActiveModal = null;
   };
+  const onKeydown = (e) => {
+    if (e.key === "Escape") close();
+  };
+  document.addEventListener("keydown", onKeydown);
   closeActiveModal = close;
+
+  root.innerHTML = `
+    <div class="modal-backdrop" id="modal-backdrop">
+      <div class="modal-card" id="modal-card" role="dialog" aria-modal="true" aria-label="Aufgabe bearbeiten"></div>
+    </div>`;
   document.getElementById("modal-backdrop").addEventListener("click", (e) => {
     if (e.target.id === "modal-backdrop") close();
+  });
+
+  await renderTaskDetailCard(task.id, close);
+}
+
+async function renderTaskDetailCard(taskId, close) {
+  const allTasks = await listTasks();
+  const task = allTasks.find((t) => t.id === taskId);
+  const card = document.getElementById("modal-card");
+  if (!task || !card) {
+    close();
+    return;
+  }
+
+  const excludeIds = collectDescendantIds(allTasks, task.id);
+  excludeIds.add(task.id);
+  const parentTask = task.parent_task_id ? allTasks.find((t) => t.id === task.parent_task_id) : null;
+  const children = allTasks.filter((t) => t.parent_task_id === task.id);
+  const doneChildren = children.filter((t) => t.status === "done").length;
+
+  const areaOpts =
+    `<option value="">Kein Bereich</option>` +
+    overviewState.areas
+      .map((a) => `<option value="${a.id}"${a.id === task.area_id ? " selected" : ""}>${escapeHtml(a.name)}</option>`)
+      .join("");
+  const parentOpts =
+    `<option value="">Keine uebergeordnete Aufgabe</option>` +
+    taskOptionsHtml(allTasks, task.area_id, task.parent_task_id, excludeIds);
+  const effortOpts = [["", "–"], ["5", "5"], ["10", "10"], ["30", "30"], ["60", "60"]]
+    .map(([v, l]) => `<option value="${v}"${String(task.effort || "") === v ? " selected" : ""}>${l}</option>`)
+    .join("");
+  const statusOpts = [["open", "Offen"], ["planned", "Geplant"], ["done", "Erledigt"]]
+    .map(([v, l]) => `<option value="${v}"${task.status === v ? " selected" : ""}>${l}</option>`)
+    .join("");
+  const childrenHtml = children
+    .map(
+      (c) => `
+        <li class="task-item${c.status === "done" ? " is-done" : ""}" data-child-id="${c.id}">
+          <button type="button" class="task-checkbox" data-checked="${c.status === "done"}" data-action="toggle" aria-pressed="${c.status === "done"}" aria-label="${escapeHtml(c.title)}">${c.status === "done" ? "✓" : ""}</button>
+          <button type="button" class="task-title task-title-btn" data-action="open">${escapeHtml(c.title)}</button>
+        </li>`
+    )
+    .join("");
+
+  card.innerHTML = `
+    ${parentTask ? `<button type="button" class="task-title-btn" id="td-back">← Zurück zu „${escapeHtml(parentTask.title)}"</button>` : ""}
+    <h2>Aufgabe</h2>
+    <label class="modal-label">Titel
+      <input class="input" id="td-title" type="text" value="${escapeHtml(task.title)}" />
+    </label>
+    <label class="modal-label">Bereich
+      <select class="select" id="td-area">${areaOpts}</select>
+    </label>
+    <label class="modal-label">Übergeordnete Aufgabe
+      <select class="select" id="td-parent">${parentOpts}</select>
+    </label>
+    <div class="modal-row">
+      <label class="modal-label">Aufwand
+        <select class="select" id="td-effort">${effortOpts}</select>
+      </label>
+      <label class="modal-label">Status
+        <select class="select" id="td-status">${statusOpts}</select>
+      </label>
+    </div>
+    <label class="modal-label">Plandatum
+      <input class="input" id="td-date" type="date" value="${task.planned_date || ""}" />
+    </label>
+
+    <div class="modal-subtasks">
+      <div class="tree-subheading">Unteraufgaben${children.length ? ` (${doneChildren}/${children.length} erledigt)` : ""}</div>
+      <ul class="task-list" id="td-subtask-list">${childrenHtml}</ul>
+      <form class="inline-add-form" id="td-subtask-form">
+        <input class="input" id="td-subtask-title" placeholder="Unteraufgabe hinzufuegen" autocomplete="off" required />
+        <div class="date-chips" id="td-subtask-date-chips" role="group" aria-label="Datum">
+          <button type="button" class="date-chip" data-date="today">Heute</button>
+          <button type="button" class="date-chip" data-date="tomorrow">Morgen</button>
+          <button type="button" class="date-chip" data-date="" data-active="true">Kein Datum</button>
+        </div>
+        <button class="btn" type="submit">Hinzufügen</button>
+      </form>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" id="td-save" type="button">Speichern</button>
+      <button class="btn btn-secondary" id="td-cancel" type="button">Abbrechen</button>
+      <button class="icon-btn icon-btn-danger" id="td-delete" type="button" aria-label="Aufgabe löschen">×</button>
+    </div>`;
+
+  const areaSel = document.getElementById("td-area");
+  const parentSel = document.getElementById("td-parent");
+  areaSel.addEventListener("change", () => {
+    parentSel.innerHTML =
+      `<option value="">Keine uebergeordnete Aufgabe</option>` +
+      taskOptionsHtml(allTasks, areaSel.value || null, null, excludeIds);
   });
 
   const titleInput = document.getElementById("td-title");
   titleInput.focus();
   titleInput.select();
   document.getElementById("td-cancel").addEventListener("click", close);
+
+  if (parentTask) {
+    document.getElementById("td-back").addEventListener("click", () => renderTaskDetailCard(parentTask.id, close));
+  }
+
   document.getElementById("td-save").addEventListener("click", async () => {
     const areaId = areaSel.value || null;
     const effortVal = document.getElementById("td-effort").value;
+    const newStatus = document.getElementById("td-status").value;
+    const wasDone = task.status === "done";
+    const willBeDone = newStatus === "done";
     await withErrorToast(async () => {
+      if (!wasDone && willBeDone) await completeTaskCascade(task, allTasks);
+      else if (wasDone && !willBeDone) await reopenTaskCascade(task, allTasks);
       await updateTask(task.id, {
         title: document.getElementById("td-title").value.trim() || task.title,
         area_id: areaId,
-        project_id: projSel.value || null,
+        parent_task_id: parentSel.value || null,
         effort: effortVal ? Number(effortVal) : null,
-        status: document.getElementById("td-status").value,
+        status: newStatus,
         planned_date: document.getElementById("td-date").value || null,
         is_brainstorm: !areaId,
       });
@@ -1037,12 +1088,49 @@ function openTaskDetail(task) {
     });
   });
   document.getElementById("td-delete").addEventListener("click", async () => {
-    if (!confirm("Aufgabe löschen?")) return;
+    const count = collectDescendantIds(allTasks, task.id).size;
+    const message = count > 0 ? `Aufgabe und ${count} Unteraufgabe(n) löschen?` : "Aufgabe löschen?";
+    if (!confirm(message)) return;
     await withErrorToast(async () => {
       await deleteTask(task.id);
       close();
       reloadOverview();
     });
+  });
+
+  const subtaskDateChips = wireDateChipGroup(document.getElementById("td-subtask-date-chips"));
+  document.getElementById("td-subtask-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const subtaskTitleInput = document.getElementById("td-subtask-title");
+    const title = subtaskTitleInput.value.trim();
+    if (!title) return;
+    const plannedDate = subtaskDateChips.getPlannedDate();
+    await withErrorToast(async () => {
+      await createTask({
+        title,
+        areaId: task.area_id,
+        parentTaskId: task.id,
+        plannedDate,
+        status: plannedDate ? "planned" : "open",
+      });
+      await renderTaskDetailCard(task.id, close);
+    });
+  });
+
+  document.getElementById("td-subtask-list").addEventListener("click", async (e) => {
+    const li = e.target.closest("[data-child-id]");
+    if (!li) return;
+    const child = allTasks.find((t) => t.id === li.dataset.childId);
+    if (!child) return;
+    if (e.target.dataset.action === "toggle") {
+      await withErrorToast(async () => {
+        if (child.status === "done") await reopenTaskCascade(child, allTasks);
+        else await completeTaskCascade(child, allTasks);
+        await renderTaskDetailCard(task.id, close);
+      });
+    } else if (e.target.dataset.action === "open") {
+      await renderTaskDetailCard(child.id, close);
+    }
   });
 }
 
@@ -1168,10 +1256,10 @@ function buildPlanTaskItem(task, areaColorById) {
 
   li.append(dot, title);
 
-  if (task.is_brainstorm && !task.project_id) {
+  if (task.is_brainstorm) {
     const badge = document.createElement("span");
     badge.className = "badge badge-brainstorm";
-    badge.textContent = "Kein Projekt";
+    badge.textContent = "Ohne Bereich";
     li.appendChild(badge);
   }
 
@@ -1209,6 +1297,7 @@ async function renderAreasView() {
 
   await renderAreaManageList();
   wireNewAreaForm();
+  wireMigrationButton();
 }
 
 async function renderAreaManageList() {
@@ -1304,7 +1393,7 @@ function buildAreaManageItem(area, areas, index) {
   deleteBtn.textContent = "×";
   deleteBtn.setAttribute("aria-label", "Bereich löschen");
   deleteBtn.addEventListener("click", async () => {
-    if (!confirm(`Bereich „${area.name}" löschen? Zugeordnete Projekte werden mitgelöscht.`)) return;
+    if (!confirm(`Bereich „${area.name}" löschen? Zugeordnete Aufgaben bleiben erhalten, verlieren aber ihren Bereich.`)) return;
     await withErrorToast(async () => {
       await deleteArea(area.id);
       renderAreaManageList();
@@ -1314,6 +1403,28 @@ function buildAreaManageItem(area, areas, index) {
   controls.append(upBtn, downBtn, deleteBtn);
   li.append(color, name, controls);
   return li;
+}
+
+// TEMPORÄR: Button für die einmalige Migration alter Projekte/Ordner zu Aufgaben mit
+// Unteraufgaben. Nach erfolgreicher, geprüfter Migration diese Funktion samt Button in
+// views/areas.html und den Import von migrate-projects.js wieder entfernen.
+function wireMigrationButton() {
+  const btn = document.getElementById("run-migration-btn");
+  const status = document.getElementById("migration-status");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    if (!confirm("Bestehende Projekte/Ordner jetzt zu Aufgaben migrieren? Vorher Backup gemacht?")) return;
+    btn.disabled = true;
+    status.textContent = "Migriere…";
+    try {
+      const result = await runProjectMigration();
+      status.textContent = `Fertig: ${result.migratedCount} Projekte migriert, ${result.reparentedCount} Aufgaben umgehängt, ${result.cascadedCount} Nachfahren auf "done" gesetzt. Bitte in der Übersicht prüfen.`;
+    } catch (err) {
+      status.textContent = "Fehler: " + err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
 }
 
 function wireNewAreaForm() {
