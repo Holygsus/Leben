@@ -463,6 +463,34 @@ body {
   margin-top: var(--space-1);
 }
 
+.plan-date-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: var(--space-3);
+}
+
+.chip-btn {
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.chip-btn:active {
+  background: var(--color-surface-raised);
+}
+
+.plan-date-picker .input {
+  flex: 1 1 160px;
+  min-height: 40px;
+}
+
 .badge {
   padding: 2px var(--space-2);
   border-radius: var(--radius-full);

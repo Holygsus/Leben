@@ -27,6 +27,7 @@ const planState = {
   areas: [],
   pool: [],
   selected: [],
+  targetDate: null,
 };
 
 let toastTimeout = null;
@@ -851,16 +852,42 @@ function openTaskDetail(task) {
 
 /* ---------- Plan ---------- */
 
+function updatePlanDateLabel() {
+  // "YYYY-MM-DD" als lokales Datum interpretieren (nicht UTC), damit die Wochentagsanzeige
+  // unabhängig von der Zeitzone stets zum gewählten Kalendertag passt.
+  const [y, m, d] = planState.targetDate.split("-").map(Number);
+  const label = new Date(y, m - 1, d).toLocaleDateString("de-DE", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+  document.getElementById("plan-date").textContent = label;
+}
+
 async function renderPlanView() {
   const container = document.getElementById("view-content");
   const res = await fetch("views/plan.html");
   container.innerHTML = await res.text();
 
-  const targetDate = tomorrowISO();
-  document.getElementById("plan-date").textContent = new Date(targetDate).toLocaleDateString("de-DE", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
+  planState.targetDate = tomorrowISO();
+  const dateInput = document.getElementById("plan-date-input");
+  dateInput.value = planState.targetDate;
+  updatePlanDateLabel();
+
+  document.getElementById("plan-date-today").addEventListener("click", () => {
+    planState.targetDate = todayISO();
+    dateInput.value = planState.targetDate;
+    updatePlanDateLabel();
+  });
+  document.getElementById("plan-date-tomorrow").addEventListener("click", () => {
+    planState.targetDate = tomorrowISO();
+    dateInput.value = planState.targetDate;
+    updatePlanDateLabel();
+  });
+  dateInput.addEventListener("change", () => {
+    if (!dateInput.value) return;
+    planState.targetDate = dateInput.value;
+    updatePlanDateLabel();
   });
 
   const [areas, pool] = await Promise.all([listAreas(), listTasks({ status: "open" })]);
@@ -890,6 +917,7 @@ async function renderPlanView() {
     const status = document.getElementById("plan-status");
     status.textContent = "Speichere Plan…";
     try {
+      const targetDate = planState.targetDate;
       const ids = planState.selected.map((t) => t.id);
       await Promise.all(ids.map((id) => updateTask(id, { status: "planned", planned_date: targetDate })));
       await savePlanForDate(targetDate, ids);
