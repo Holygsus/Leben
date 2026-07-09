@@ -12,7 +12,6 @@ import {
 } from "./tasks.js";
 import { listAreas, createArea, updateArea, deleteArea, swapAreaOrder } from "./areas.js";
 import { suggestTasksForPlan, formatTasksForExport, savePlanForDate } from "./planner.js";
-import { runProjectMigration } from "./migrate-projects.js"; // TEMPORÄR — nach der Datenmigration wieder entfernen
 
 const app = document.getElementById("app");
 
@@ -1297,7 +1296,6 @@ async function renderAreasView() {
 
   await renderAreaManageList();
   wireNewAreaForm();
-  wireMigrationButton();
 }
 
 async function renderAreaManageList() {
@@ -1403,28 +1401,6 @@ function buildAreaManageItem(area, areas, index) {
   controls.append(upBtn, downBtn, deleteBtn);
   li.append(color, name, controls);
   return li;
-}
-
-// TEMPORÄR: Button für die einmalige Migration alter Projekte/Ordner zu Aufgaben mit
-// Unteraufgaben. Nach erfolgreicher, geprüfter Migration diese Funktion samt Button in
-// views/areas.html und den Import von migrate-projects.js wieder entfernen.
-function wireMigrationButton() {
-  const btn = document.getElementById("run-migration-btn");
-  const status = document.getElementById("migration-status");
-  if (!btn) return;
-  btn.addEventListener("click", async () => {
-    if (!confirm("Bestehende Projekte/Ordner jetzt zu Aufgaben migrieren? Vorher Backup gemacht?")) return;
-    btn.disabled = true;
-    status.textContent = "Migriere…";
-    try {
-      const result = await runProjectMigration();
-      status.textContent = `Fertig: ${result.migratedCount} Projekte migriert, ${result.reparentedCount} Aufgaben umgehängt, ${result.cascadedCount} Nachfahren auf "done" gesetzt. Bitte in der Übersicht prüfen.`;
-    } catch (err) {
-      status.textContent = "Fehler: " + err.message;
-    } finally {
-      btn.disabled = false;
-    }
-  });
 }
 
 function wireNewAreaForm() {
