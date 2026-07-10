@@ -85,6 +85,19 @@ body {
   color: var(--color-text);
 }
 
+.nav-count {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-align: center;
+  vertical-align: 1px;
+}
+
 /* Login */
 
 .login-screen {
@@ -734,6 +747,13 @@ body {
   color: var(--color-danger);
 }
 
+.color-warning {
+  color: var(--color-warning);
+  font-size: var(--font-size-lg);
+  flex-shrink: 0;
+  cursor: help;
+}
+
 .color-input {
   width: 40px;
   height: 40px;
@@ -845,6 +865,10 @@ body {
 .tree-node-name {
   flex: 1;
   font-weight: 500;
+}
+
+.tree-node-header.is-overdue .tree-node-name {
+  color: var(--color-danger);
 }
 
 .tree-node-menu {

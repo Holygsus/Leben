@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<title>Leben OS — Tests</title>
+<link rel="stylesheet" href="css/reset.css" />
+<link rel="stylesheet" href="css/variables.css" />
+<link rel="stylesheet" href="css/main.css" />
+<style>
+  body { max-width: 640px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  h1 { font-size: var(--font-size-2xl); margin-bottom: var(--space-5); }
+  #results { display: flex; flex-direction: column; gap: var(--space-2); }
+  .result { padding: var(--space-2) var(--space-4); border-radius: var(--radius-sm); font-size: var(--font-size-sm); border: 1px solid var(--color-border); }
+  .result.pass { color: var(--color-success); }
+  .result.fail { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 10%, transparent); }
+  #summary { margin-top: var(--space-5); font-weight: 600; }
+</style>
+</head>
+<body>
+<h1>Leben OS — Tests reiner Funktionen</h1>
+<p class="status-message">Eigenständige Seite, nicht Teil der App-Navigation — prüft Baum-/Sortier-/Formatierlogik ohne Supabase-Login.</p>
+<div id="results"></div>
+<div id="summary"></div>
+<script type="module" src="test.js"></script>
+</body>
+</html>

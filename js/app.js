@@ -36,10 +36,15 @@ function loadStoredFilters() {
 
 function saveStoredFilters() {
   const { effort, status, search } = overviewState.filters;
-  localStorage.setItem(
-    FILTER_STORAGE_KEY,
-    JSON.stringify({ effort, status, search, showDone: overviewState.showDone })
-  );
+  try {
+    localStorage.setItem(
+      FILTER_STORAGE_KEY,
+      JSON.stringify({ effort, status, search, showDone: overviewState.showDone })
+    );
+  } catch {
+    // z.B. Private-Browsing-Modus ohne Storage-Zugriff — Persistenz ist ein Nice-to-have,
+    // die Filter sollen trotzdem für die laufende Sitzung normal weiterfunktionieren.
+  }
 }
 
 const storedFilters = loadStoredFilters();
@@ -121,6 +126,9 @@ function friendlyErrorMessage(err) {
   if (err?.code === "23502") return "Ein Pflichtfeld fehlt.";
   if (/row-level security/i.test(message)) return "Du hast keine Berechtigung für diese Aktion.";
   if (/rate limit/i.test(message)) return "Zu viele Versuche — bitte kurz warten.";
+  if (/JWT expired|invalid claim|invalid or expired|session.*not.*found/i.test(message)) {
+    return "Deine Sitzung ist abgelaufen. Bitte die Seite neu laden und erneut anmelden.";
+  }
   return message || "Etwas ist schiefgelaufen.";
 }
 
@@ -299,12 +307,71 @@ function wireDateChipGroup(container) {
         customInput.value = "";
       }
     },
+    // Stellt eine bereits vorhandene Aufgabe im Chip-System dar (z.B. beim Öffnen des
+    // Detail-Modals) — bildet ein bestehendes planned_date auf Heute/Morgen/eigenes Datum ab.
+    setValue(isoDate) {
+      if (!isoDate) {
+        this.reset();
+        return;
+      }
+      if (isoDate === todayISO()) {
+        if (customInput) customInput.hidden = true;
+        setActive(chips.find((c) => c.dataset.date === "today"));
+        return;
+      }
+      if (isoDate === tomorrowISO()) {
+        if (customInput) customInput.hidden = true;
+        setActive(chips.find((c) => c.dataset.date === "tomorrow"));
+        return;
+      }
+      setActive(customChip);
+      if (customInput) {
+        customInput.hidden = false;
+        customInput.value = isoDate;
+      }
+    },
   };
 }
 
 function currentRoute() {
   const hash = location.hash.replace(/^#\/?/, "");
   return routes[hash] ? hash : "today";
+}
+
+function hexToRgbArray(hex) {
+  const clean = hex.replace("#", "");
+  return [0, 2, 4].map((i) => parseInt(clean.substr(i, 2), 16));
+}
+
+function relativeLuminance([r, g, b]) {
+  const [rl, gl, bl] = [r, g, b].map((c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * rl + 0.7152 * gl + 0.0722 * bl;
+}
+
+function contrastRatio(hex1, hex2) {
+  const l1 = relativeLuminance(hexToRgbArray(hex1));
+  const l2 = relativeLuminance(hexToRgbArray(hex2));
+  const [lighter, darker] = l1 > l2 ? [l1, l2] : [l2, l1];
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+// Grobe Prüfung, ob eine Bereichsfarbe im Light- oder Dark-Mode-Hintergrund fast verschwindet.
+// Feste Referenzwerte aus variables.css, da zur Laufzeit immer nur ein Theme aktiv ist.
+function isLowContrastAreaColor(hex) {
+  return contrastRatio(hex, "#FFFFFF") < 1.4 || contrastRatio(hex, "#221E1B") < 1.4;
+}
+
+// Blendet eine Warnung neben einem Farb-Input ein, solange die gewählte Farbe zu wenig
+// Kontrast gegen helle oder dunkle Oberflächen hat (z.B. Punkt/Rand kaum sichtbar).
+function wireColorContrastWarning(colorInput, warningEl) {
+  const check = () => {
+    warningEl.hidden = !isLowContrastAreaColor(colorInput.value);
+  };
+  colorInput.addEventListener("input", check);
+  check();
 }
 
 function escapeHtml(s) {
@@ -397,6 +464,20 @@ window.addEventListener("hashchange", () => {
   if (document.getElementById("view-content")) renderShell();
 });
 
+// "/" fokussiert die Suche in der Übersicht — einmalig global registriert (nicht pro View-Render,
+// sonst würde bei jedem Besuch der Übersicht ein weiterer Listener dazukommen).
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "/" || currentRoute() !== "overview") return;
+  const target = e.target;
+  const isTyping =
+    target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable;
+  if (isTyping) return;
+  const searchInput = document.getElementById("filter-search");
+  if (!searchInput) return;
+  e.preventDefault();
+  searchInput.focus();
+});
+
 function renderLogin() {
   app.innerHTML = `
     <div class="login-screen">
@@ -426,6 +507,19 @@ function renderLogin() {
   });
 }
 
+// Merkt sich den zuletzt bekannten "Heute"-Zähler über renderShell()-Neuaufbauten hinweg (das
+// Nav-Markup wird bei jedem Routenwechsel neu erzeugt) — so bleibt die Zahl auch sichtbar,
+// während man z.B. in der Übersicht browst, statt nur direkt auf der Heute-Ansicht.
+let todayRemainingCount = null;
+
+function updateNavBadge(count) {
+  todayRemainingCount = count;
+  const badge = document.getElementById("nav-today-count");
+  if (!badge) return;
+  badge.hidden = count <= 0;
+  badge.textContent = String(count);
+}
+
 function renderShell() {
   const route = currentRoute();
   // Offenes Detail-Modal schließen — es liegt außerhalb von #app und würde sonst
@@ -433,14 +527,34 @@ function renderShell() {
   if (closeActiveModal) closeActiveModal();
   app.innerHTML = `
     <nav class="app-nav">
-      <a href="#/today" class="nav-link${route === "today" ? " is-active" : ""}">Heute</a>
+      <a href="#/today" class="nav-link${route === "today" ? " is-active" : ""}">Heute <span class="nav-count" id="nav-today-count" hidden></span></a>
       <a href="#/overview" class="nav-link${route === "overview" ? " is-active" : ""}">Übersicht</a>
       <a href="#/plan" class="nav-link${route === "plan" ? " is-active" : ""}">Plan</a>
       <a href="#/areas" class="nav-link${route === "areas" ? " is-active" : ""}">Bereiche</a>
     </nav>
     <div id="view-content"></div>
   `;
+  if (todayRemainingCount !== null) updateNavBadge(todayRemainingCount);
+  app.querySelector(".app-nav").addEventListener("click", (e) => {
+    const link = e.target.closest("a.nav-link");
+    if (!link) return;
+    if (hasUnsavedOverviewInput() && !confirm("Es gibt eine ungespeicherte Eingabe. Trotzdem wechseln?")) {
+      e.preventDefault();
+    }
+  });
   routes[route]();
+}
+
+// Prüft auf offene, unbestätigte Eingaben in der Übersicht (Inline-Anlegen-Formulare, laufende
+// Umbenennung) — Grundlage für die Nachfrage vorm Verlassen der Ansicht per Nav-Klick.
+function hasUnsavedOverviewInput() {
+  const addInputs = document.querySelectorAll(".inline-add-form input[type='text'], #new-task-title");
+  for (const input of addInputs) {
+    if (input.value.trim()) return true;
+  }
+  const renameInput = document.querySelector(".tree-node-rename-input");
+  if (renameInput && renameInput.value.trim() !== renameInput.dataset.original) return true;
+  return false;
 }
 
 /* ---------- Today ---------- */
@@ -451,12 +565,11 @@ async function renderTodayView() {
   container.innerHTML = await res.text();
   showLoading("task-list");
 
-  const [areas, tasks, overdueRaw] = await Promise.all([
+  const [areas, tasks, overdueTasks] = await Promise.all([
     listAreas(),
     listTasks({ plannedDate: todayISO() }),
-    listTasks({ plannedBefore: todayISO() }),
+    listTasks({ plannedBefore: todayISO(), statusNot: "done" }),
   ]);
-  const overdueTasks = overdueRaw.filter((t) => t.status !== "done");
   const areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
 
   renderGreeting();
@@ -495,6 +608,7 @@ function renderTodayTasks(tasks, overdueTasks, areaColorById) {
   const list = document.getElementById("task-list");
   const emptyState = document.getElementById("empty-state");
   const doneCount = tasks.filter((t) => t.status === "done").length;
+  updateNavBadge(tasks.length - doneCount + overdueTasks.length);
 
   document.getElementById("progress-text").textContent = `${doneCount} von ${tasks.length} Aufgaben erledigt`;
   const progressFill = document.getElementById("progress-bar-fill");
@@ -503,7 +617,7 @@ function renderTodayTasks(tasks, overdueTasks, areaColorById) {
 
   list.innerHTML = "";
   for (const task of overdueTasks) {
-    list.appendChild(buildTaskItem(task, areaColorById, renderTodayView, true));
+    list.appendChild(buildTaskItem(task, areaColorById, renderTodayView));
   }
 
   if (tasks.length === 0 && overdueTasks.length === 0) {
@@ -513,13 +627,14 @@ function renderTodayTasks(tasks, overdueTasks, areaColorById) {
   emptyState.hidden = true;
 
   for (const task of tasks) {
-    list.appendChild(buildTaskItem(task, areaColorById, renderTodayView, false));
+    list.appendChild(buildTaskItem(task, areaColorById, renderTodayView));
   }
 }
 
-function buildTaskItem(task, areaColorById, onChange, isOverdue = false) {
+function buildTaskItem(task, areaColorById, onChange) {
   const li = document.createElement("li");
   const isStale = isTaskStale(task);
+  const isOverdue = isTaskOverdue(task);
   li.className =
     "task-item" +
     (task.status === "done" ? " is-done" : "") +
@@ -560,6 +675,23 @@ function buildTaskItem(task, areaColorById, onChange, isOverdue = false) {
   }
 
   return li;
+}
+
+// Ein Plandatum in der Vergangenheit, das noch nicht erledigt ist — unabhängig davon ob der
+// Status noch "open" oder schon "planned" ist (beides ist über das Detail-Modal frei kombinierbar).
+function isTaskOverdue(task) {
+  return task.status !== "done" && !!task.planned_date && task.planned_date < todayISO();
+}
+
+// Sortiert nach Dringlichkeit: überfällige/nahe Plandaten zuerst (aufsteigend), undatierte
+// Aufgaben zuletzt — unter sich wie bisher nach Erstellungsdatum (älteste zuerst).
+function compareByUrgency(a, b) {
+  if (a.planned_date && b.planned_date) {
+    return a.planned_date < b.planned_date ? -1 : a.planned_date > b.planned_date ? 1 : 0;
+  }
+  if (a.planned_date) return -1;
+  if (b.planned_date) return 1;
+  return new Date(a.created_at) - new Date(b.created_at);
 }
 
 function isTaskStale(task) {
@@ -709,6 +841,13 @@ function wireOverviewFilters() {
     renderAreaTree();
     renderNoAreaSection();
   });
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && searchInput.value) {
+      e.stopPropagation();
+      searchInput.value = "";
+      searchInput.dispatchEvent(new Event("input"));
+    }
+  });
   showDoneCheckbox.addEventListener("change", () => {
     overviewState.showDone = showDoneCheckbox.checked;
     saveStoredFilters();
@@ -791,7 +930,7 @@ function buildAreaSection(area) {
   // Baum aus ALLEN Aufgaben des Bereichs (ungefiltert) bauen und erst danach auf sichtbare Knoten
   // zuschneiden — sonst würde buildTaskTree eine passende Unteraufgabe verwaisen lassen, wenn ihr
   // Elternteil selbst nicht durch den Filter kommt.
-  const allAreaTasks = overviewState.tasks.filter((t) => t.area_id === area.id);
+  const allAreaTasks = overviewState.tasks.filter((t) => t.area_id === area.id).sort(compareByUrgency);
   const tree = filterVisibleNodes(buildTaskTree(allAreaTasks, null));
 
   if (hasSearch && tree.length === 0 && !isAddingHere) return null;
@@ -877,7 +1016,7 @@ function buildTaskNodeEl(node, area, depth) {
   const collapsed = overviewState.collapsedNodes.has(node.id) && !isAddingHere && !isMovingHere && !hasSearch;
 
   const header = document.createElement("div");
-  header.className = "tree-node-header";
+  header.className = "tree-node-header" + (isTaskOverdue(node) ? " is-overdue" : "");
 
   const toggle = document.createElement("button");
   toggle.type = "button";
@@ -920,6 +1059,12 @@ function buildTaskNodeEl(node, area, depth) {
   }
 
   header.append(toggle, checkbox, buildTaskNameEl(node), nodeCount);
+  if (isTaskOverdue(node)) {
+    const overdueBadge = document.createElement("span");
+    overdueBadge.className = "badge badge-overdue";
+    overdueBadge.textContent = "Überfällig";
+    header.appendChild(overdueBadge);
+  }
 
   const menuBtn = document.createElement("button");
   menuBtn.type = "button";
@@ -993,6 +1138,7 @@ function buildTaskNameEl(node) {
     input.type = "text";
     input.className = "input tree-node-rename-input";
     input.value = node.title;
+    input.dataset.original = node.title;
     let settled = false;
     const commit = async () => {
       if (settled) return;
@@ -1156,7 +1302,7 @@ function buildMovePanel(node) {
 function renderNoAreaSection() {
   const panel = document.getElementById("no-area-panel");
   const list = document.getElementById("brainstorm-list");
-  const noArea = overviewState.tasks.filter((t) => !t.area_id && taskPassesFilter(t));
+  const noArea = overviewState.tasks.filter((t) => !t.area_id && taskPassesFilter(t)).sort(compareByUrgency);
 
   // Auswahl auf noch sichtbare Aufgaben begrenzen (z.B. nach Filterwechsel oder Zuweisung).
   const visibleIds = new Set(noArea.map((t) => t.id));
@@ -1265,7 +1411,20 @@ function renderBulkToolbar() {
   deleteBtn.addEventListener("click", async () => {
     if (!confirm(`${selectedIds.length} Aufgabe(n) löschen?`)) return;
     const byId = new Map(overviewState.tasks.map((t) => [t.id, t]));
+    // Falls sowohl eine Aufgabe als auch eine ihrer eigenen (ebenfalls bereichslosen)
+    // Unteraufgaben ausgewählt sind: nur vom obersten ausgewählten Vorfahren aus einen Snapshot
+    // bauen, sonst würde die Unteraufgabe beim Rückgängig-Machen doppelt wiederhergestellt.
+    const selectedIdSet = new Set(selectedIds);
+    const isDescendantOfAnotherSelected = (id) => {
+      let current = byId.get(id);
+      while (current?.parent_task_id) {
+        if (selectedIdSet.has(current.parent_task_id)) return true;
+        current = byId.get(current.parent_task_id);
+      }
+      return false;
+    };
     const snapshots = selectedIds
+      .filter((id) => !isDescendantOfAnotherSelected(id))
       .map((id) => ({
         task: byId.get(id),
         descendants: Array.from(collectDescendantIds(overviewState.tasks, id))
@@ -1452,8 +1611,14 @@ async function renderTaskDetailCard(taskId, close) {
         <select class="select" id="td-status">${statusOpts}</select>
       </label>
     </div>
-    <label class="modal-label">Plandatum
-      <input class="input" id="td-date" type="date" value="${task.planned_date || ""}" />
+    <label class="modal-label">Plandatum${isTaskOverdue(task) ? ` <span class="badge badge-overdue">Überfällig</span>` : ""}
+      <div class="date-chips" id="td-date-chips" role="group" aria-label="Plandatum">
+        <button type="button" class="date-chip" data-date="today">Heute</button>
+        <button type="button" class="date-chip" data-date="tomorrow">Morgen</button>
+        <button type="button" class="date-chip" data-date="" data-active="true">Kein Datum</button>
+        <button type="button" class="date-chip" data-date="custom">Datum…</button>
+        <input type="date" class="input date-chip-custom-input" aria-label="Eigenes Datum" hidden />
+      </div>
     </label>
 
     <div class="modal-subtasks">
@@ -1491,6 +1656,9 @@ async function renderTaskDetailCard(taskId, close) {
   titleInput.select();
   document.getElementById("td-cancel").addEventListener("click", close);
 
+  const dateChips = wireDateChipGroup(document.getElementById("td-date-chips"));
+  dateChips.setValue(task.planned_date);
+
   if (parentTask) {
     document.getElementById("td-back").addEventListener("click", () => renderTaskDetailCard(parentTask.id, close));
   }
@@ -1510,7 +1678,7 @@ async function renderTaskDetailCard(taskId, close) {
         parent_task_id: parentSel.value || null,
         effort: effortVal ? Number(effortVal) : null,
         status: newStatus,
-        planned_date: document.getElementById("td-date").value || null,
+        planned_date: dateChips.getPlannedDate(),
         is_brainstorm: !areaId,
       });
       close();
@@ -1762,6 +1930,13 @@ function buildAreaManageItem(area, areas, index) {
     });
   });
 
+  const colorWarning = document.createElement("span");
+  colorWarning.className = "color-warning";
+  colorWarning.textContent = "⚠";
+  colorWarning.title = "Dieser Farbton ist auf hellem oder dunklem Hintergrund schwer erkennbar.";
+  colorWarning.hidden = true;
+  wireColorContrastWarning(color, colorWarning);
+
   const name = document.createElement("input");
   name.type = "text";
   name.className = "input area-name-input";
@@ -1829,7 +2004,7 @@ function buildAreaManageItem(area, areas, index) {
   });
 
   controls.append(upBtn, downBtn, deleteBtn);
-  li.append(color, name, controls);
+  li.append(color, colorWarning, name, controls);
   return li;
 }
 
@@ -1837,6 +2012,7 @@ function wireNewAreaForm() {
   const form = document.getElementById("new-area-form");
   const nameInput = document.getElementById("new-area-name");
   const colorInput = document.getElementById("new-area-color");
+  wireColorContrastWarning(colorInput, document.getElementById("new-area-color-warning"));
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
