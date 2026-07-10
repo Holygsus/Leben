@@ -93,6 +93,46 @@ function tomorrowISO() {
   return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 10);
 }
 
+// Baut eine neue Datum-Chip-Gruppe (Heute/Morgen/Kein Datum) für dynamisch erzeugte Formulare.
+function createDateChipGroup() {
+  const el = document.createElement("div");
+  el.className = "date-chips";
+  el.setAttribute("role", "group");
+  el.setAttribute("aria-label", "Datum");
+  el.innerHTML = `
+    <button type="button" class="date-chip" data-date="today">Heute</button>
+    <button type="button" class="date-chip" data-date="tomorrow">Morgen</button>
+    <button type="button" class="date-chip" data-date="" data-active="true">Kein Datum</button>`;
+  return wireDateChipGroup(el);
+}
+
+// Verdrahtet eine (bereits im DOM vorhandene oder von createDateChipGroup gebaute) .date-chips-
+// Gruppe: Klick auf einen Chip macht ihn zum einzigen aktiven. getPlannedDate() liest den
+// aktiven Chip aus, reset() setzt auf "Kein Datum" zurück.
+function wireDateChipGroup(container) {
+  const chips = Array.from(container.querySelectorAll(".date-chip"));
+  const noDateChip = chips.find((c) => c.dataset.date === "") || chips[chips.length - 1];
+  const setActive = (chip) => {
+    for (const c of chips) c.removeAttribute("data-active");
+    chip.setAttribute("data-active", "true");
+  };
+  for (const chip of chips) {
+    chip.addEventListener("click", () => setActive(chip));
+  }
+  return {
+    el: container,
+    getPlannedDate() {
+      const activeChip = chips.find((c) => c.dataset.active === "true") || noDateChip;
+      if (activeChip.dataset.date === "today") return todayISO();
+      if (activeChip.dataset.date === "tomorrow") return tomorrowISO();
+      return null;
+    },
+    reset() {
+      setActive(noDateChip);
+    },
+  };
+}
+
 function currentRoute() {
   const hash = location.hash.replace(/^#\/?/, "");
   return routes[hash] ? hash : "today";
