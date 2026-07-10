@@ -387,6 +387,10 @@ body {
   margin-bottom: var(--space-4);
 }
 
+.filter-bar .input {
+  flex: 1 1 180px;
+}
+
 .checkbox-label {
   display: flex;
   align-items: center;

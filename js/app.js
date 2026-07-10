@@ -22,11 +22,37 @@ const routes = {
   areas: renderAreasView,
 };
 
+const FILTER_STORAGE_KEY = "leben-os:overview-filters";
+
+function loadStoredFilters() {
+  try {
+    const raw = localStorage.getItem(FILTER_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredFilters() {
+  const { effort, status, search } = overviewState.filters;
+  localStorage.setItem(
+    FILTER_STORAGE_KEY,
+    JSON.stringify({ effort, status, search, showDone: overviewState.showDone })
+  );
+}
+
+const storedFilters = loadStoredFilters();
+
 const overviewState = {
   areas: [],
   tasks: [],
-  filters: { effort: "", status: "" },
-  showDone: false,
+  filters: {
+    effort: storedFilters?.effort || "",
+    status: storedFilters?.status || "",
+    search: storedFilters?.search || "",
+  },
+  showDone: storedFilters?.showDone || false,
   collapsedAreas: new Set(),
   collapsedNodes: new Set(),
   addFormTarget: null, // { areaId, parentTaskId } | null — nur ein offenes Anlegen-Formular gleichzeitig
@@ -63,12 +89,27 @@ function showToast(message, isError = false) {
   }, 3000);
 }
 
+// Übersetzt rohe Supabase/Postgres-Fehler in verständliche deutsche Meldungen. Fehlercodes
+// 23505/23503/23502 sind die Standard-Postgres-Codes für unique/foreign-key/not-null-violation.
+function friendlyErrorMessage(err) {
+  const message = err?.message || "";
+  if (err instanceof TypeError || /Failed to fetch|NetworkError/i.test(message)) {
+    return "Keine Verbindung — bitte Internet prüfen und nochmal versuchen.";
+  }
+  if (err?.code === "23505") return "Das gibt es unter diesem Namen schon.";
+  if (err?.code === "23503") return "Das referenzierte Element existiert nicht mehr.";
+  if (err?.code === "23502") return "Ein Pflichtfeld fehlt.";
+  if (/row-level security/i.test(message)) return "Du hast keine Berechtigung für diese Aktion.";
+  if (/rate limit/i.test(message)) return "Zu viele Versuche — bitte kurz warten.";
+  return message || "Etwas ist schiefgelaufen.";
+}
+
 // Führt eine mutierende Aktion aus und zeigt bei Fehlern einen Toast statt still zu scheitern.
 async function withErrorToast(action) {
   try {
     await action();
   } catch (err) {
-    showToast(err.message || "Etwas ist schiefgelaufen.", true);
+    showToast(friendlyErrorMessage(err), true);
   }
 }
 
@@ -225,7 +266,7 @@ function renderLogin() {
       await signInWithMagicLink(email);
       status.textContent = `Link verschickt an ${email}. E-Mail-Postfach checken.`;
     } catch (err) {
-      status.textContent = `Fehler: ${err.message}`;
+      status.textContent = friendlyErrorMessage(err);
     }
   });
 }
@@ -402,9 +443,8 @@ async function renderOverviewView() {
   const res = await fetch("views/overview.html");
   container.innerHTML = await res.text();
 
-  // Frisch gerenderte Dropdowns/Checkbox stehen auf "Alle"/aus — Filterzustand dazu passend zurücksetzen.
-  overviewState.filters = { effort: "", status: "" };
-  overviewState.showDone = false;
+  // Filterzustand bleibt über Navigationswechsel (und dank localStorage auch über Reloads) hinweg
+  // erhalten — nur die transienten UI-Zustände unten werden bei jedem View-Wechsel geschlossen.
   overviewState.addFormTarget = null;
   overviewState.renamingId = null;
   overviewState.movingNodeId = null;
@@ -432,30 +472,59 @@ async function reloadOverview() {
 }
 
 function taskPassesFilter(task) {
-  const { effort, status } = overviewState.filters;
+  const { effort, status, search } = overviewState.filters;
   // Erledigte standardmäßig ausblenden, außer die Checkbox ist an oder explizit nach "Erledigt" gefiltert wird.
   if (!status && !overviewState.showDone && task.status === "done") return false;
   if (effort && String(task.effort) !== effort) return false;
   if (status && task.status !== status) return false;
+  if (search && !task.title.toLowerCase().includes(search)) return false;
   return true;
+}
+
+// Baut aus einem Aufgabenbaum (siehe buildTaskTree) einen auf sichtbare Knoten zugeschnittenen
+// Baum: ein Knoten bleibt, wenn er selbst die Filter besteht ODER mindestens ein Nachfahre es tut —
+// sonst würde z.B. eine passende Unteraufgabe verschwinden, nur weil ihr Elternteil nicht matcht.
+function filterVisibleNodes(nodes) {
+  const out = [];
+  for (const node of nodes) {
+    const children = filterVisibleNodes(node.children);
+    if (taskPassesFilter(node) || children.length > 0) out.push({ ...node, children });
+  }
+  return out;
 }
 
 function wireOverviewFilters() {
   const effortSelect = document.getElementById("filter-effort");
   const statusSelect = document.getElementById("filter-status");
+  const searchInput = document.getElementById("filter-search");
   const showDoneCheckbox = document.getElementById("filter-show-done");
+
+  effortSelect.value = overviewState.filters.effort;
+  statusSelect.value = overviewState.filters.status;
+  searchInput.value = overviewState.filters.search;
+  showDoneCheckbox.checked = overviewState.showDone;
+
   effortSelect.addEventListener("change", () => {
     overviewState.filters.effort = effortSelect.value;
+    saveStoredFilters();
     renderAreaTree();
     renderNoAreaSection();
   });
   statusSelect.addEventListener("change", () => {
     overviewState.filters.status = statusSelect.value;
+    saveStoredFilters();
+    renderAreaTree();
+    renderNoAreaSection();
+  });
+  searchInput.addEventListener("input", () => {
+    overviewState.filters.search = searchInput.value.trim().toLowerCase();
+    saveStoredFilters();
     renderAreaTree();
     renderNoAreaSection();
   });
   showDoneCheckbox.addEventListener("change", () => {
     overviewState.showDone = showDoneCheckbox.checked;
+    saveStoredFilters();
     renderAreaTree();
     renderNoAreaSection();
   });
@@ -507,20 +576,41 @@ function renderAreaTree() {
     root.innerHTML = `<p class="empty-state">Noch keine Bereiche. Lege welche unter „Bereiche" an.</p>`;
     return;
   }
+  let rendered = 0;
   for (const area of overviewState.areas) {
-    root.appendChild(buildAreaSection(area));
+    const section = buildAreaSection(area);
+    if (section) {
+      root.appendChild(section);
+      rendered++;
+    }
+  }
+  if (rendered === 0 && overviewState.filters.search) {
+    root.innerHTML = `<p class="empty-state">Keine Treffer für „${escapeHtml(overviewState.filters.search)}".</p>`;
   }
 }
 
+// Baut die Bereichs-Section inkl. ihres Aufgabenbaums. Gibt null zurück, wenn eine aktive Suche
+// in diesem Bereich keine Treffer hat — die Section wird dann komplett ausgeblendet statt leer
+// angezeigt (außer es ist gerade das Inline-Add-Formular dort offen).
 function buildAreaSection(area) {
-  const section = document.createElement("section");
-  section.className = "area-section";
-  section.id = "area-sec-" + area.id;
   const isAddingHere =
     overviewState.addFormTarget &&
     overviewState.addFormTarget.areaId === area.id &&
     overviewState.addFormTarget.parentTaskId === null;
-  const collapsed = overviewState.collapsedAreas.has(area.id) && !isAddingHere;
+  const hasSearch = !!overviewState.filters.search;
+
+  // Baum aus ALLEN Aufgaben des Bereichs (ungefiltert) bauen und erst danach auf sichtbare Knoten
+  // zuschneiden — sonst würde buildTaskTree eine passende Unteraufgabe verwaisen lassen, wenn ihr
+  // Elternteil selbst nicht durch den Filter kommt.
+  const allAreaTasks = overviewState.tasks.filter((t) => t.area_id === area.id);
+  const tree = filterVisibleNodes(buildTaskTree(allAreaTasks, null));
+
+  if (hasSearch && tree.length === 0 && !isAddingHere) return null;
+
+  const section = document.createElement("section");
+  section.className = "area-section";
+  section.id = "area-sec-" + area.id;
+  const collapsed = overviewState.collapsedAreas.has(area.id) && !isAddingHere && !hasSearch;
 
   const header = document.createElement("div");
   header.className = "area-section-header";
@@ -572,8 +662,6 @@ function buildAreaSection(area) {
 
     if (isAddingHere) body.appendChild(buildInlineAddForm(area.id, null));
 
-    const areaTasks = overviewState.tasks.filter((t) => t.area_id === area.id && taskPassesFilter(t));
-    const tree = buildTaskTree(areaTasks, null);
     tree.forEach((node) => body.appendChild(buildTaskNodeEl(node, area, 0)));
 
     if (!isAddingHere && tree.length === 0) {
@@ -593,7 +681,8 @@ function buildTaskNodeEl(node, area, depth) {
   wrap.className = "tree-node";
   const isAddingHere = overviewState.addFormTarget && overviewState.addFormTarget.parentTaskId === node.id;
   const isMovingHere = overviewState.movingNodeId === node.id;
-  const collapsed = overviewState.collapsedNodes.has(node.id) && !isAddingHere && !isMovingHere;
+  const hasSearch = !!overviewState.filters.search;
+  const collapsed = overviewState.collapsedNodes.has(node.id) && !isAddingHere && !isMovingHere && !hasSearch;
 
   const header = document.createElement("div");
   header.className = "tree-node-header";
@@ -1246,7 +1335,7 @@ async function renderPlanView() {
       await savePlanForDate(targetDate, ids);
       status.textContent = "Plan gespeichert.";
     } catch (err) {
-      status.textContent = `Fehler: ${err.message}`;
+      status.textContent = friendlyErrorMessage(err);
     }
   });
 
@@ -1388,7 +1477,7 @@ function buildAreaManageItem(area, areas, index) {
       renderAreaManageList();
     } catch (err) {
       name.value = area.name;
-      alert("Umbenennen fehlgeschlagen: " + err.message);
+      alert("Umbenennen fehlgeschlagen: " + friendlyErrorMessage(err));
     }
   };
   name.addEventListener("blur", commitName);
@@ -1460,7 +1549,7 @@ function wireNewAreaForm() {
       colorInput.value = "#378ADD";
       renderAreaManageList();
     } catch (err) {
-      alert("Anlegen fehlgeschlagen: " + err.message);
+      alert("Anlegen fehlgeschlagen: " + friendlyErrorMessage(err));
     }
   });
 }
