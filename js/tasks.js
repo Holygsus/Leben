@@ -1,13 +1,14 @@
 import { supabase } from "./supabase.js";
 import { getCurrentUserId } from "./auth.js";
 
-export async function listTasks({ areaId, status, effort, isBrainstorm, plannedDate, isPinned } = {}) {
+export async function listTasks({ areaId, status, effort, isBrainstorm, plannedDate, plannedBefore, isPinned } = {}) {
   let query = supabase.from("tasks").select("*").order("created_at", { ascending: true });
   if (areaId) query = query.eq("area_id", areaId);
   if (status) query = query.eq("status", status);
   if (effort) query = query.eq("effort", effort);
   if (isBrainstorm !== undefined) query = query.eq("is_brainstorm", isBrainstorm);
   if (plannedDate) query = query.eq("planned_date", plannedDate);
+  if (plannedBefore) query = query.lt("planned_date", plannedBefore);
   if (isPinned !== undefined) query = query.eq("is_pinned", isPinned);
   const { data, error } = await query;
   if (error) throw error;

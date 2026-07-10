@@ -34,11 +34,29 @@ body {
   font-weight: 600;
   box-shadow: var(--shadow-md);
   text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
 }
 
 #toast.toast-error {
   background: var(--color-danger);
   color: #ffffff;
+}
+
+.toast-action {
+  flex-shrink: 0;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  border: 1px solid currentColor;
+  color: inherit;
+  font-weight: 700;
+  font-size: var(--font-size-sm);
+}
+
+.toast-action:active {
+  opacity: 0.7;
 }
 
 /* Nav */
@@ -145,8 +163,9 @@ body {
   gap: var(--space-2);
   padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-full);
-  background: var(--color-surface-raised);
-  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-accent-warm) 18%, transparent);
+  color: var(--color-accent-warm);
+  font-weight: 600;
   font-size: var(--font-size-sm);
 }
 
@@ -174,6 +193,21 @@ body {
   background: var(--color-success);
   border-radius: var(--radius-full);
   transition: width var(--transition-base);
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-bar-fill.is-complete::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, #fff 35%, transparent), transparent);
+  animation: progress-shine 1.8s ease-in-out infinite;
+}
+
+@keyframes progress-shine {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 
 .task-list {
@@ -192,6 +226,8 @@ body {
   border-radius: var(--radius-md);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
 }
 
 .task-checkbox {
@@ -216,9 +252,18 @@ body {
   text-decoration: line-through;
 }
 
+.task-item.is-overdue {
+  border-color: var(--color-danger);
+}
+
+.task-item.is-overdue .task-title {
+  color: var(--color-danger);
+}
+
 .task-title {
   flex: 1;
   text-align: left;
+  font-weight: 500;
 }
 
 .task-area-dot {
@@ -228,10 +273,71 @@ body {
   flex-shrink: 0;
 }
 
+.count {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  flex-shrink: 0;
+}
+
+.inline-icon {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: -3px;
+}
+
+.inline-icon svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .empty-state {
   margin-top: var(--space-5);
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
+}
+
+.empty-state-rich {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-4);
+  margin-top: var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.empty-state-rich svg {
+  width: 28px;
+  height: 28px;
+  stroke: var(--color-text-subtle);
+  fill: none;
+  stroke-width: 1.5;
+  opacity: 0.7;
+}
+
+.empty-state-rich strong {
+  color: var(--color-text);
+  font-weight: 500;
+  font-size: var(--font-size-base);
+}
+
+.loading-state {
+  margin-top: var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  animation: loading-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes loading-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
 }
 
 /* Brainstorm pill */
@@ -320,6 +426,7 @@ body {
 
 .date-chips {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-1);
 }
 
@@ -338,6 +445,11 @@ body {
   background: var(--color-accent);
   color: var(--color-accent-contrast);
   border-color: var(--color-accent);
+}
+
+.date-chip-custom-input {
+  min-height: 40px;
+  flex: 1 1 140px;
 }
 
 /* Overview view */
@@ -469,11 +581,6 @@ body {
   border: 1px solid var(--color-border);
 }
 
-.project-item .count {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-}
-
 .brainstorm-item {
   display: flex;
   align-items: center;
@@ -482,6 +589,32 @@ body {
   border-radius: var(--radius-md);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
+}
+
+.brainstorm-select {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  accent-color: var(--color-accent);
+}
+
+.bulk-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+}
+
+.bulk-toolbar-count {
+  flex: 1 1 auto;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
 }
 
 /* Plan view */
@@ -530,6 +663,11 @@ body {
 .badge-brainstorm {
   background: color-mix(in srgb, var(--color-warning) 20%, transparent);
   color: var(--color-warning);
+}
+
+.badge-overdue {
+  background: color-mix(in srgb, var(--color-danger) 20%, transparent);
+  color: var(--color-danger);
 }
 
 .task-remove-btn {
@@ -632,8 +770,10 @@ body {
 
 .area-section {
   border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
 }
 
@@ -657,6 +797,20 @@ body {
   flex-shrink: 0;
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
+}
+
+.accordion-wrap {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--transition-base);
+}
+
+.accordion-wrap[data-collapsed="true"] {
+  grid-template-rows: 0fr;
+}
+
+.accordion-wrap > * {
+  overflow: hidden;
 }
 
 .area-section-body {
@@ -827,5 +981,38 @@ body {
 @media (min-width: 560px) {
   .modal-backdrop {
     align-items: center;
+  }
+}
+
+/* Hover-Zustände (nur für Maus/Trackpad — @media (hover: hover) verhindert "hängenbleibende"
+   Hover-Optik nach Antippen auf Touch-Geräten) */
+@media (hover: hover) {
+  .btn:hover {
+    opacity: 0.9;
+  }
+
+  .btn-secondary:hover,
+  .icon-btn:hover:not(:disabled),
+  .chip-btn:hover,
+  .action-btn:hover,
+  .date-chip:hover,
+  .effort-chip:hover,
+  .area-chip:hover {
+    background: var(--color-surface-raised);
+    border-color: var(--color-text-subtle);
+  }
+
+  .task-title-btn:hover,
+  .area-section-name:hover,
+  .tree-node-name:hover {
+    color: var(--color-accent);
+  }
+
+  .nav-link:hover {
+    background: var(--color-surface-raised);
+  }
+
+  .project-item-clickable:hover {
+    border-color: var(--color-text-subtle);
   }
 }

@@ -49,23 +49,25 @@
   --color-text-subtle: #9A948C;
   --color-accent: #378ADD;
   --color-accent-contrast: #FFFFFF;
+  --color-accent-warm: #D4813F;
   --color-success: #1D9E75;
   --color-warning: #BA7517;
   --color-danger: #D85A30;
 }
 
-/* Dark mode */
+/* Dark mode — bewusst einen Tick wärmer als reines Invertieren des Lichtmodus */
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-bg: #171614;
-    --color-surface: #211F1C;
-    --color-surface-raised: #29271F;
-    --color-border: #3A3731;
+    --color-bg: #1A1614;
+    --color-surface: #221E1B;
+    --color-surface-raised: #2A2620;
+    --color-border: #3C3730;
     --color-text: #F2F0EC;
     --color-text-muted: #B3ADA3;
     --color-text-subtle: #7D776D;
     --color-accent: #5CA3EA;
     --color-accent-contrast: #101010;
+    --color-accent-warm: #F2A868;
     --color-success: #38B892;
     --color-warning: #D89234;
     --color-danger: #E67851;
@@ -73,15 +75,16 @@
 }
 
 :root[data-theme="dark"] {
-  --color-bg: #171614;
-  --color-surface: #211F1C;
-  --color-surface-raised: #29271F;
-  --color-border: #3A3731;
+  --color-bg: #1A1614;
+  --color-surface: #221E1B;
+  --color-surface-raised: #2A2620;
+  --color-border: #3C3730;
   --color-text: #F2F0EC;
   --color-text-muted: #B3ADA3;
   --color-text-subtle: #7D776D;
   --color-accent: #5CA3EA;
   --color-accent-contrast: #101010;
+  --color-accent-warm: #F2A868;
   --color-success: #38B892;
   --color-warning: #D89234;
   --color-danger: #E67851;

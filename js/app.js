@@ -58,6 +58,7 @@ const overviewState = {
   addFormTarget: null, // { areaId, parentTaskId } | null — nur ein offenes Anlegen-Formular gleichzeitig
   renamingId: null, // Aufgaben-ID, die gerade inline umbenannt wird, oder null
   movingNodeId: null, // Aufgaben-ID, für die gerade das Verschieben-Panel offen ist, oder null
+  selectedBrainstormIds: new Set(), // Mehrfachauswahl in der "Ohne Bereich"-Liste für Sammel-Aktionen
 };
 
 // Räumt ein offenes Detail-Modal vollständig auf (DOM, Scroll-Sperre, Escape-Listener).
@@ -73,7 +74,8 @@ const planState = {
 };
 
 let toastTimeout = null;
-function showToast(message, isError = false) {
+// action = { label, onClick } | null — zeigt einen Aktions-Button im Toast (z.B. "Rückgängig").
+function showToast(message, isError = false, action = null) {
   let toast = document.getElementById("toast");
   if (!toast) {
     toast = document.createElement("div");
@@ -81,12 +83,30 @@ function showToast(message, isError = false) {
     document.body.appendChild(toast);
   }
   toast.className = "toast" + (isError ? " toast-error" : "");
-  toast.textContent = message;
+  toast.innerHTML = "";
+
+  const text = document.createElement("span");
+  text.textContent = message;
+  toast.appendChild(text);
+
+  if (action) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "toast-action";
+    btn.textContent = action.label;
+    btn.addEventListener("click", () => {
+      clearTimeout(toastTimeout);
+      toast.hidden = true;
+      action.onClick();
+    });
+    toast.appendChild(btn);
+  }
+
   toast.hidden = false;
   clearTimeout(toastTimeout);
   toastTimeout = setTimeout(() => {
     toast.hidden = true;
-  }, 3000);
+  }, action ? 6000 : 3000);
 }
 
 // Übersetzt rohe Supabase/Postgres-Fehler in verständliche deutsche Meldungen. Fehlercodes
@@ -104,6 +124,13 @@ function friendlyErrorMessage(err) {
   return message || "Etwas ist schiefgelaufen.";
 }
 
+// Zeigt einen Lade-Hinweis in einem Container, solange dessen eigentlicher Inhalt noch per
+// Supabase-Request nachgeladen wird (das View-HTML selbst ist bereits da, aber leer).
+function showLoading(elementId) {
+  const el = document.getElementById(elementId);
+  if (el) el.innerHTML = `<p class="loading-state">Lädt…</p>`;
+}
+
 // Führt eine mutierende Aktion aus und zeigt bei Fehlern einen Toast statt still zu scheitern.
 async function withErrorToast(action) {
   try {
@@ -111,6 +138,75 @@ async function withErrorToast(action) {
   } catch (err) {
     showToast(friendlyErrorMessage(err), true);
   }
+}
+
+// Löscht eine Aufgabe (inkl. serverseitig kaskadierter Unteraufgaben, siehe tasks.parent_task_id
+// "on delete cascade") und bietet direkt im Toast ein "Rückgängig" an. Da Postgres das Kaskadieren
+// übernimmt, sichern wir vorher eine vollständige Kopie aller betroffenen Aufgaben, um sie bei
+// Bedarf per createTask wiederherzustellen (mit neuen IDs — die alte Eltern-Kind-Struktur bleibt
+// über die Reihenfolge der Wiederherstellung erhalten).
+async function deleteTaskWithUndo(task, allTasks, afterChange) {
+  const byId = new Map(allTasks.map((t) => [t.id, t]));
+  const descendants = Array.from(collectDescendantIds(allTasks, task.id))
+    .map((id) => byId.get(id))
+    .filter(Boolean);
+
+  await deleteTask(task.id);
+  afterChange();
+
+  const message =
+    descendants.length > 0
+      ? `„${task.title}" und ${descendants.length} Unteraufgabe(n) gelöscht.`
+      : `„${task.title}" gelöscht.`;
+  showToast(message, false, {
+    label: "Rückgängig",
+    onClick: () =>
+      withErrorToast(async () => {
+        await restoreTaskSnapshot(task, descendants);
+        afterChange();
+      }),
+  });
+}
+
+// Baut eine per deleteTaskWithUndo gesicherte Aufgabe (+ Nachfahren) wieder auf. Der Elternteil
+// des gelöschten Wurzelknotens bleibt unverändert (existiert ja noch), Nachfahren werden entlang
+// ihrer ursprünglichen Baumstruktur neu verknüpft.
+async function restoreTaskSnapshot(task, descendants) {
+  const oldToNewId = new Map();
+  const createdRoot = await createTask({
+    title: task.title,
+    areaId: task.area_id,
+    parentTaskId: task.parent_task_id,
+    effort: task.effort,
+    status: task.status,
+    plannedDate: task.planned_date,
+    isBrainstorm: task.is_brainstorm,
+    isPinned: task.is_pinned,
+  });
+  oldToNewId.set(task.id, createdRoot.id);
+
+  const byOldParent = new Map();
+  for (const t of descendants) {
+    if (!byOldParent.has(t.parent_task_id)) byOldParent.set(t.parent_task_id, []);
+    byOldParent.get(t.parent_task_id).push(t);
+  }
+  const insertChildren = async (oldParentId) => {
+    for (const t of byOldParent.get(oldParentId) || []) {
+      const created = await createTask({
+        title: t.title,
+        areaId: t.area_id,
+        parentTaskId: oldToNewId.get(t.parent_task_id),
+        effort: t.effort,
+        status: t.status,
+        plannedDate: t.planned_date,
+        isBrainstorm: t.is_brainstorm,
+        isPinned: t.is_pinned,
+      });
+      oldToNewId.set(t.id, created.id);
+      await insertChildren(t.id);
+    }
+  };
+  await insertChildren(task.id);
 }
 
 // Ein "erledigt"-Häkchen wird rückgängig gemacht: zurück zu "geplant" wenn ein Plandatum
@@ -134,7 +230,8 @@ function tomorrowISO() {
   return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 10);
 }
 
-// Baut eine neue Datum-Chip-Gruppe (Heute/Morgen/Kein Datum) für dynamisch erzeugte Formulare.
+// Baut eine neue Datum-Chip-Gruppe (Heute/Morgen/Kein Datum/eigenes Datum) für dynamisch erzeugte
+// Formulare.
 function createDateChipGroup() {
   const el = document.createElement("div");
   el.className = "date-chips";
@@ -143,33 +240,64 @@ function createDateChipGroup() {
   el.innerHTML = `
     <button type="button" class="date-chip" data-date="today">Heute</button>
     <button type="button" class="date-chip" data-date="tomorrow">Morgen</button>
-    <button type="button" class="date-chip" data-date="" data-active="true">Kein Datum</button>`;
+    <button type="button" class="date-chip" data-date="" data-active="true">Kein Datum</button>
+    <button type="button" class="date-chip" data-date="custom">Datum…</button>
+    <input type="date" class="input date-chip-custom-input" aria-label="Eigenes Datum" hidden />`;
   return wireDateChipGroup(el);
 }
 
 // Verdrahtet eine (bereits im DOM vorhandene oder von createDateChipGroup gebaute) .date-chips-
-// Gruppe: Klick auf einen Chip macht ihn zum einzigen aktiven. getPlannedDate() liest den
-// aktiven Chip aus, reset() setzt auf "Kein Datum" zurück.
+// Gruppe: Klick auf einen Chip macht ihn zum einzigen aktiven. Der "Datum…"-Chip blendet stattdessen
+// ein natives Datums-Input ein. getPlannedDate() liest den aktiven Chip (bzw. das Datums-Input) aus,
+// reset() setzt auf "Kein Datum" zurück.
 function wireDateChipGroup(container) {
   const chips = Array.from(container.querySelectorAll(".date-chip"));
   const noDateChip = chips.find((c) => c.dataset.date === "") || chips[chips.length - 1];
+  const customChip = chips.find((c) => c.dataset.date === "custom");
+  const customInput = container.querySelector(".date-chip-custom-input");
+
   const setActive = (chip) => {
     for (const c of chips) c.removeAttribute("data-active");
     chip.setAttribute("data-active", "true");
   };
+
   for (const chip of chips) {
-    chip.addEventListener("click", () => setActive(chip));
+    chip.addEventListener("click", () => {
+      if (chip === customChip) {
+        setActive(chip);
+        if (customInput) {
+          customInput.hidden = false;
+          customInput.focus();
+          if (customInput.showPicker) customInput.showPicker();
+        }
+        return;
+      }
+      if (customInput) customInput.hidden = true;
+      setActive(chip);
+    });
   }
+
+  if (customInput) {
+    customInput.addEventListener("change", () => {
+      if (customInput.value) setActive(customChip);
+    });
+  }
+
   return {
     el: container,
     getPlannedDate() {
       const activeChip = chips.find((c) => c.dataset.active === "true") || noDateChip;
       if (activeChip.dataset.date === "today") return todayISO();
       if (activeChip.dataset.date === "tomorrow") return tomorrowISO();
+      if (activeChip === customChip) return customInput?.value || null;
       return null;
     },
     reset() {
       setActive(noDateChip);
+      if (customInput) {
+        customInput.hidden = true;
+        customInput.value = "";
+      }
     },
   };
 }
@@ -187,6 +315,33 @@ function escapeHtml(s) {
     '"': "&quot;",
     "'": "&#39;",
   }[c]));
+}
+
+// Kleine Inline-SVG-Icons statt Emoji (📌/💪 rendern je nach Betriebssystem unterschiedlich
+// bunt/inkonsistent) — erben ihre Farbe über currentColor vom umgebenden Element.
+function buildInlineIcon(pathMarkup) {
+  const span = document.createElement("span");
+  span.className = "inline-icon";
+  span.innerHTML = `<svg viewBox="0 0 24 24">${pathMarkup}</svg>`;
+  return span;
+}
+
+function buildPinIcon() {
+  return buildInlineIcon(`<path d="M12 2l2 6 6 2-5 4 1 7-6-4-6 4 1-7-5-4 6-2z"/>`);
+}
+
+function buildGymIcon() {
+  return buildInlineIcon(`<path d="M6 8v8M18 8v8M2 12h4M18 12h4M9 12h6"/>`);
+}
+
+// Baut einen einladenderen Leerzustand (Icon + Titel + Untertext) statt eines reinen Textsatzes.
+function buildEmptyState(title, subtitle) {
+  const wrap = document.createElement("div");
+  wrap.className = "empty-state-rich";
+  wrap.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><strong></strong><span></span>`;
+  wrap.querySelector("strong").textContent = title;
+  wrap.querySelector("span").textContent = subtitle;
+  return wrap;
 }
 
 // Baut eingerückte <option>-Elemente für den Aufgabenbaum eines Bereichs (fuer "Uebergeordnete
@@ -294,13 +449,19 @@ async function renderTodayView() {
   const container = document.getElementById("view-content");
   const res = await fetch("views/today.html");
   container.innerHTML = await res.text();
+  showLoading("task-list");
 
-  const [areas, tasks] = await Promise.all([listAreas(), listTasks({ plannedDate: todayISO() })]);
+  const [areas, tasks, overdueRaw] = await Promise.all([
+    listAreas(),
+    listTasks({ plannedDate: todayISO() }),
+    listTasks({ plannedBefore: todayISO() }),
+  ]);
+  const overdueTasks = overdueRaw.filter((t) => t.status !== "done");
   const areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
 
   renderGreeting();
   renderGymIndicator();
-  renderTodayTasks(tasks, areaColorById);
+  renderTodayTasks(tasks, overdueTasks, areaColorById);
   wireQuickCapture(areas, renderTodayView);
 }
 
@@ -321,35 +482,51 @@ function renderGymIndicator() {
   const el = document.getElementById("gym-indicator");
   const isGymDay = [1, 3, 5].includes(day);
   el.hidden = !isGymDay;
-  if (isGymDay) el.textContent = "💪 Heute ist Gym-Tag";
+  if (isGymDay) {
+    el.innerHTML = "";
+    el.append(buildGymIcon(), " Heute ist Gym-Tag");
+  }
 }
 
-function renderTodayTasks(tasks, areaColorById) {
+// tasks = für heute geplante Aufgaben (bestimmen die Fortschrittsanzeige), overdueTasks = nicht
+// erledigte Aufgaben mit Plandatum in der Vergangenheit (zählen bewusst NICHT in den
+// Tagesfortschritt hinein, werden aber oben in der Liste als "Überfällig" hervorgehoben).
+function renderTodayTasks(tasks, overdueTasks, areaColorById) {
   const list = document.getElementById("task-list");
   const emptyState = document.getElementById("empty-state");
   const doneCount = tasks.filter((t) => t.status === "done").length;
 
   document.getElementById("progress-text").textContent = `${doneCount} von ${tasks.length} Aufgaben erledigt`;
-  document.getElementById("progress-bar-fill").style.width = tasks.length
-    ? `${Math.round((doneCount / tasks.length) * 100)}%`
-    : "0%";
+  const progressFill = document.getElementById("progress-bar-fill");
+  progressFill.style.width = tasks.length ? `${Math.round((doneCount / tasks.length) * 100)}%` : "0%";
+  progressFill.classList.toggle("is-complete", tasks.length > 0 && doneCount === tasks.length);
 
   list.innerHTML = "";
-  if (tasks.length === 0) {
+  for (const task of overdueTasks) {
+    list.appendChild(buildTaskItem(task, areaColorById, renderTodayView, true));
+  }
+
+  if (tasks.length === 0 && overdueTasks.length === 0) {
     emptyState.hidden = false;
     return;
   }
   emptyState.hidden = true;
 
   for (const task of tasks) {
-    list.appendChild(buildTaskItem(task, areaColorById, renderTodayView));
+    list.appendChild(buildTaskItem(task, areaColorById, renderTodayView, false));
   }
 }
 
-function buildTaskItem(task, areaColorById, onChange) {
+function buildTaskItem(task, areaColorById, onChange, isOverdue = false) {
   const li = document.createElement("li");
   const isStale = isTaskStale(task);
-  li.className = "task-item" + (task.status === "done" ? " is-done" : "") + (isStale ? " is-stale" : "");
+  li.className =
+    "task-item" +
+    (task.status === "done" ? " is-done" : "") +
+    (isStale ? " is-stale" : "") +
+    (isOverdue ? " is-overdue" : "");
+  // Bereichsfarbe als Akzent am linken Rand — außer bei "überfällig", das hat Vorrang (rot).
+  if (!isOverdue && areaColorById[task.area_id]) li.style.borderLeftColor = areaColorById[task.area_id];
 
   const dot = document.createElement("span");
   dot.className = "task-area-dot";
@@ -374,6 +551,14 @@ function buildTaskItem(task, areaColorById, onChange) {
   title.textContent = task.title;
 
   li.append(dot, checkbox, title);
+
+  if (isOverdue) {
+    const badge = document.createElement("span");
+    badge.className = "badge badge-overdue";
+    badge.textContent = "Überfällig";
+    li.appendChild(badge);
+  }
+
   return li;
 }
 
@@ -442,12 +627,14 @@ async function renderOverviewView() {
   const container = document.getElementById("view-content");
   const res = await fetch("views/overview.html");
   container.innerHTML = await res.text();
+  showLoading("area-tree");
 
   // Filterzustand bleibt über Navigationswechsel (und dank localStorage auch über Reloads) hinweg
   // erhalten — nur die transienten UI-Zustände unten werden bei jedem View-Wechsel geschlossen.
   overviewState.addFormTarget = null;
   overviewState.renamingId = null;
   overviewState.movingNodeId = null;
+  overviewState.selectedBrainstormIds.clear();
 
   await loadOverviewData();
   renderPinnedTasks();
@@ -550,7 +737,7 @@ function renderPinnedTasks() {
     li.className = "project-item project-item-clickable";
 
     const name = document.createElement("span");
-    name.textContent = "📌 " + t.title;
+    name.append(buildPinIcon(), " " + t.title);
 
     const meta = document.createElement("span");
     meta.className = "count";
@@ -573,7 +760,8 @@ function renderAreaTree() {
   const root = document.getElementById("area-tree");
   root.innerHTML = "";
   if (overviewState.areas.length === 0) {
-    root.innerHTML = `<p class="empty-state">Noch keine Bereiche. Lege welche unter „Bereiche" an.</p>`;
+    root.innerHTML = "";
+    root.appendChild(buildEmptyState("Noch keine Bereiche", `Leg welche unter „Bereiche" an.`));
     return;
   }
   let rendered = 0;
@@ -585,7 +773,8 @@ function renderAreaTree() {
     }
   }
   if (rendered === 0 && overviewState.filters.search) {
-    root.innerHTML = `<p class="empty-state">Keine Treffer für „${escapeHtml(overviewState.filters.search)}".</p>`;
+    root.innerHTML = "";
+    root.appendChild(buildEmptyState("Keine Treffer", `Nichts gefunden für „${overviewState.filters.search}".`));
   }
 }
 
@@ -610,6 +799,7 @@ function buildAreaSection(area) {
   const section = document.createElement("section");
   section.className = "area-section";
   section.id = "area-sec-" + area.id;
+  section.style.borderLeftColor = area.color;
   const collapsed = overviewState.collapsedAreas.has(area.id) && !isAddingHere && !hasSearch;
 
   const header = document.createElement("div");
@@ -656,23 +846,25 @@ function buildAreaSection(area) {
   header.append(toggle, dot, name, count, addBtn);
   section.appendChild(header);
 
-  if (!collapsed) {
-    const body = document.createElement("div");
-    body.className = "area-section-body";
+  // Body steckt immer im DOM (in einem grid-rows-Wrapper) statt bei "collapsed" ganz zu
+  // verschwinden — nur so lässt sich das Auf-/Zuklappen sanft animieren statt hart umzuschalten.
+  const bodyWrap = document.createElement("div");
+  bodyWrap.className = "accordion-wrap";
+  bodyWrap.dataset.collapsed = String(collapsed);
 
-    if (isAddingHere) body.appendChild(buildInlineAddForm(area.id, null));
+  const body = document.createElement("div");
+  body.className = "area-section-body";
 
-    tree.forEach((node) => body.appendChild(buildTaskNodeEl(node, area, 0)));
+  if (isAddingHere) body.appendChild(buildInlineAddForm(area.id, null));
 
-    if (!isAddingHere && tree.length === 0) {
-      const empty = document.createElement("p");
-      empty.className = "empty-state";
-      empty.textContent = "Noch nichts in diesem Bereich.";
-      body.appendChild(empty);
-    }
+  tree.forEach((node) => body.appendChild(buildTaskNodeEl(node, area, 0)));
 
-    section.appendChild(body);
+  if (!isAddingHere && tree.length === 0) {
+    body.appendChild(buildEmptyState("Noch leer hier", "Leg über das + oben die erste Aufgabe für diesen Bereich an."));
   }
+
+  bodyWrap.appendChild(body);
+  section.appendChild(bodyWrap);
   return section;
 }
 
@@ -764,15 +956,8 @@ function buildTaskNodeEl(node, area, depth) {
     actionButton(
       "Löschen",
       async () => {
-        const count = collectDescendantIds(overviewState.tasks, node.id).size;
-        const message =
-          count > 0
-            ? `„${node.title}" und ${count} Unteraufgabe(n) löschen?`
-            : `„${node.title}" löschen?`;
-        if (!confirm(message)) return;
         await withErrorToast(async () => {
-          await deleteTask(node.id);
-          reloadOverview();
+          await deleteTaskWithUndo(node, overviewState.tasks, reloadOverview);
         });
       },
       "danger"
@@ -783,16 +968,20 @@ function buildTaskNodeEl(node, area, depth) {
   });
   wrap.appendChild(actions);
 
-  if (!collapsed) {
-    const body = document.createElement("div");
-    body.className = "tree-node-body";
+  const bodyWrap = document.createElement("div");
+  bodyWrap.className = "accordion-wrap";
+  bodyWrap.dataset.collapsed = String(collapsed);
 
-    if (isAddingHere) body.appendChild(buildInlineAddForm(area.id, node.id));
-    if (isMovingHere) body.appendChild(buildMovePanel(node));
+  const body = document.createElement("div");
+  body.className = "tree-node-body";
 
-    node.children.forEach((child) => body.appendChild(buildTaskNodeEl(child, area, depth + 1)));
-    wrap.appendChild(body);
-  }
+  if (isAddingHere) body.appendChild(buildInlineAddForm(area.id, node.id));
+  if (isMovingHere) body.appendChild(buildMovePanel(node));
+
+  node.children.forEach((child) => body.appendChild(buildTaskNodeEl(child, area, depth + 1)));
+
+  bodyWrap.appendChild(body);
+  wrap.appendChild(bodyWrap);
   return wrap;
 }
 
@@ -836,7 +1025,8 @@ function buildTaskNameEl(node) {
   }
   const name = document.createElement("span");
   name.className = "tree-node-name task-title-btn";
-  name.textContent = (node.is_pinned ? "📌 " : "") + node.title;
+  if (node.is_pinned) name.append(buildPinIcon(), " ");
+  name.append(node.title);
   name.addEventListener("click", () => openTaskDetail(node));
   return name;
 }
@@ -967,6 +1157,13 @@ function renderNoAreaSection() {
   const panel = document.getElementById("no-area-panel");
   const list = document.getElementById("brainstorm-list");
   const noArea = overviewState.tasks.filter((t) => !t.area_id && taskPassesFilter(t));
+
+  // Auswahl auf noch sichtbare Aufgaben begrenzen (z.B. nach Filterwechsel oder Zuweisung).
+  const visibleIds = new Set(noArea.map((t) => t.id));
+  for (const id of overviewState.selectedBrainstormIds) {
+    if (!visibleIds.has(id)) overviewState.selectedBrainstormIds.delete(id);
+  }
+
   if (noArea.length === 0) {
     panel.hidden = true;
     return;
@@ -977,6 +1174,17 @@ function renderNoAreaSection() {
   for (const task of noArea) {
     const li = document.createElement("li");
     li.className = "brainstorm-item";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "brainstorm-select";
+    checkbox.setAttribute("aria-label", "Auswählen: " + task.title);
+    checkbox.checked = overviewState.selectedBrainstormIds.has(task.id);
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) overviewState.selectedBrainstormIds.add(task.id);
+      else overviewState.selectedBrainstormIds.delete(task.id);
+      renderBulkToolbar();
+    });
 
     const title = document.createElement("button");
     title.type = "button";
@@ -996,9 +1204,101 @@ function renderNoAreaSection() {
       });
     });
 
-    li.append(title, areaSelect);
+    li.append(checkbox, title, areaSelect);
     list.appendChild(li);
   }
+
+  renderBulkToolbar();
+}
+
+// Sammel-Aktionen-Leiste über der "Ohne Bereich"-Liste — nur sichtbar, solange mindestens eine
+// Aufgabe ausgewählt ist. Löschen nutzt denselben Snapshot/Wiederherstellen-Mechanismus wie
+// deleteTaskWithUndo, nur für mehrere Aufgaben auf einmal.
+function renderBulkToolbar() {
+  const toolbar = document.getElementById("brainstorm-bulk-toolbar");
+  if (!toolbar) return;
+  const selectedIds = Array.from(overviewState.selectedBrainstormIds);
+  toolbar.innerHTML = "";
+  if (selectedIds.length === 0) {
+    toolbar.hidden = true;
+    return;
+  }
+  toolbar.hidden = false;
+
+  const count = document.createElement("span");
+  count.className = "bulk-toolbar-count";
+  count.textContent = `${selectedIds.length} ausgewählt`;
+
+  const areaSelect = document.createElement("select");
+  areaSelect.className = "select";
+  areaSelect.innerHTML =
+    `<option value="">Bereich zuweisen…</option>` +
+    overviewState.areas.map((a) => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join("");
+  areaSelect.addEventListener("change", async () => {
+    const areaId = areaSelect.value;
+    if (!areaId) return;
+    await withErrorToast(async () => {
+      await Promise.all(selectedIds.map((id) => updateTask(id, { area_id: areaId, is_brainstorm: false })));
+      overviewState.selectedBrainstormIds.clear();
+      showToast(`${selectedIds.length} Aufgabe(n) zugewiesen.`);
+      reloadOverview();
+    });
+  });
+
+  const pinBtn = document.createElement("button");
+  pinBtn.type = "button";
+  pinBtn.className = "btn btn-secondary";
+  pinBtn.textContent = "Anheften";
+  pinBtn.addEventListener("click", async () => {
+    await withErrorToast(async () => {
+      await Promise.all(selectedIds.map((id) => updateTask(id, { is_pinned: true })));
+      overviewState.selectedBrainstormIds.clear();
+      showToast(`${selectedIds.length} Aufgabe(n) angeheftet.`);
+      reloadOverview();
+    });
+  });
+
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.className = "btn btn-secondary";
+  deleteBtn.textContent = "Löschen";
+  deleteBtn.addEventListener("click", async () => {
+    if (!confirm(`${selectedIds.length} Aufgabe(n) löschen?`)) return;
+    const byId = new Map(overviewState.tasks.map((t) => [t.id, t]));
+    const snapshots = selectedIds
+      .map((id) => ({
+        task: byId.get(id),
+        descendants: Array.from(collectDescendantIds(overviewState.tasks, id))
+          .map((cid) => byId.get(cid))
+          .filter(Boolean),
+      }))
+      .filter((s) => s.task);
+    await withErrorToast(async () => {
+      await Promise.all(selectedIds.map((id) => deleteTask(id)));
+      overviewState.selectedBrainstormIds.clear();
+      reloadOverview();
+      showToast(`${snapshots.length} Aufgabe(n) gelöscht.`, false, {
+        label: "Rückgängig",
+        onClick: () =>
+          withErrorToast(async () => {
+            for (const s of snapshots) await restoreTaskSnapshot(s.task, s.descendants);
+            reloadOverview();
+          }),
+      });
+    });
+  });
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "icon-btn";
+  cancelBtn.textContent = "×";
+  cancelBtn.setAttribute("aria-label", "Auswahl aufheben");
+  cancelBtn.addEventListener("click", () => {
+    overviewState.selectedBrainstormIds.clear();
+    renderNoAreaSection();
+  });
+
+  toolbar.append(count, areaSelect, pinBtn, deleteBtn, cancelBtn);
 }
 
 // ----- Neue Aufgabe -----
@@ -1165,6 +1465,8 @@ async function renderTaskDetailCard(taskId, close) {
           <button type="button" class="date-chip" data-date="today">Heute</button>
           <button type="button" class="date-chip" data-date="tomorrow">Morgen</button>
           <button type="button" class="date-chip" data-date="" data-active="true">Kein Datum</button>
+          <button type="button" class="date-chip" data-date="custom">Datum…</button>
+          <input type="date" class="input date-chip-custom-input" aria-label="Eigenes Datum" hidden />
         </div>
         <button class="btn" type="submit">Hinzufügen</button>
       </form>
@@ -1216,13 +1518,9 @@ async function renderTaskDetailCard(taskId, close) {
     });
   });
   document.getElementById("td-delete").addEventListener("click", async () => {
-    const count = collectDescendantIds(allTasks, task.id).size;
-    const message = count > 0 ? `Aufgabe und ${count} Unteraufgabe(n) löschen?` : "Aufgabe löschen?";
-    if (!confirm(message)) return;
     await withErrorToast(async () => {
-      await deleteTask(task.id);
       close();
-      reloadOverview();
+      await deleteTaskWithUndo(task, allTasks, reloadOverview);
     });
   });
 
@@ -1280,6 +1578,7 @@ async function renderPlanView() {
   const container = document.getElementById("view-content");
   const res = await fetch("views/plan.html");
   container.innerHTML = await res.text();
+  showLoading("suggested-task-list");
 
   planState.targetDate = tomorrowISO();
   const dateInput = document.getElementById("plan-date-input");
@@ -1373,6 +1672,7 @@ function renderPlanTaskList() {
 function buildPlanTaskItem(task, areaColorById) {
   const li = document.createElement("li");
   li.className = "task-item";
+  if (areaColorById[task.area_id]) li.style.borderLeftColor = areaColorById[task.area_id];
 
   const dot = document.createElement("span");
   dot.className = "task-area-dot";
@@ -1422,6 +1722,7 @@ async function renderAreasView() {
   const container = document.getElementById("view-content");
   const res = await fetch("views/areas.html");
   container.innerHTML = await res.text();
+  showLoading("area-manage-list");
 
   await renderAreaManageList();
   wireNewAreaForm();

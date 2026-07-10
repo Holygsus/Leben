@@ -32,6 +32,7 @@
 
 <section class="panel" id="no-area-panel" hidden>
   <h2>Ohne Bereich</h2>
+  <div class="bulk-toolbar" id="brainstorm-bulk-toolbar" hidden></div>
   <ul class="brainstorm-list" id="brainstorm-list"></ul>
 </section>
 
@@ -56,6 +57,8 @@
       <button type="button" class="date-chip" data-date="today">Heute</button>
       <button type="button" class="date-chip" data-date="tomorrow">Morgen</button>
       <button type="button" class="date-chip" data-date="" data-active="true">Kein Datum</button>
+      <button type="button" class="date-chip" data-date="custom">Datum…</button>
+      <input type="date" class="input date-chip-custom-input" aria-label="Eigenes Datum" hidden />
     </div>
     <button class="btn" type="submit">Anlegen</button>
   </form>
