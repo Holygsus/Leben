@@ -36,8 +36,25 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+// Stale-while-revalidate statt reinem Cache-first: liefert sofort die gecachte Version (schnell,
+// offline-fähig), holt aber im Hintergrund immer die aktuelle Version nach und aktualisiert den
+// Cache fürs nächste Mal. Ohne das würde jede spätere Code-Änderung an CSS/JS für wiederkehrende
+// Nutzer unsichtbar bleiben, bis jemand manuell CACHE_NAME hochzählt — bei einer Static-Site ohne
+// Build-Schritt ein leicht vergessener Stolperstein.
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== location.origin) return;
-  event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request)));
+  event.respondWith(
+    caches.open(CACHE_NAME).then((cache) =>
+      cache.match(event.request).then((cached) => {
+        const network = fetch(event.request)
+          .then((response) => {
+            if (response.ok) cache.put(event.request, response.clone());
+            return response;
+          })
+          .catch(() => cached);
+        return cached || network;
+      })
+    )
+  );
 });
