@@ -1,0 +1,95 @@
+<section class="view-header">
+  <h1>Finanzen</h1>
+</section>
+
+<div class="pot-grid" id="pot-grid"></div>
+
+<div class="events-widget" id="buyready-card" hidden>
+  <div class="events-widget-header">
+    <span class="inline-icon"><svg viewBox="0 0 24 24"><path d="M6 6h15l-1.5 9h-12z"/><path d="M6 6 5 3H2"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/></svg></span>
+    <span>Kaufbereit</span>
+  </div>
+  <ul class="events-widget-list" id="buyready-list"></ul>
+  <button type="button" class="events-widget-more" id="buyready-more" hidden></button>
+</div>
+
+<ul class="task-list" id="committed-preview-list"></ul>
+
+<section class="filter-bar">
+  <select id="tx-filter-pot" class="select" aria-label="Nach Topf filtern">
+    <option value="">Alle Töpfe</option>
+    <option value="fixkosten">Fixkosten</option>
+    <option value="sicherheit">Sicherheit</option>
+    <option value="wachstum">Wachstum</option>
+    <option value="freiheit">Freiheit</option>
+  </select>
+</section>
+<ul class="task-list" id="transaction-list"></ul>
+<p class="empty-state" id="transaction-empty-state" hidden>Noch keine Transaktionen erfasst.</p>
+
+<section class="panel">
+  <div class="panel-header">
+    <h2>Fixkosten</h2>
+    <button type="button" class="icon-btn" id="fixed-costs-toggle" aria-label="Fixkosten verwalten">⚙</button>
+  </div>
+  <div id="fixed-costs-panel" hidden>
+    <ul class="task-list" id="fixed-costs-list"></ul>
+    <form id="new-fixed-cost-form" class="new-task-form">
+      <input class="input" type="text" id="new-fixed-cost-name" placeholder="Name" required autocomplete="off" />
+      <input class="input" type="number" id="new-fixed-cost-amount" placeholder="Betrag (€)" step="0.01" min="0" required />
+      <select class="select" id="new-fixed-cost-interval" aria-label="Intervall">
+        <option value="monthly">Monatlich</option>
+        <option value="quarterly">Quartal</option>
+        <option value="yearly">Jährlich</option>
+      </select>
+      <button class="btn" type="submit">Anlegen</button>
+    </form>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h2>Verpflichtende Ausgaben</h2>
+    <button type="button" class="icon-btn" id="committed-manage-toggle" aria-label="Verpflichtende Ausgaben verwalten">⚙</button>
+  </div>
+  <div id="committed-manage-panel" hidden>
+    <ul class="task-list" id="committed-manage-list"></ul>
+    <form id="new-committed-form" class="new-task-form">
+      <input class="input" type="text" id="new-committed-name" placeholder="Name" required autocomplete="off" />
+      <input class="input" type="number" id="new-committed-amount" placeholder="Betrag (€)" step="0.01" min="0" required />
+      <div class="date-chips" id="new-committed-date-chips" role="group" aria-label="Fälligkeitsdatum">
+        <button type="button" class="date-chip" data-date="today">Heute</button>
+        <button type="button" class="date-chip" data-date="tomorrow">Morgen</button>
+        <button type="button" class="date-chip" data-date="" data-active="true">Kein Datum</button>
+        <button type="button" class="date-chip" data-date="custom">Datum…</button>
+        <input type="date" class="input date-chip-custom-input" aria-label="Eigenes Datum" hidden />
+      </div>
+      <button class="btn" type="submit">Anlegen</button>
+    </form>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Wunschliste</h2>
+  <div id="wishlist-cards"></div>
+  <form id="new-wishlist-form" class="inline-add-form">
+    <input class="input" type="text" id="new-wishlist-title" placeholder="Neuer Wunsch (z.B. RAM 32GB DDR5)" autocomplete="off" required />
+    <button class="btn" type="submit">Hinzufügen</button>
+  </form>
+</section>
+
+<form class="brainstorm-pill" id="tx-quick-form">
+  <div class="brainstorm-options" id="tx-quick-options" hidden>
+    <div class="pot-chips" id="tx-quick-pot" role="group" aria-label="Topf">
+      <button type="button" class="pot-chip" data-pot="fixkosten" style="--pot-color: var(--color-text-subtle)">Fixkosten</button>
+      <button type="button" class="pot-chip" data-pot="sicherheit" style="--pot-color: var(--color-accent)">Sicherheit</button>
+      <button type="button" class="pot-chip" data-pot="wachstum" style="--pot-color: var(--color-success)">Wachstum</button>
+      <button type="button" class="pot-chip" data-pot="freiheit" data-active="true" style="--pot-color: var(--color-accent-warm)">Freiheit</button>
+    </div>
+    <input type="text" class="input" id="tx-quick-note" placeholder="Notiz (optional)" autocomplete="off" />
+  </div>
+  <div class="brainstorm-row">
+    <input type="number" id="tx-quick-amount" placeholder="Betrag (€)" step="0.01" min="0" inputmode="decimal" />
+    <button type="submit" aria-label="Hinzufügen">+</button>
+  </div>
+</form>

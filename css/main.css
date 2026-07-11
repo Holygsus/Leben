@@ -523,6 +523,29 @@ body {
   border-color: var(--color-accent);
 }
 
+.pot-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.pot-chip {
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.pot-chip[data-active="true"] {
+  background: var(--pot-color, var(--color-accent));
+  color: var(--color-accent-contrast);
+  border-color: var(--pot-color, var(--color-accent));
+}
+
 .date-chips {
   display: flex;
   flex-wrap: wrap;
@@ -658,6 +681,125 @@ body {
 .panel h2 {
   font-size: var(--font-size-lg);
   margin-bottom: var(--space-3);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.panel-header h2 {
+  margin-bottom: 0;
+}
+
+/* Finanzen */
+
+.pot-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+}
+
+.pot-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--pot-color, var(--color-accent));
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  box-shadow: var(--shadow-sm);
+}
+
+.pot-card .p-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.pot-card .p-amount {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+
+.pot-card .p-bar {
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+  margin-top: var(--space-2);
+  overflow: hidden;
+}
+
+.pot-card .p-bar > i {
+  display: block;
+  height: 100%;
+  background: var(--pot-color, var(--color-accent));
+}
+
+.badge-reserve {
+  background: color-mix(in srgb, var(--color-warning) 20%, transparent);
+  color: var(--color-warning);
+}
+
+.wish-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.wish-card:last-child {
+  margin-bottom: 0;
+}
+
+.wish-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.wish-title {
+  flex: 1;
+  font-weight: 500;
+}
+
+.wish-price {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.wish-tags {
+  display: flex;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.wtag {
+  font-size: 0.72rem;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  color: var(--color-text-subtle);
+}
+
+.wtag.status-active {
+  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--color-success) 45%, var(--color-border));
+}
+
+.wtag.status-ready {
+  background: var(--color-success);
+  color: var(--color-accent-contrast);
+  border-color: var(--color-success);
+}
+
+.wtag.status-bought {
+  color: var(--color-text-subtle);
+  text-decoration: line-through;
 }
 
 .new-task-form {
@@ -1143,6 +1285,7 @@ body {
   .date-chip:hover,
   .effort-chip:hover,
   .priority-chip:hover,
+  .pot-chip:hover,
   .area-chip:hover {
     background: var(--color-surface-raised);
     border-color: var(--color-text-subtle);

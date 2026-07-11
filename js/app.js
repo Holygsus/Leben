@@ -13,6 +13,27 @@ import {
 } from "./tasks.js";
 import { listAreas, createArea, updateArea, deleteArea, swapAreaOrder } from "./areas.js";
 import { suggestTasksForPlan, formatTasksForExport, savePlanForDate } from "./planner.js";
+import {
+  listTransactions,
+  createTransaction,
+  listFixedCosts,
+  createFixedCost,
+  updateFixedCost,
+  deleteFixedCost,
+  listCommittedExpenses,
+  createCommittedExpense,
+  updateCommittedExpense,
+  deleteCommittedExpense,
+  getFinanceModuleSettings,
+} from "./finance.js";
+import {
+  listWishlistItems,
+  createWishlistItem,
+  updateWishlistItem,
+  deleteWishlistItem,
+  getSavingsPotBalance,
+  filterBuyReady,
+} from "./wishlist.js";
 
 const app = document.getElementById("app");
 
@@ -20,6 +41,7 @@ const routes = {
   today: renderTodayView,
   overview: renderOverviewView,
   plan: renderPlanView,
+  finance: renderFinanceView,
 };
 
 const FILTER_STORAGE_KEY = "leben-os:overview-filters";
@@ -534,6 +556,7 @@ function renderShell() {
       <a href="#/today" class="nav-link${route === "today" ? " is-active" : ""}">Heute <span class="nav-count" id="nav-today-count" hidden></span></a>
       <a href="#/overview" class="nav-link${route === "overview" ? " is-active" : ""}">Übersicht</a>
       <a href="#/plan" class="nav-link${route === "plan" ? " is-active" : ""}">Plan</a>
+      <a href="#/finance" class="nav-link${route === "finance" ? " is-active" : ""}">Finanzen</a>
     </nav>
     <div id="view-content"></div>
   `;
@@ -569,7 +592,12 @@ async function renderTodayView() {
   // Ein einzelner ungefilterter Fetch reicht: Heute, überfällig, Termine und Quick-Win-Kandidaten
   // werden alle clientseitig aus derselben Liste abgeleitet (spart Roundtrips und macht die
   // Mutteraufgaben-Gruppierung trivial, weil der volle Baum schon vorliegt).
-  const [areas, allTasks] = await Promise.all([listAreas(), listTasks()]);
+  const [areas, allTasks, activeWishlistItems, potBalance] = await Promise.all([
+    listAreas(),
+    listTasks(),
+    listWishlistItems({ status: "active" }),
+    getSavingsPotBalance(),
+  ]);
   const areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
   const today = todayISO();
   const tasks = allTasks.filter((t) => t.planned_date === today);
@@ -578,6 +606,7 @@ async function renderTodayView() {
   renderGreeting();
   renderGymIndicator();
   renderUpcomingEvents(allTasks, today);
+  renderBuyReadyAlert(activeWishlistItems, potBalance);
   renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById);
   renderQuickWin(allTasks, tasks, today);
   wireQuickCapture(areas, renderTodayView);
@@ -2043,6 +2072,575 @@ function renderAddTaskSelect() {
   select.innerHTML =
     `<option value="">Aufgabe wählen…</option>` +
     available.map((t) => `<option value="${t.id}">${escapeHtml(t.title)}</option>`).join("");
+}
+
+/* ---------- Finanzen ---------- */
+
+const POT_LABELS = { fixkosten: "Fixkosten", sicherheit: "Sicherheit", wachstum: "Wachstum", freiheit: "Freiheit" };
+const POT_COLOR_VAR = {
+  fixkosten: "var(--color-text-subtle)",
+  sicherheit: "var(--color-accent)",
+  wachstum: "var(--color-success)",
+  freiheit: "var(--color-accent-warm)",
+};
+const INTERVAL_LABELS = { monthly: "monatlich", quarterly: "quartalsweise", yearly: "jährlich" };
+const WISHLIST_STATUS_LABELS = { inactive: "Inaktiv", active: "Aktiv", ready: "Kaufbereit", bought: "Gekauft" };
+const WISHLIST_STATUS_CYCLE = ["inactive", "active", "ready", "bought"];
+const WISHLIST_CATEGORY_LABELS = { need: "Need", invest: "Invest", enjoy: "Enjoy" };
+
+function formatEuro(value) {
+  return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(value || 0);
+}
+
+function monthlyAmount(cost) {
+  if (cost.interval === "quarterly") return cost.amount / 3;
+  if (cost.interval === "yearly") return cost.amount / 12;
+  return cost.amount;
+}
+
+function monthsUntil(dueDate) {
+  const days = (new Date(dueDate) - new Date()) / (1000 * 60 * 60 * 24);
+  return Math.max(1, Math.round(days / 30));
+}
+
+function weeksSinceFirstTransaction(transactions) {
+  if (transactions.length === 0) return 0;
+  const earliest = transactions.reduce((min, t) => (t.occurred_at < min ? t.occurred_at : min), transactions[0].occurred_at);
+  const days = (Date.now() - new Date(earliest).getTime()) / (1000 * 60 * 60 * 24);
+  return Math.max(1, Math.floor(days / 7));
+}
+
+// Kaufbereit-Widget — identisch in Heute und Finanzen genutzt (gleiche Element-IDs in beiden
+// Views, immer nur eine davon gleichzeitig im DOM). Zeigt bis zu 2 Einträge direkt, "+N weitere"
+// bei mehr — gleiches Muster wie renderUpcomingEvents().
+function renderBuyReadyAlert(wishlistItems, potBalance) {
+  const card = document.getElementById("buyready-card");
+  if (!card) return;
+  const list = document.getElementById("buyready-list");
+  const moreBtn = document.getElementById("buyready-more");
+  const ready = filterBuyReady(wishlistItems, potBalance);
+
+  if (ready.length === 0) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  const renderItems = (items) => {
+    list.innerHTML = "";
+    for (const item of items) {
+      const li = document.createElement("li");
+      li.textContent = `${item.title} — ${formatEuro(item.current_price)}`;
+      list.appendChild(li);
+    }
+  };
+  renderItems(ready.slice(0, 2));
+  if (ready.length > 2) {
+    moreBtn.hidden = false;
+    moreBtn.textContent = `+${ready.length - 2} weitere`;
+    moreBtn.onclick = () => {
+      renderItems(ready);
+      moreBtn.hidden = true;
+    };
+  } else {
+    moreBtn.hidden = true;
+  }
+}
+
+const financeState = {
+  settings: null,
+  transactions: [],
+  fixedCosts: [],
+  committedExpenses: [],
+  wishlistItems: [],
+  potBalance: 0,
+  txFilterPot: "",
+};
+
+async function renderFinanceView() {
+  const container = document.getElementById("view-content");
+  const res = await fetch("views/finance.html");
+  container.innerHTML = await res.text();
+  showLoading("pot-grid");
+
+  await loadFinanceData();
+  renderPotGrid();
+  renderBuyReadyAlert(financeState.wishlistItems, financeState.potBalance);
+  renderCommittedPreview();
+  renderTransactionList();
+  renderFixedCostsList();
+  renderCommittedManageList();
+  renderWishlistCards();
+  wireFinanceFilters();
+  wireFixedCostsPanel();
+  wireCommittedPanel();
+  wireWishlistForm();
+  wireTransactionQuickCapture();
+}
+
+async function loadFinanceData() {
+  const [settings, transactions, fixedCosts, committedExpenses, wishlistItems, potBalance] = await Promise.all([
+    getFinanceModuleSettings(),
+    listTransactions(),
+    listFixedCosts(),
+    listCommittedExpenses({ statusNot: "settled" }),
+    listWishlistItems(),
+    getSavingsPotBalance(),
+  ]);
+  financeState.settings = settings;
+  financeState.transactions = transactions;
+  financeState.fixedCosts = fixedCosts;
+  financeState.committedExpenses = committedExpenses;
+  financeState.wishlistItems = wishlistItems;
+  financeState.potBalance = potBalance;
+}
+
+async function reloadFinance() {
+  await loadFinanceData();
+  renderPotGrid();
+  renderBuyReadyAlert(financeState.wishlistItems, financeState.potBalance);
+  renderCommittedPreview();
+  renderTransactionList();
+  renderFixedCostsList();
+  renderCommittedManageList();
+  renderWishlistCards();
+}
+
+function buildPotCard(label, color, amountText, pct) {
+  const card = document.createElement("div");
+  card.className = "pot-card";
+  card.style.setProperty("--pot-color", color);
+  const labelEl = document.createElement("div");
+  labelEl.className = "p-label";
+  labelEl.textContent = label;
+  const amountEl = document.createElement("div");
+  amountEl.className = "p-amount";
+  amountEl.textContent = amountText;
+  const bar = document.createElement("div");
+  bar.className = "p-bar";
+  const fill = document.createElement("i");
+  fill.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+  bar.appendChild(fill);
+  card.append(labelEl, amountEl, bar);
+  return card;
+}
+
+// Fixkosten zeigt immer die echte Summe — läuft unabhängig von der Finanzplan-Phase. Sicherheit/
+// Wachstum/Freiheit zeigen in Phase 1 einen Sammel-Platzhalter statt eines geratenen Betrags (siehe
+// wissensdatenbank/finanzplan-ui-plan.md).
+function renderPotGrid() {
+  const grid = document.getElementById("pot-grid");
+  const settings = financeState.settings.settings || {};
+  const phase = settings.phase || 1;
+
+  const fixkostenSum = financeState.fixedCosts.reduce((sum, c) => sum + monthlyAmount(c), 0);
+  const cards = [buildPotCard(POT_LABELS.fixkosten, POT_COLOR_VAR.fixkosten, formatEuro(fixkostenSum), 100)];
+
+  if (phase < 2) {
+    const weeks = weeksSinceFirstTransaction(financeState.transactions);
+    const placeholder = `Sammle Daten — Woche ${Math.min(weeks, 4)} von 4`;
+    cards.push(buildPotCard(POT_LABELS.sicherheit, POT_COLOR_VAR.sicherheit, placeholder, 0));
+    cards.push(buildPotCard(POT_LABELS.wachstum, POT_COLOR_VAR.wachstum, placeholder, 0));
+    cards.push(buildPotCard(POT_LABELS.freiheit, POT_COLOR_VAR.freiheit, placeholder, 0));
+  } else {
+    const notgroschenProgress = financeState.transactions
+      .filter((t) => t.pot === "sicherheit")
+      .reduce((sum, t) => sum + Number(t.amount), 0);
+    const notgroschenTarget = settings.notgroschen_target || 0;
+    const notgroschenPct = notgroschenTarget ? Math.round((notgroschenProgress / notgroschenTarget) * 100) : 0;
+    cards.push(
+      buildPotCard(
+        POT_LABELS.sicherheit,
+        POT_COLOR_VAR.sicherheit,
+        `${formatEuro(notgroschenProgress)} / ${formatEuro(notgroschenTarget)}`,
+        notgroschenPct
+      )
+    );
+
+    const wachstumBetrag = settings.wachstum_monatsbetrag;
+    cards.push(
+      buildPotCard(
+        POT_LABELS.wachstum,
+        POT_COLOR_VAR.wachstum,
+        wachstumBetrag ? `${formatEuro(wachstumBetrag)}/Monat` : "Noch nicht festgelegt",
+        wachstumBetrag ? 100 : 0
+      )
+    );
+
+    const freiheitBudget = settings.pots?.freiheit || 0;
+    const monthStart = todayISO().slice(0, 7) + "-01";
+    const spentThisMonth = financeState.transactions
+      .filter((t) => t.pot === "freiheit" && t.direction === "expense" && t.occurred_at >= monthStart)
+      .reduce((sum, t) => sum + Number(t.amount), 0);
+    const remaining = freiheitBudget - spentThisMonth;
+    const freiheitPct = freiheitBudget ? Math.round((remaining / freiheitBudget) * 100) : 0;
+    cards.push(
+      buildPotCard(
+        POT_LABELS.freiheit,
+        POT_COLOR_VAR.freiheit,
+        freiheitBudget ? `${formatEuro(remaining)} übrig` : "Noch nicht festgelegt",
+        freiheitPct
+      )
+    );
+  }
+
+  grid.innerHTML = "";
+  cards.forEach((c) => grid.appendChild(c));
+}
+
+// Kurze Vorschau der nächsten fälligen verpflichtenden Ausgaben, direkt unter dem Kaufbereit-Widget
+// — die volle Verwaltung (anlegen/beglichen/löschen) sitzt weiter unten im eigenen Panel.
+function renderCommittedPreview() {
+  const list = document.getElementById("committed-preview-list");
+  const upcoming = [...financeState.committedExpenses].sort((a, b) => (a.due_date < b.due_date ? -1 : 1)).slice(0, 3);
+  list.innerHTML = "";
+  for (const exp of upcoming) {
+    const li = document.createElement("li");
+    li.className = "task-item";
+
+    const title = document.createElement("span");
+    title.className = "task-title";
+    title.textContent = exp.name;
+
+    const badge = document.createElement("span");
+    badge.className = "badge badge-reserve";
+    badge.textContent = `${formatEuro(exp.amount / monthsUntil(exp.due_date))}/Mon.`;
+
+    const dateSpan = document.createElement("span");
+    dateSpan.className = "count";
+    dateSpan.textContent = `fällig ${formatShortDate(exp.due_date)}.`;
+
+    li.append(title, badge, dateSpan);
+    list.appendChild(li);
+  }
+}
+
+function buildTransactionItem(tx) {
+  const li = document.createElement("li");
+  li.className = "task-item";
+  li.style.borderLeftColor = POT_COLOR_VAR[tx.pot] || "var(--color-text-subtle)";
+
+  const dot = document.createElement("span");
+  dot.className = "task-area-dot";
+  dot.style.background = POT_COLOR_VAR[tx.pot] || "var(--color-text-subtle)";
+
+  const title = document.createElement("span");
+  title.className = "task-title";
+  title.textContent = tx.note || POT_LABELS[tx.pot] || "Transaktion";
+
+  const amount = document.createElement("span");
+  amount.className = "count";
+  amount.textContent = `${tx.direction === "income" ? "+" : "−"}${formatEuro(tx.amount)}`;
+
+  li.append(dot, title, amount);
+  return li;
+}
+
+function renderTransactionList() {
+  const list = document.getElementById("transaction-list");
+  const emptyState = document.getElementById("transaction-empty-state");
+  const filtered = financeState.txFilterPot
+    ? financeState.transactions.filter((t) => t.pot === financeState.txFilterPot)
+    : financeState.transactions;
+
+  list.innerHTML = "";
+  if (filtered.length === 0) {
+    emptyState.hidden = false;
+    return;
+  }
+  emptyState.hidden = true;
+  filtered.slice(0, 20).forEach((tx) => list.appendChild(buildTransactionItem(tx)));
+}
+
+function wireFinanceFilters() {
+  const select = document.getElementById("tx-filter-pot");
+  select.addEventListener("change", () => {
+    financeState.txFilterPot = select.value;
+    renderTransactionList();
+  });
+}
+
+function buildFixedCostItem(cost) {
+  const li = document.createElement("li");
+  li.className = "task-item";
+
+  // Name und Betrag sind direkt editierbar (Blur committet) — Fixkosten ändern sich über die Zeit
+  // (z.B. Mieterhöhung), dafür braucht es keinen eigenen Bearbeiten-Dialog.
+  const title = document.createElement("input");
+  title.type = "text";
+  title.className = "input area-name-input";
+  title.value = cost.name;
+  title.setAttribute("aria-label", "Name");
+  title.addEventListener("blur", async () => {
+    const value = title.value.trim();
+    if (!value || value === cost.name) {
+      title.value = cost.name;
+      return;
+    }
+    await withErrorToast(async () => {
+      await updateFixedCost(cost.id, { name: value });
+      await reloadFinance();
+    });
+  });
+  title.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") title.blur();
+  });
+
+  const amountInput = document.createElement("input");
+  amountInput.type = "number";
+  amountInput.step = "0.01";
+  amountInput.min = "0";
+  amountInput.className = "input";
+  amountInput.style.maxWidth = "100px";
+  amountInput.value = cost.amount;
+  amountInput.setAttribute("aria-label", "Betrag");
+  amountInput.addEventListener("blur", async () => {
+    const value = Number(amountInput.value);
+    if (!value || value === Number(cost.amount)) {
+      amountInput.value = cost.amount;
+      return;
+    }
+    await withErrorToast(async () => {
+      await updateFixedCost(cost.id, { amount: value });
+      await reloadFinance();
+    });
+  });
+
+  const meta = document.createElement("span");
+  meta.className = "count";
+  meta.textContent = INTERVAL_LABELS[cost.interval];
+
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.className = "icon-btn icon-btn-danger";
+  deleteBtn.textContent = "×";
+  deleteBtn.setAttribute("aria-label", "Löschen");
+  deleteBtn.addEventListener("click", async () => {
+    await withErrorToast(async () => {
+      await deleteFixedCost(cost.id);
+      await reloadFinance();
+    });
+  });
+
+  li.append(title, amountInput, meta, deleteBtn);
+  return li;
+}
+
+function renderFixedCostsList() {
+  const list = document.getElementById("fixed-costs-list");
+  list.innerHTML = "";
+  if (financeState.fixedCosts.length === 0) {
+    list.appendChild(buildEmptyState("Noch keine Fixkosten", "Leg unten die erste feste Ausgabe an."));
+    return;
+  }
+  financeState.fixedCosts.forEach((cost) => list.appendChild(buildFixedCostItem(cost)));
+}
+
+function wireFixedCostsPanel() {
+  const panel = document.getElementById("fixed-costs-panel");
+  document.getElementById("fixed-costs-toggle").addEventListener("click", () => {
+    panel.hidden = !panel.hidden;
+  });
+  document.getElementById("new-fixed-cost-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const nameInput = document.getElementById("new-fixed-cost-name");
+    const amountInput = document.getElementById("new-fixed-cost-amount");
+    const intervalSelect = document.getElementById("new-fixed-cost-interval");
+    const name = nameInput.value.trim();
+    const amount = Number(amountInput.value);
+    if (!name || !amount) return;
+    await withErrorToast(async () => {
+      await createFixedCost({ name, amount, interval: intervalSelect.value });
+      showToast(`„${name}" angelegt.`);
+      nameInput.value = "";
+      amountInput.value = "";
+      await reloadFinance();
+    });
+  });
+}
+
+function buildCommittedItem(exp) {
+  const li = document.createElement("li");
+  li.className = "task-item";
+
+  const title = document.createElement("span");
+  title.className = "task-title";
+  title.textContent = exp.name;
+
+  const meta = document.createElement("span");
+  meta.className = "count";
+  meta.textContent = `${formatEuro(exp.amount)} · fällig ${formatShortDate(exp.due_date)}.`;
+
+  const settleBtn = document.createElement("button");
+  settleBtn.type = "button";
+  settleBtn.className = "icon-btn";
+  settleBtn.textContent = "✓";
+  settleBtn.setAttribute("aria-label", "Als beglichen markieren");
+  settleBtn.addEventListener("click", async () => {
+    await withErrorToast(async () => {
+      await updateCommittedExpense(exp.id, { status: "settled" });
+      await reloadFinance();
+    });
+  });
+
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.className = "icon-btn icon-btn-danger";
+  deleteBtn.textContent = "×";
+  deleteBtn.setAttribute("aria-label", "Löschen");
+  deleteBtn.addEventListener("click", async () => {
+    await withErrorToast(async () => {
+      await deleteCommittedExpense(exp.id);
+      await reloadFinance();
+    });
+  });
+
+  li.append(title, meta, settleBtn, deleteBtn);
+  return li;
+}
+
+function renderCommittedManageList() {
+  const list = document.getElementById("committed-manage-list");
+  list.innerHTML = "";
+  if (financeState.committedExpenses.length === 0) {
+    list.appendChild(buildEmptyState("Noch keine verpflichtenden Ausgaben", "Leg unten die erste an."));
+    return;
+  }
+  financeState.committedExpenses.forEach((exp) => list.appendChild(buildCommittedItem(exp)));
+}
+
+function wireCommittedPanel() {
+  const panel = document.getElementById("committed-manage-panel");
+  document.getElementById("committed-manage-toggle").addEventListener("click", () => {
+    panel.hidden = !panel.hidden;
+  });
+  const dateChips = wireDateChipGroup(document.getElementById("new-committed-date-chips"));
+  document.getElementById("new-committed-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const nameInput = document.getElementById("new-committed-name");
+    const amountInput = document.getElementById("new-committed-amount");
+    const name = nameInput.value.trim();
+    const amount = Number(amountInput.value);
+    const dueDate = dateChips.getPlannedDate();
+    if (!name || !amount || !dueDate) return;
+    await withErrorToast(async () => {
+      await createCommittedExpense({ name, amount, dueDate });
+      showToast(`„${name}" angelegt.`);
+      nameInput.value = "";
+      amountInput.value = "";
+      dateChips.reset();
+      await reloadFinance();
+    });
+  });
+}
+
+function buildWishlistCard(item) {
+  const card = document.createElement("div");
+  card.className = "wish-card";
+
+  const top = document.createElement("div");
+  top.className = "wish-top";
+  const title = document.createElement("span");
+  title.className = "wish-title";
+  title.textContent = item.title;
+  const price = document.createElement("span");
+  price.className = "wish-price";
+  price.textContent = item.current_price != null ? formatEuro(item.current_price) : "—";
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.className = "icon-btn icon-btn-danger";
+  deleteBtn.textContent = "×";
+  deleteBtn.setAttribute("aria-label", "Löschen");
+  deleteBtn.addEventListener("click", async () => {
+    await withErrorToast(async () => {
+      await deleteWishlistItem(item.id);
+      await reloadFinance();
+    });
+  });
+  top.append(title, price, deleteBtn);
+
+  const tags = document.createElement("div");
+  tags.className = "wish-tags";
+  if (item.category) {
+    const catTag = document.createElement("span");
+    catTag.className = "wtag";
+    catTag.textContent = WISHLIST_CATEGORY_LABELS[item.category];
+    tags.appendChild(catTag);
+  }
+  const statusTag = document.createElement("button");
+  statusTag.type = "button";
+  statusTag.className = `wtag status-${item.status}`;
+  statusTag.textContent = WISHLIST_STATUS_LABELS[item.status];
+  statusTag.setAttribute("aria-label", "Status ändern");
+  statusTag.addEventListener("click", async () => {
+    const next = WISHLIST_STATUS_CYCLE[(WISHLIST_STATUS_CYCLE.indexOf(item.status) + 1) % WISHLIST_STATUS_CYCLE.length];
+    await withErrorToast(async () => {
+      await updateWishlistItem(item.id, { status: next });
+      await reloadFinance();
+    });
+  });
+  tags.appendChild(statusTag);
+
+  card.append(top, tags);
+  return card;
+}
+
+function renderWishlistCards() {
+  const list = document.getElementById("wishlist-cards");
+  list.innerHTML = "";
+  if (financeState.wishlistItems.length === 0) {
+    list.appendChild(buildEmptyState("Wunschliste ist leer", "Leg unten deinen ersten Wunsch an — Rohtext reicht."));
+    return;
+  }
+  financeState.wishlistItems.forEach((item) => list.appendChild(buildWishlistCard(item)));
+}
+
+function wireWishlistForm() {
+  document.getElementById("new-wishlist-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = document.getElementById("new-wishlist-title");
+    const title = input.value.trim();
+    if (!title) return;
+    await withErrorToast(async () => {
+      await createWishlistItem({ title });
+      showToast(`„${title}" zur Wunschliste hinzugefügt.`);
+      input.value = "";
+      await reloadFinance();
+    });
+  });
+}
+
+function wireTransactionQuickCapture() {
+  const form = document.getElementById("tx-quick-form");
+  const amountInput = document.getElementById("tx-quick-amount");
+  const options = document.getElementById("tx-quick-options");
+  const potGroup = document.getElementById("tx-quick-pot");
+  const noteInput = document.getElementById("tx-quick-note");
+
+  let selectedPot = "freiheit";
+  potGroup.querySelectorAll(".pot-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      selectedPot = chip.dataset.pot;
+      potGroup.querySelectorAll(".pot-chip").forEach((c) => (c.dataset.active = String(c.dataset.pot === selectedPot)));
+    });
+  });
+
+  amountInput.addEventListener("focus", () => {
+    options.hidden = false;
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const amount = Number(amountInput.value);
+    if (!amount) return;
+    await withErrorToast(async () => {
+      await createTransaction({ amount, pot: selectedPot, note: noteInput.value.trim() || null });
+      showToast(`${formatEuro(amount)} erfasst.`);
+      amountInput.value = "";
+      noteInput.value = "";
+      options.hidden = true;
+      await reloadFinance();
+    });
+  });
 }
 
 /* ---------- Bereiche (Verwaltung, Teil der Übersicht) ---------- */
