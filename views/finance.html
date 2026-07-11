@@ -1,6 +1,24 @@
 <section class="view-header">
   <h1>Finanzen</h1>
+  <div class="view-header-actions">
+    <button type="button" class="icon-btn" id="tx-quick-toggle" aria-label="Transaktion erfassen">+</button>
+  </div>
 </section>
+
+<form class="quick-capture-panel" id="tx-quick-form" hidden>
+  <input type="number" class="input" id="tx-quick-amount" placeholder="Betrag (€)" step="0.01" min="0" inputmode="decimal" required />
+  <div class="pot-chips" id="tx-quick-pot" role="group" aria-label="Topf">
+    <button type="button" class="pot-chip" data-pot="fixkosten" style="--pot-color: var(--color-text-subtle)">Fixkosten</button>
+    <button type="button" class="pot-chip" data-pot="sicherheit" style="--pot-color: var(--color-accent)">Sicherheit</button>
+    <button type="button" class="pot-chip" data-pot="wachstum" style="--pot-color: var(--color-success)">Wachstum</button>
+    <button type="button" class="pot-chip" data-pot="freiheit" data-active="true" style="--pot-color: var(--color-accent-warm)">Freiheit</button>
+  </div>
+  <input type="text" class="input" id="tx-quick-note" placeholder="Notiz (optional)" autocomplete="off" />
+  <div class="quick-capture-actions">
+    <button class="btn" type="submit">Hinzufügen</button>
+    <button class="btn btn-secondary" type="button" id="tx-quick-cancel">Abbrechen</button>
+  </div>
+</form>
 
 <div class="pot-grid" id="pot-grid"></div>
 
@@ -77,19 +95,3 @@
     <button class="btn" type="submit">Hinzufügen</button>
   </form>
 </section>
-
-<form class="brainstorm-pill" id="tx-quick-form">
-  <div class="brainstorm-options" id="tx-quick-options" hidden>
-    <div class="pot-chips" id="tx-quick-pot" role="group" aria-label="Topf">
-      <button type="button" class="pot-chip" data-pot="fixkosten" style="--pot-color: var(--color-text-subtle)">Fixkosten</button>
-      <button type="button" class="pot-chip" data-pot="sicherheit" style="--pot-color: var(--color-accent)">Sicherheit</button>
-      <button type="button" class="pot-chip" data-pot="wachstum" style="--pot-color: var(--color-success)">Wachstum</button>
-      <button type="button" class="pot-chip" data-pot="freiheit" data-active="true" style="--pot-color: var(--color-accent-warm)">Freiheit</button>
-    </div>
-    <input type="text" class="input" id="tx-quick-note" placeholder="Notiz (optional)" autocomplete="off" />
-  </div>
-  <div class="brainstorm-row">
-    <input type="number" id="tx-quick-amount" placeholder="Betrag (€)" step="0.01" min="0" inputmode="decimal" />
-    <button type="submit" aria-label="Hinzufügen">+</button>
-  </div>
-</form>

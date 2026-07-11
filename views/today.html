@@ -1,8 +1,35 @@
 <section class="today-greeting">
-  <h1 id="greeting-text"></h1>
-  <p class="today-date" id="today-date"></p>
+  <div class="today-greeting-row">
+    <div>
+      <h1 id="greeting-text"></h1>
+      <p class="today-date" id="today-date"></p>
+    </div>
+    <button type="button" class="icon-btn" id="quick-add-toggle" aria-label="Aufgabe hinzufügen">+</button>
+  </div>
   <div class="gym-indicator" id="gym-indicator" hidden></div>
 </section>
+
+<form class="quick-capture-panel" id="brainstorm-form" hidden>
+  <input type="text" class="input" id="brainstorm-input" placeholder="Was steht an?" autocomplete="off" required />
+  <select class="select" id="brainstorm-area" aria-label="Bereich">
+    <option value="">Bereich (optional)</option>
+  </select>
+  <div class="effort-chips" id="brainstorm-effort" role="group" aria-label="Aufwand">
+    <button type="button" class="effort-chip" data-effort="5">5</button>
+    <button type="button" class="effort-chip" data-effort="10">10</button>
+    <button type="button" class="effort-chip" data-effort="30">30</button>
+    <button type="button" class="effort-chip" data-effort="60">60</button>
+  </div>
+  <div class="priority-chips" id="brainstorm-priority" role="group" aria-label="Priorität">
+    <button type="button" class="priority-chip" data-priority="low">Niedrig</button>
+    <button type="button" class="priority-chip" data-priority="medium" data-active="true">Mittel</button>
+    <button type="button" class="priority-chip" data-priority="high">Hoch</button>
+  </div>
+  <div class="quick-capture-actions">
+    <button class="btn" type="submit">Hinzufügen</button>
+    <button class="btn btn-secondary" type="button" id="quick-add-cancel">Abbrechen</button>
+  </div>
+</form>
 
 <section class="events-widget" id="events-widget" hidden>
   <div class="events-widget-header">
@@ -39,27 +66,4 @@
 </div>
 
 <ul class="task-list" id="task-list"></ul>
-<p class="empty-state" id="empty-state" hidden>Nichts geplant für heute — leg unten schnell eine Aufgabe an.</p>
-
-<form class="brainstorm-pill" id="brainstorm-form">
-  <div class="brainstorm-options" id="brainstorm-options" hidden>
-    <select class="select" id="brainstorm-area" aria-label="Bereich">
-      <option value="">Bereich (optional)</option>
-    </select>
-    <div class="effort-chips" id="brainstorm-effort" role="group" aria-label="Aufwand">
-      <button type="button" class="effort-chip" data-effort="5">5</button>
-      <button type="button" class="effort-chip" data-effort="10">10</button>
-      <button type="button" class="effort-chip" data-effort="30">30</button>
-      <button type="button" class="effort-chip" data-effort="60">60</button>
-    </div>
-    <div class="priority-chips" id="brainstorm-priority" role="group" aria-label="Priorität">
-      <button type="button" class="priority-chip" data-priority="low">Niedrig</button>
-      <button type="button" class="priority-chip" data-priority="medium" data-active="true">Mittel</button>
-      <button type="button" class="priority-chip" data-priority="high">Hoch</button>
-    </div>
-  </div>
-  <div class="brainstorm-row">
-    <input type="text" id="brainstorm-input" placeholder="Schnell notieren…" autocomplete="off" />
-    <button type="submit" aria-label="Hinzufügen">+</button>
-  </div>
-</form>
+<p class="empty-state" id="empty-state" hidden>Nichts geplant für heute — leg über das + oben eine Aufgabe an.</p>

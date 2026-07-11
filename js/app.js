@@ -909,10 +909,13 @@ function isTaskStale(task) {
 }
 
 // Heute-Schnellerfassung: Titel + optional Bereich/Aufwand/Priorität, aufklappbar bei Fokus.
+// Heute-Schnellerfassung: per "+"-Button oben aufklappbares Formular statt eines dauerhaft
+// sichtbaren fixierten Balkens — der soll die Aufgabenliste nicht mehr verdecken.
 function wireQuickCapture(areas, onAdded) {
   const form = document.getElementById("brainstorm-form");
+  const toggleBtn = document.getElementById("quick-add-toggle");
+  const cancelBtn = document.getElementById("quick-add-cancel");
   const input = document.getElementById("brainstorm-input");
-  const options = document.getElementById("brainstorm-options");
   const areaSelect = document.getElementById("brainstorm-area");
   const effortGroup = document.getElementById("brainstorm-effort");
   const priorityGroup = document.getElementById("brainstorm-priority");
@@ -943,9 +946,23 @@ function wireQuickCapture(areas, onAdded) {
     chip.addEventListener("click", () => setPriority(chip.dataset.priority));
   });
 
-  input.addEventListener("focus", () => {
-    options.hidden = false;
+  const closeForm = () => {
+    form.hidden = true;
+    form.reset();
+    selectedEffort = null;
+    effortGroup.querySelectorAll(".effort-chip").forEach((c) => (c.dataset.active = "false"));
+    setPriority("medium");
+  };
+
+  toggleBtn.addEventListener("click", () => {
+    if (form.hidden) {
+      form.hidden = false;
+      input.focus();
+    } else {
+      closeForm();
+    }
   });
+  cancelBtn.addEventListener("click", closeForm);
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -964,12 +981,7 @@ function wireQuickCapture(areas, onAdded) {
       });
       const areaName = areaId ? areas.find((a) => a.id === areaId)?.name : null;
       showToast(areaName ? `„${title}" zu ${areaName} hinzugefügt.` : `„${title}" hinzugefügt.`);
-      input.value = "";
-      areaSelect.value = "";
-      selectedEffort = null;
-      effortGroup.querySelectorAll(".effort-chip").forEach((c) => (c.dataset.active = "false"));
-      setPriority("medium");
-      options.hidden = true;
+      closeForm();
       onAdded();
     });
   });
@@ -2609,10 +2621,13 @@ function wireWishlistForm() {
   });
 }
 
+// Per "+"-Button oben aufklappbares Formular, kein fixierter Balken — soll die Transaktionsliste
+// nicht dauerhaft verdecken (gleiches Prinzip wie die Heute-Schnellerfassung).
 function wireTransactionQuickCapture() {
   const form = document.getElementById("tx-quick-form");
+  const toggleBtn = document.getElementById("tx-quick-toggle");
+  const cancelBtn = document.getElementById("tx-quick-cancel");
   const amountInput = document.getElementById("tx-quick-amount");
-  const options = document.getElementById("tx-quick-options");
   const potGroup = document.getElementById("tx-quick-pot");
   const noteInput = document.getElementById("tx-quick-note");
 
@@ -2624,9 +2639,22 @@ function wireTransactionQuickCapture() {
     });
   });
 
-  amountInput.addEventListener("focus", () => {
-    options.hidden = false;
+  const closeForm = () => {
+    form.hidden = true;
+    form.reset();
+    selectedPot = "freiheit";
+    potGroup.querySelectorAll(".pot-chip").forEach((c) => (c.dataset.active = String(c.dataset.pot === "freiheit")));
+  };
+
+  toggleBtn.addEventListener("click", () => {
+    if (form.hidden) {
+      form.hidden = false;
+      amountInput.focus();
+    } else {
+      closeForm();
+    }
   });
+  cancelBtn.addEventListener("click", closeForm);
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -2635,9 +2663,7 @@ function wireTransactionQuickCapture() {
     await withErrorToast(async () => {
       await createTransaction({ amount, pot: selectedPot, note: noteInput.value.trim() || null });
       showToast(`${formatEuro(amount)} erfasst.`);
-      amountInput.value = "";
-      noteInput.value = "";
-      options.hidden = true;
+      closeForm();
       await reloadFinance();
     });
   });
