@@ -17,6 +17,8 @@ import { suggestTasksForPlan, formatTasksForExport, savePlanForDate } from "./pl
 import {
   listTransactions,
   createTransaction,
+  updateTransaction,
+  deleteTransaction,
   listFixedCosts,
   createFixedCost,
   updateFixedCost,
@@ -33,6 +35,7 @@ import {
   updateWishlistItem,
   deleteWishlistItem,
   getSavingsPotBalance,
+  listSavingsPotEntries,
   filterBuyReady,
 } from "./wishlist.js";
 
@@ -134,6 +137,47 @@ function showToast(message, isError = false, action = null) {
   toastTimeout = setTimeout(() => {
     toast.hidden = true;
   }, action ? 6000 : 3000);
+}
+
+// Ersetzt window.confirm() durch ein Modal im App-eigenen Stil (nutzt dieselbe #modal-root/
+// closeActiveModal-Infrastruktur wie das Aufgaben-Detail-Modal, siehe openTaskDetail()). Löst mit
+// true bei Bestätigen, mit false bei Abbrechen/Escape/Backdrop-Klick auf. Nur für Fälle gedacht,
+// die sich nicht sinnvoll per Undo-Toast lösen lassen (z.B. Seite verlassen, Bereich löschen) —
+// für einfache, rückgängig machbare Löschaktionen lieber direkt löschen + showToast(...,{Rückgängig}).
+function showConfirm(message, { confirmLabel = "Bestätigen", cancelLabel = "Abbrechen", danger = false } = {}) {
+  return new Promise((resolve) => {
+    const root = document.getElementById("modal-root");
+    document.body.style.overflow = "hidden";
+
+    const close = (result) => {
+      root.innerHTML = "";
+      document.body.style.overflow = "";
+      document.removeEventListener("keydown", onKeydown);
+      closeActiveModal = null;
+      resolve(result);
+    };
+    const onKeydown = (e) => {
+      if (e.key === "Escape") close(false);
+    };
+    document.addEventListener("keydown", onKeydown);
+    closeActiveModal = () => close(false);
+
+    root.innerHTML = `
+      <div class="modal-backdrop" id="confirm-backdrop">
+        <div class="modal-card" role="alertdialog" aria-modal="true">
+          <p>${escapeHtml(message)}</p>
+          <div class="modal-actions">
+            <button class="btn" type="button" id="confirm-ok" style="${danger ? "background:var(--color-danger)" : ""}">${escapeHtml(confirmLabel)}</button>
+            <button class="btn btn-secondary" type="button" id="confirm-cancel">${escapeHtml(cancelLabel)}</button>
+          </div>
+        </div>
+      </div>`;
+    document.getElementById("confirm-backdrop").addEventListener("click", (e) => {
+      if (e.target.id === "confirm-backdrop") close(false);
+    });
+    document.getElementById("confirm-ok").addEventListener("click", () => close(true));
+    document.getElementById("confirm-cancel").addEventListener("click", () => close(false));
+  });
 }
 
 // Übersetzt rohe Supabase/Postgres-Fehler in verständliche deutsche Meldungen. Fehlercodes
@@ -243,6 +287,69 @@ async function restoreTaskSnapshot(task, descendants) {
   await insertChildren(task.id);
 }
 
+// Kurzer Undo-Toast nach dem Erledigen einer Aufgabe (nicht beim Wieder-Öffnen — das ist ja
+// bereits die Undo-Aktion). reopenTaskCascade leitet den korrekten Status (offen/geplant) selbst
+// wieder aus planned_date her und ist damit ein korrektes Gegenstück zu completeTaskCascade, ohne
+// dass hier ein eigener Vorher-Snapshot nötig wäre.
+function showCompleteUndoToast(task, allTasks, afterChange) {
+  showToast(`„${task.title}" erledigt.`, false, {
+    label: "Rückgängig",
+    onClick: () =>
+      withErrorToast(async () => {
+        await reopenTaskCascade(task, allTasks);
+        afterChange();
+      }),
+  });
+}
+
+// Dupliziert eine Aufgabe samt aller Unteraufgaben für "nächstes Mal" (z.B. wiederkehrende
+// Einkaufslisten) — anders als restoreTaskSnapshot (das den exakten Vorher-Zustand wiederherstellt)
+// wird hier bei JEDEM kopierten Knoten Status auf "open" und Plandatum auf null zurückgesetzt: die
+// Kopie ist eine frische, ungeplante Vorlage, kein Klon des aktuellen (evtl. teilweise erledigten)
+// Zustands.
+async function duplicateTaskTree(task, allTasks) {
+  const descendants = Array.from(collectDescendantIds(allTasks, task.id))
+    .map((id) => allTasks.find((t) => t.id === id))
+    .filter(Boolean);
+
+  const oldToNewId = new Map();
+  const createdRoot = await createTask({
+    title: task.title,
+    areaId: task.area_id,
+    // Duplizieren einer Unteraufgabe soll sie als Geschwister unter demselben Elternteil anlegen,
+    // nicht sie zu einer eigenständigen Top-Level-Aufgabe "befördern".
+    parentTaskId: task.parent_task_id,
+    effort: task.effort,
+    priority: task.priority,
+    isEvent: task.is_event,
+    isBrainstorm: task.is_brainstorm,
+  });
+  oldToNewId.set(task.id, createdRoot.id);
+
+  const byOldParent = new Map();
+  for (const t of descendants) {
+    if (!byOldParent.has(t.parent_task_id)) byOldParent.set(t.parent_task_id, []);
+    byOldParent.get(t.parent_task_id).push(t);
+  }
+  const insertChildren = async (oldParentId) => {
+    for (const t of byOldParent.get(oldParentId) || []) {
+      const created = await createTask({
+        title: t.title,
+        areaId: t.area_id,
+        parentTaskId: oldToNewId.get(t.parent_task_id),
+        effort: t.effort,
+        priority: t.priority,
+        isEvent: t.is_event,
+        isBrainstorm: t.is_brainstorm,
+      });
+      oldToNewId.set(t.id, created.id);
+      await insertChildren(t.id);
+    }
+  };
+  await insertChildren(task.id);
+  return createdRoot;
+}
+
 function todayISO() {
   const d = new Date();
   const offset = d.getTimezoneOffset();
@@ -252,6 +359,13 @@ function todayISO() {
 function tomorrowISO() {
   const d = new Date();
   d.setDate(d.getDate() + 1);
+  const offset = d.getTimezoneOffset();
+  return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 10);
+}
+
+function isoDatePlusDays(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
   const offset = d.getTimezoneOffset();
   return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 10);
 }
@@ -429,6 +543,12 @@ function buildTrashIcon() {
   );
 }
 
+function buildDuplicateIcon() {
+  return buildInlineIcon(
+    `<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>`
+  );
+}
+
 // Baut einen einladenderen Leerzustand (Icon + Titel + Untertext) statt eines reinen Textsatzes.
 function buildEmptyState(title, subtitle) {
   const wrap = document.createElement("div");
@@ -563,12 +683,15 @@ function renderShell() {
     <div id="view-content"></div>
   `;
   if (todayRemainingCount !== null) updateNavBadge(todayRemainingCount);
-  app.querySelector(".app-nav").addEventListener("click", (e) => {
+  app.querySelector(".app-nav").addEventListener("click", async (e) => {
     const link = e.target.closest("a.nav-link");
-    if (!link) return;
-    if (hasUnsavedOverviewInput() && !confirm("Es gibt eine ungespeicherte Eingabe. Trotzdem wechseln?")) {
-      e.preventDefault();
-    }
+    if (!link || !hasUnsavedOverviewInput()) return;
+    e.preventDefault();
+    const proceed = await showConfirm("Es gibt eine ungespeicherte Eingabe. Trotzdem wechseln?", {
+      confirmLabel: "Wechseln",
+      cancelLabel: "Bleiben",
+    });
+    if (proceed) location.hash = link.getAttribute("href");
   });
   routes[route]();
 }
@@ -771,8 +894,12 @@ function appendTaskRowContent(el, task, areaColorById, allTasks, onChange) {
   checkbox.addEventListener("click", async (e) => {
     e.stopPropagation();
     await withErrorToast(async () => {
-      if (task.status === "done") await reopenTaskCascade(task, allTasks);
-      else await completeTaskCascade(task, allTasks);
+      if (task.status === "done") {
+        await reopenTaskCascade(task, allTasks);
+      } else {
+        await completeTaskCascade(task, allTasks);
+        showCompleteUndoToast(task, allTasks, onChange);
+      }
       onChange();
     });
   });
@@ -894,8 +1021,15 @@ function renderQuickWin(allTasks, tasks, today) {
   checkbox.onclick = async () => {
     await withErrorToast(async () => {
       await updateTask(task.id, { status: "done" });
-      showToast(`„${task.title}" erledigt — Quick Win!`);
       renderTodayView();
+      showToast(`„${task.title}" erledigt — Quick Win!`, false, {
+        label: "Rückgängig",
+        onClick: () =>
+          withErrorToast(async () => {
+            await updateTask(task.id, { status: "open" });
+            renderTodayView();
+          }),
+      });
     });
   };
 
@@ -1326,8 +1460,12 @@ function buildTaskNodeEl(node, area, depth) {
   checkbox.addEventListener("click", async (e) => {
     e.stopPropagation();
     await withErrorToast(async () => {
-      if (node.status === "done") await reopenTaskCascade(node, overviewState.tasks);
-      else await completeTaskCascade(node, overviewState.tasks);
+      if (node.status === "done") {
+        await reopenTaskCascade(node, overviewState.tasks);
+      } else {
+        await completeTaskCascade(node, overviewState.tasks);
+        showCompleteUndoToast(node, overviewState.tasks, reloadOverview);
+      }
       reloadOverview();
     });
   });
@@ -1550,7 +1688,8 @@ function renderBulkToolbar() {
   deleteBtn.className = "btn btn-secondary";
   deleteBtn.textContent = "Löschen";
   deleteBtn.addEventListener("click", async () => {
-    if (!confirm(`${selectedIds.length} Aufgabe(n) löschen?`)) return;
+    // Kein Bestätigungs-Dialog nötig — der Toast unten bietet direkt "Rückgängig" an
+    // (gleiches Muster wie deleteTaskWithUndo für Einzel-Löschungen).
     const byId = new Map(overviewState.tasks.map((t) => [t.id, t]));
     // Falls sowohl eine Aufgabe als auch eine ihrer eigenen (ebenfalls bereichslosen)
     // Unteraufgaben ausgewählt sind: nur vom obersten ausgewählten Vorfahren aus einen Snapshot
@@ -1794,8 +1933,15 @@ function renderTaskDetailView(card, task, allTasks, children, backButtonHtml, cl
 
   document.getElementById("td-done-toggle").addEventListener("click", async () => {
     await withErrorToast(async () => {
-      if (task.status === "done") await reopenTaskCascade(task, allTasks);
-      else await completeTaskCascade(task, allTasks);
+      if (task.status === "done") {
+        await reopenTaskCascade(task, allTasks);
+      } else {
+        await completeTaskCascade(task, allTasks);
+        showCompleteUndoToast(task, allTasks, () => {
+          renderTaskDetailCard(task.id, close, false);
+          reloadOverview();
+        });
+      }
       await renderTaskDetailCard(task.id, close, false);
       reloadOverview();
     });
@@ -1840,8 +1986,12 @@ function renderTaskDetailView(card, task, allTasks, children, backButtonHtml, cl
     if (!child) return;
     if (e.target.dataset.action === "toggle") {
       await withErrorToast(async () => {
-        if (child.status === "done") await reopenTaskCascade(child, allTasks);
-        else await completeTaskCascade(child, allTasks);
+        if (child.status === "done") {
+          await reopenTaskCascade(child, allTasks);
+        } else {
+          await completeTaskCascade(child, allTasks);
+          showCompleteUndoToast(child, allTasks, () => renderTaskDetailCard(task.id, close, false));
+        }
         await renderTaskDetailCard(task.id, close, false);
       });
     } else if (e.target.dataset.action === "open") {
@@ -1914,9 +2064,11 @@ function renderTaskDetailEdit(card, task, allTasks, parentTask, children, backBu
     <div class="modal-actions">
       <button class="btn" id="td-save" type="button">Speichern</button>
       <button class="btn btn-secondary" id="td-cancel-edit" type="button">Zurück</button>
+      <button class="icon-btn" id="td-duplicate" type="button" aria-label="Aufgabe duplizieren"></button>
       <button class="icon-btn icon-btn-danger" id="td-delete" type="button" aria-label="Aufgabe löschen"></button>
     </div>`;
 
+  document.getElementById("td-duplicate").appendChild(buildDuplicateIcon());
   document.getElementById("td-delete").appendChild(buildTrashIcon());
 
   const areaSel = document.getElementById("td-area");
@@ -1970,6 +2122,14 @@ function renderTaskDetailEdit(card, task, allTasks, parentTask, children, backBu
       reloadOverview();
     });
   });
+  document.getElementById("td-duplicate").addEventListener("click", async () => {
+    await withErrorToast(async () => {
+      await duplicateTaskTree(task, allTasks);
+      close();
+      showToast(`„${task.title}" dupliziert.`);
+      reloadOverview();
+    });
+  });
   document.getElementById("td-delete").addEventListener("click", async () => {
     await withErrorToast(async () => {
       close();
@@ -1992,6 +2152,104 @@ function updatePlanDateLabel() {
   document.getElementById("plan-date").textContent = label;
 }
 
+// Baut den Wochenstreifen (heute..+6 Tage, bewusst rollierend statt Kalenderwoche Mo-So — passt
+// besser zum bestehenden Heute/Morgen-Denken der App) mit der Anzahl bereits geplanter Aufgaben je
+// Tag. weekTasks = alle nicht erledigten Aufgaben mit Plandatum im Zeitraum (listTasks mit
+// plannedFrom/plannedTo). Antippen eines Tages setzt planState.targetDate wie die Heute/Morgen-Chips.
+function renderWeekStrip(weekTasks, dateInput) {
+  const strip = document.getElementById("week-strip");
+  const today = todayISO();
+  const countByDate = new Map();
+  for (const t of weekTasks) {
+    countByDate.set(t.planned_date, (countByDate.get(t.planned_date) || 0) + 1);
+  }
+
+  strip.innerHTML = "";
+  for (let i = 0; i < 7; i++) {
+    const iso = isoDatePlusDays(i);
+    const [y, m, d] = iso.split("-").map(Number);
+    const localDate = new Date(y, m - 1, d);
+    const count = countByDate.get(iso) || 0;
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "week-day";
+    btn.dataset.iso = iso;
+    btn.dataset.today = String(iso === today);
+    btn.dataset.hasTasks = String(count > 0);
+    btn.dataset.selected = String(iso === planState.targetDate);
+    btn.setAttribute("aria-label", localDate.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" }));
+    btn.innerHTML = `
+      <span class="wd-label">${localDate.toLocaleDateString("de-DE", { weekday: "short" })}</span>
+      <span class="wd-num">${d}</span>
+      <span class="wd-count">${count}</span>`;
+    btn.addEventListener("click", () => {
+      planState.targetDate = iso;
+      dateInput.value = iso;
+      updatePlanDateLabel();
+      strip.querySelectorAll(".week-day").forEach((el) => {
+        el.dataset.selected = String(el === btn);
+      });
+    });
+    strip.appendChild(btn);
+  }
+}
+
+// Hält den Wochenstreifen synchron, wenn planState.targetDate über die Heute/Morgen-Chips oder das
+// native Datums-Input geändert wird (statt per Klick im Streifen selbst).
+function syncWeekStripSelection() {
+  document.querySelectorAll("#week-strip .week-day").forEach((el) => {
+    el.dataset.selected = String(el.dataset.iso === planState.targetDate);
+  });
+}
+
+// Backup/Absicherung: alle eigenen Daten als JSON-Datei herunterladen. Erster Datei-Download-
+// Codepath der App (bisher gab's nur den Zwischenablage-Export oben) — daily_plans wird bewusst
+// nicht mit exportiert, der Zustand steckt schon vollständig in tasks.planned_date.
+async function exportAllDataAsJson() {
+  const [
+    tasks,
+    areas,
+    transactions,
+    fixedCosts,
+    committedExpenses,
+    financeSettings,
+    wishlistItems,
+    savingsPotEntries,
+  ] = await Promise.all([
+    listTasks(),
+    listAreas(),
+    listTransactions(),
+    listFixedCosts(),
+    listCommittedExpenses(),
+    getFinanceModuleSettings(),
+    listWishlistItems(),
+    listSavingsPotEntries(),
+  ]);
+
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    tasks,
+    areas,
+    transactions,
+    fixedCosts,
+    committedExpenses,
+    financeSettings,
+    wishlistItems,
+    savingsPotEntries,
+  };
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `leben-os-export-${todayISO()}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 async function renderPlanView() {
   const container = document.getElementById("view-content");
   const res = await fetch("views/plan.html");
@@ -2007,23 +2265,31 @@ async function renderPlanView() {
     planState.targetDate = todayISO();
     dateInput.value = planState.targetDate;
     updatePlanDateLabel();
+    syncWeekStripSelection();
   });
   document.getElementById("plan-date-tomorrow").addEventListener("click", () => {
     planState.targetDate = tomorrowISO();
     dateInput.value = planState.targetDate;
     updatePlanDateLabel();
+    syncWeekStripSelection();
   });
   dateInput.addEventListener("change", () => {
     if (!dateInput.value) return;
     planState.targetDate = dateInput.value;
     updatePlanDateLabel();
+    syncWeekStripSelection();
   });
 
-  const [areas, pool] = await Promise.all([listAreas(), listTasks({ status: "open" })]);
+  const [areas, pool, weekTasks] = await Promise.all([
+    listAreas(),
+    listTasks({ status: "open" }),
+    listTasks({ statusNot: "done", plannedFrom: todayISO(), plannedTo: isoDatePlusDays(6) }),
+  ]);
   planState.areas = areas;
   planState.pool = pool;
   planState.selected = suggestTasksForPlan(pool);
 
+  renderWeekStrip(weekTasks, dateInput);
   renderPlanTaskList();
   renderAddTaskSelect();
 
@@ -2066,6 +2332,17 @@ async function renderPlanView() {
       status.textContent = "In die Zwischenablage kopiert.";
     } catch {
       status.textContent = text;
+    }
+  });
+
+  document.getElementById("export-all-json").addEventListener("click", async () => {
+    const status = document.getElementById("export-all-status");
+    status.textContent = "Exportiere…";
+    try {
+      await exportAllDataAsJson();
+      status.textContent = "Datei heruntergeladen.";
+    } catch (err) {
+      status.textContent = friendlyErrorMessage(err);
     }
   });
 }
@@ -2374,6 +2651,9 @@ function renderCommittedPreview() {
   }
 }
 
+// Notiz und Betrag sind direkt editierbar (Blur committet) — gleiches Muster wie
+// buildFixedCostItem. Löschen läuft ohne Bestätigungs-Dialog: die Transaktion lässt sich per
+// Undo-Toast (createTransaction mit denselben Werten) trivial wiederherstellen.
 function buildTransactionItem(tx) {
   const li = document.createElement("li");
   li.className = "task-item";
@@ -2383,15 +2663,77 @@ function buildTransactionItem(tx) {
   dot.className = "task-area-dot";
   dot.style.background = POT_COLOR_VAR[tx.pot] || "var(--color-text-subtle)";
 
-  const title = document.createElement("span");
-  title.className = "task-title";
-  title.textContent = tx.note || POT_LABELS[tx.pot] || "Transaktion";
+  const noteInput = document.createElement("input");
+  noteInput.type = "text";
+  noteInput.className = "input area-name-input";
+  noteInput.value = tx.note || "";
+  noteInput.placeholder = POT_LABELS[tx.pot] || "Notiz";
+  noteInput.setAttribute("aria-label", "Notiz");
+  noteInput.addEventListener("blur", async () => {
+    const value = noteInput.value.trim();
+    if (value === (tx.note || "")) return;
+    await withErrorToast(async () => {
+      await updateTransaction(tx.id, { note: value || null });
+      await reloadFinance();
+    });
+  });
+  noteInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") noteInput.blur();
+  });
 
-  const amount = document.createElement("span");
-  amount.className = "count";
-  amount.textContent = `${tx.direction === "income" ? "+" : "−"}${formatEuro(tx.amount)}`;
+  const sign = document.createElement("span");
+  sign.className = "count";
+  sign.textContent = tx.direction === "income" ? "+" : "−";
 
-  li.append(dot, title, amount);
+  const amountInput = document.createElement("input");
+  amountInput.type = "number";
+  amountInput.step = "0.01";
+  amountInput.min = "0";
+  amountInput.className = "input";
+  amountInput.style.maxWidth = "90px";
+  amountInput.value = tx.amount;
+  amountInput.setAttribute("aria-label", "Betrag");
+  amountInput.addEventListener("blur", async () => {
+    const value = Number(amountInput.value);
+    if (!value || value === Number(tx.amount)) {
+      amountInput.value = tx.amount;
+      return;
+    }
+    await withErrorToast(async () => {
+      await updateTransaction(tx.id, { amount: value });
+      await reloadFinance();
+    });
+  });
+
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.className = "icon-btn icon-btn-danger";
+  deleteBtn.textContent = "×";
+  deleteBtn.setAttribute("aria-label", "Löschen");
+  deleteBtn.addEventListener("click", async () => {
+    await withErrorToast(async () => {
+      await deleteTransaction(tx.id);
+      await reloadFinance();
+      showToast(`${formatEuro(tx.amount)} gelöscht.`, false, {
+        label: "Rückgängig",
+        onClick: () =>
+          withErrorToast(async () => {
+            await createTransaction({
+              direction: tx.direction,
+              amount: tx.amount,
+              pot: tx.pot,
+              category: tx.category,
+              note: tx.note,
+              source: tx.source,
+              occurredAt: tx.occurred_at,
+            });
+            await reloadFinance();
+          }),
+      });
+    });
+  });
+
+  li.append(dot, noteInput, sign, amountInput, deleteBtn);
   return li;
 }
 
@@ -2746,6 +3088,15 @@ async function renderAreaManageList() {
 function buildAreaManageItem(area, areas, index) {
   const li = document.createElement("li");
   li.className = "area-manage-item";
+  li.dataset.areaId = area.id;
+
+  const handle = document.createElement("button");
+  handle.type = "button";
+  handle.className = "icon-btn drag-handle";
+  handle.textContent = "⋮⋮";
+  handle.setAttribute("aria-hidden", "true");
+  handle.tabIndex = -1;
+  wireAreaDragHandle(li, handle);
 
   const color = document.createElement("input");
   color.type = "color";
@@ -2782,7 +3133,7 @@ function buildAreaManageItem(area, areas, index) {
       reloadOverview();
     } catch (err) {
       name.value = area.name;
-      alert("Umbenennen fehlgeschlagen: " + friendlyErrorMessage(err));
+      showToast("Umbenennen fehlgeschlagen: " + friendlyErrorMessage(err), true);
     }
   };
   name.addEventListener("blur", commitName);
@@ -2825,7 +3176,11 @@ function buildAreaManageItem(area, areas, index) {
   deleteBtn.textContent = "×";
   deleteBtn.setAttribute("aria-label", "Bereich löschen");
   deleteBtn.addEventListener("click", async () => {
-    if (!confirm(`Bereich „${area.name}" löschen? Zugeordnete Aufgaben bleiben erhalten, verlieren aber ihren Bereich.`)) return;
+    const proceed = await showConfirm(
+      `Bereich „${area.name}" löschen? Zugeordnete Aufgaben bleiben erhalten, verlieren aber ihren Bereich.`,
+      { confirmLabel: "Löschen", cancelLabel: "Abbrechen", danger: true }
+    );
+    if (!proceed) return;
     await withErrorToast(async () => {
       await deleteArea(area.id);
       reloadOverview();
@@ -2833,8 +3188,82 @@ function buildAreaManageItem(area, areas, index) {
   });
 
   controls.append(upBtn, downBtn, deleteBtn);
-  li.append(color, colorWarning, name, controls);
+  li.append(handle, color, colorWarning, name, controls);
   return li;
+}
+
+// Touch-/Maus-Drag zum Umsortieren der Bereichsliste per Pointer Events (kein natives HTML5
+// draggable — das ist auf Touch, v.a. iOS Safari, unzuverlässig bis nicht funktionsfähig). Die
+// Auf/Ab-Pfeile bleiben zusätzlich bestehen, da Drag nicht tastaturzugänglich ist. Verschiebt das
+// li während des Ziehens live per Transform, tauscht die DOM-Position bei Überschreiten der
+// Nachbar-Mitte, und persistiert bei pointerup die dann sichtbare Reihenfolge als neue sort_order.
+function wireAreaDragHandle(li, handle) {
+  let pointerId = null;
+  let originY = 0;
+  let moved = false; // bleibt false bei einem reinen Tap ohne Bewegung — dann nichts persistieren/neu laden
+
+  const onPointerMove = (e) => {
+    if (e.pointerId !== pointerId) return;
+    const dy = e.clientY - originY;
+    li.style.transform = `translateY(${dy}px)`;
+
+    const liRect = li.getBoundingClientRect();
+    const liMid = liRect.top + liRect.height / 2;
+
+    const prev = li.previousElementSibling;
+    if (prev) {
+      const prevRect = prev.getBoundingClientRect();
+      if (liMid < prevRect.top + prevRect.height / 2) {
+        li.parentElement.insertBefore(li, prev);
+        originY = e.clientY;
+        li.style.transform = "translateY(0px)";
+        moved = true;
+        return;
+      }
+    }
+    const next = li.nextElementSibling;
+    if (next) {
+      const nextRect = next.getBoundingClientRect();
+      if (liMid > nextRect.top + nextRect.height / 2) {
+        li.parentElement.insertBefore(li, next.nextSibling);
+        originY = e.clientY;
+        li.style.transform = "translateY(0px)";
+        moved = true;
+      }
+    }
+  };
+
+  const onPointerUp = (e) => {
+    if (e.pointerId !== pointerId) return;
+    handle.releasePointerCapture(pointerId);
+    handle.removeEventListener("pointermove", onPointerMove);
+    handle.removeEventListener("pointerup", onPointerUp);
+    handle.removeEventListener("pointercancel", onPointerUp);
+    pointerId = null;
+    li.style.transform = "";
+    li.classList.remove("is-dragging");
+    if (!moved) return;
+
+    const list = li.parentElement;
+    if (!list) return;
+    const orderedIds = Array.from(list.querySelectorAll(".area-manage-item")).map((el) => el.dataset.areaId);
+    withErrorToast(async () => {
+      await Promise.all(orderedIds.map((id, i) => updateArea(id, { sort_order: i })));
+      reloadOverview();
+    });
+  };
+
+  handle.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    pointerId = e.pointerId;
+    originY = e.clientY;
+    moved = false;
+    handle.setPointerCapture(pointerId);
+    li.classList.add("is-dragging");
+    handle.addEventListener("pointermove", onPointerMove);
+    handle.addEventListener("pointerup", onPointerUp);
+    handle.addEventListener("pointercancel", onPointerUp);
+  });
 }
 
 function wireNewAreaForm() {
@@ -2855,7 +3284,7 @@ function wireNewAreaForm() {
       colorInput.value = "#378ADD";
       reloadOverview();
     } catch (err) {
-      alert("Anlegen fehlgeschlagen: " + friendlyErrorMessage(err));
+      showToast("Anlegen fehlgeschlagen: " + friendlyErrorMessage(err), true);
     }
   });
 }

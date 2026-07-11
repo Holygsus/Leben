@@ -30,6 +30,17 @@ export async function createTransaction({
   return data;
 }
 
+export async function updateTransaction(id, updates) {
+  const { data, error } = await supabase.from("transactions").update(updates).eq("id", id).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteTransaction(id) {
+  const { error } = await supabase.from("transactions").delete().eq("id", id);
+  if (error) throw error;
+}
+
 export async function listFixedCosts() {
   const { data, error } = await supabase.from("fixed_costs").select("*").order("created_at", { ascending: true });
   if (error) throw error;

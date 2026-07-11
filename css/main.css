@@ -871,6 +871,75 @@ body {
   min-height: 40px;
 }
 
+/* Wochenstreifen (Plan) — rollierend heute..+6 Tage, zeigt je Tag die Zahl bereits geplanter
+   Aufgaben und ist antippbar (setzt planState.targetDate). */
+
+.week-strip {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+}
+
+.week-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-height: 52px;
+  padding: var(--space-1) 2px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.week-day .wd-label {
+  text-transform: uppercase;
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+  color: var(--color-text-subtle);
+}
+
+.week-day[data-today="true"] .wd-label {
+  color: var(--color-accent);
+}
+
+.week-day .wd-num {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.week-day .wd-count {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  font-size: 0.62rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.week-day[data-has-tasks="true"] .wd-count {
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+.week-day[data-has-tasks="false"] .wd-count {
+  visibility: hidden;
+}
+
+.week-day[data-selected="true"] {
+  background: var(--color-surface-raised);
+  border-color: var(--color-accent);
+}
+
+.week-day[data-selected="true"] .wd-num {
+  color: var(--color-accent);
+}
+
 .badge {
   padding: 2px var(--space-2);
   border-radius: var(--radius-full);
@@ -920,6 +989,22 @@ body {
   border-radius: var(--radius-md);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
+}
+
+.area-manage-item.is-dragging {
+  position: relative;
+  z-index: 10;
+  box-shadow: var(--shadow-md);
+}
+
+.drag-handle {
+  cursor: grab;
+  touch-action: none;
+  flex-shrink: 0;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
 }
 
 .area-name-input {
@@ -1251,7 +1336,8 @@ body {
   .effort-chip:hover,
   .priority-chip:hover,
   .pot-chip:hover,
-  .area-chip:hover {
+  .area-chip:hover,
+  .week-day:hover {
     background: var(--color-surface-raised);
     border-color: var(--color-text-subtle);
   }

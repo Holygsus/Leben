@@ -9,6 +9,8 @@ export async function listTasks({
   isBrainstorm,
   plannedDate,
   plannedBefore,
+  plannedFrom,
+  plannedTo,
   isPinned,
 } = {}) {
   let query = supabase.from("tasks").select("*").order("created_at", { ascending: true });
@@ -19,6 +21,8 @@ export async function listTasks({
   if (isBrainstorm !== undefined) query = query.eq("is_brainstorm", isBrainstorm);
   if (plannedDate) query = query.eq("planned_date", plannedDate);
   if (plannedBefore) query = query.lt("planned_date", plannedBefore);
+  if (plannedFrom) query = query.gte("planned_date", plannedFrom);
+  if (plannedTo) query = query.lte("planned_date", plannedTo);
   if (isPinned !== undefined) query = query.eq("is_pinned", isPinned);
   const { data, error } = await query;
   if (error) throw error;

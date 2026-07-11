@@ -42,6 +42,17 @@ export async function getSavingsPotBalance() {
   return data.reduce((sum, entry) => sum + Number(entry.amount), 0);
 }
 
+// Rohe Ledger-Einträge (nicht nur die Summe) — u.a. für den Daten-Export gebraucht, sonst wäre
+// die Spar-Historie beim Export verloren, obwohl der Kontostand selbst ja nur ihre Summe ist.
+export async function listSavingsPotEntries() {
+  const { data, error } = await supabase
+    .from("savings_pot_entries")
+    .select("*")
+    .order("entry_date", { ascending: true });
+  if (error) throw error;
+  return data;
+}
+
 export async function addSavingsPotEntry({ amount, note = null, entryDate = null }) {
   const userId = await getCurrentUserId();
   const payload = { user_id: userId, amount, note };
