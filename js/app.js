@@ -549,6 +549,18 @@ function buildDuplicateIcon() {
   );
 }
 
+// Eigener Wrapper statt buildInlineIcon(), weil .inline-icon svg global auf stroke-only (fill:none)
+// gesetzt ist — ein Punkte-Raster braucht dagegen gefüllte Kreise.
+function buildDragHandleIcon() {
+  const span = document.createElement("span");
+  span.className = "drag-handle-icon";
+  span.innerHTML =
+    `<svg viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/>` +
+    `<circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/>` +
+    `<circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>`;
+  return span;
+}
+
 // Baut einen einladenderen Leerzustand (Icon + Titel + Untertext) statt eines reinen Textsatzes.
 function buildEmptyState(title, subtitle) {
   const wrap = document.createElement("div");
@@ -675,10 +687,22 @@ function renderShell() {
   if (closeActiveModal) closeActiveModal();
   app.innerHTML = `
     <nav class="app-nav">
-      <a href="#/today" class="nav-link${route === "today" ? " is-active" : ""}">Heute <span class="nav-count" id="nav-today-count" hidden></span></a>
-      <a href="#/overview" class="nav-link${route === "overview" ? " is-active" : ""}">Übersicht</a>
-      <a href="#/plan" class="nav-link${route === "plan" ? " is-active" : ""}">Plan</a>
-      <a href="#/finance" class="nav-link${route === "finance" ? " is-active" : ""}">Finanzen</a>
+      <a href="#/today" class="nav-link${route === "today" ? " is-active" : ""}">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+        <span class="nav-label">Heute <span class="nav-count" id="nav-today-count" hidden></span></span>
+      </a>
+      <a href="#/overview" class="nav-link${route === "overview" ? " is-active" : ""}">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+        <span class="nav-label">Übersicht</span>
+      </a>
+      <a href="#/plan" class="nav-link${route === "plan" ? " is-active" : ""}">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M7 3v3M17 3v3M4 9h16M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z"/></svg>
+        <span class="nav-label">Plan</span>
+      </a>
+      <a href="#/finance" class="nav-link${route === "finance" ? " is-active" : ""}">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 7h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1h13M16 13h2"/></svg>
+        <span class="nav-label">Finanzen</span>
+      </a>
     </nav>
     <div id="view-content"></div>
   `;
@@ -775,10 +799,15 @@ function renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById) {
   const doneCount = tasks.filter((t) => t.status === "done").length;
   updateNavBadge(tasks.length - doneCount + overdueTasks.length);
 
+  const pct = tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0;
+  const remaining = tasks.length - doneCount;
   document.getElementById("progress-text").textContent = `${doneCount} von ${tasks.length} Aufgaben erledigt`;
-  const progressFill = document.getElementById("progress-bar-fill");
-  progressFill.style.width = tasks.length ? `${Math.round((doneCount / tasks.length) * 100)}%` : "0%";
-  progressFill.classList.toggle("is-complete", tasks.length > 0 && doneCount === tasks.length);
+  document.getElementById("progress-subtext").textContent =
+    tasks.length === 0 ? "" : remaining > 0 ? `Noch ${remaining} offen für heute.` : "Alles erledigt für heute.";
+  document.getElementById("progress-ring-pct").textContent = `${pct}%`;
+  const ring = document.getElementById("progress-ring");
+  ring.style.setProperty("--pct", pct);
+  ring.classList.toggle("is-complete", tasks.length > 0 && doneCount === tasks.length);
 
   list.innerHTML = "";
   for (const task of [...overdueTasks].sort(compareByPriority)) {
@@ -1353,7 +1382,7 @@ function buildAreaSection(area) {
   const section = document.createElement("section");
   section.className = "area-section";
   section.id = "area-sec-" + area.id;
-  section.style.borderLeftColor = area.color;
+  section.style.setProperty("--area-color", area.color);
   const collapsed = overviewState.collapsedAreas.has(area.id) && !isAddingHere && !hasSearch;
 
   const header = document.createElement("div");
@@ -2545,19 +2574,22 @@ async function reloadFinance() {
 function buildPotCard(label, color, amountText, pct) {
   const card = document.createElement("div");
   card.className = "pot-card";
-  card.style.setProperty("--pot-color", color);
+
+  const ring = document.createElement("div");
+  ring.className = "pot-ring";
+  ring.style.setProperty("--pct", Math.max(0, Math.min(100, pct)));
+  ring.style.setProperty("--ring-color", color);
+
+  const info = document.createElement("div");
   const labelEl = document.createElement("div");
   labelEl.className = "p-label";
   labelEl.textContent = label;
   const amountEl = document.createElement("div");
   amountEl.className = "p-amount";
   amountEl.textContent = amountText;
-  const bar = document.createElement("div");
-  bar.className = "p-bar";
-  const fill = document.createElement("i");
-  fill.style.width = `${Math.max(0, Math.min(100, pct))}%`;
-  bar.appendChild(fill);
-  card.append(labelEl, amountEl, bar);
+  info.append(labelEl, amountEl);
+
+  card.append(ring, info);
   return card;
 }
 
@@ -2656,7 +2688,7 @@ function renderCommittedPreview() {
 // Undo-Toast (createTransaction mit denselben Werten) trivial wiederherstellen.
 function buildTransactionItem(tx) {
   const li = document.createElement("li");
-  li.className = "task-item";
+  li.className = "task-item tx-item";
   li.style.borderLeftColor = POT_COLOR_VAR[tx.pot] || "var(--color-text-subtle)";
 
   const dot = document.createElement("span");
@@ -2733,7 +2765,15 @@ function buildTransactionItem(tx) {
     });
   });
 
-  li.append(dot, noteInput, sign, amountInput, deleteBtn);
+  const line1 = document.createElement("div");
+  line1.className = "tx-line";
+  line1.append(dot, noteInput);
+
+  const line2 = document.createElement("div");
+  line2.className = "tx-line tx-line-amount";
+  line2.append(sign, amountInput, deleteBtn);
+
+  li.append(line1, line2);
   return li;
 }
 
@@ -3093,7 +3133,7 @@ function buildAreaManageItem(area, areas, index) {
   const handle = document.createElement("button");
   handle.type = "button";
   handle.className = "icon-btn drag-handle";
-  handle.textContent = "⋮⋮";
+  handle.appendChild(buildDragHandleIcon());
   handle.setAttribute("aria-hidden", "true");
   handle.tabIndex = -1;
   wireAreaDragHandle(li, handle);
