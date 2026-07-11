@@ -34,6 +34,8 @@ export async function createTask({
   plannedDate = null,
   isBrainstorm = false,
   isPinned = false,
+  priority = "medium",
+  isEvent = false,
 }) {
   const userId = await getCurrentUserId();
   const { data, error } = await supabase
@@ -48,6 +50,8 @@ export async function createTask({
       planned_date: plannedDate,
       is_brainstorm: isBrainstorm,
       is_pinned: isPinned,
+      priority,
+      is_event: isEvent,
     })
     .select()
     .single();
@@ -119,8 +123,7 @@ export async function completeTaskCascade(rootTask, allTasks) {
 }
 
 // Macht das Erledigen einer Aufgabe rückgängig: sie selbst und alle Unteraufgaben werden
-// wieder geöffnet (auf "planned" falls ein Plandatum gesetzt ist, sonst "open") — dieselbe
-// Regel wie beim einzelnen Abhaken-Rückgängig (siehe toggleTaskDoneStatus in app.js).
+// wieder geöffnet (auf "planned" falls ein Plandatum gesetzt ist, sonst "open").
 export async function reopenTaskCascade(rootTask, allTasks) {
   const descendantIds = collectDescendantIds(allTasks, rootTask.id);
   const byId = new Map(allTasks.map((t) => [t.id, t]));
@@ -138,4 +141,19 @@ export async function reopenTaskCascade(rootTask, allTasks) {
     const { error } = await supabase.from("tasks").update({ status: "open" }).in("id", idsWithoutDate);
     if (error) throw error;
   }
+}
+
+// Plant eine Aufgabe für ein Datum ein und zieht dabei alle noch offenen (nicht bereits
+// erledigten) Unteraufgaben automatisch auf dasselbe Datum mit — Einkaufslisten-Modell:
+// einmal die Mutteraufgabe einplanen genügt, die Unterpunkte laufen mit.
+export async function planTaskCascade(rootTask, plannedDate, allTasks) {
+  const descendants = Array.from(collectDescendantIds(allTasks, rootTask.id))
+    .map((id) => allTasks.find((t) => t.id === id))
+    .filter(Boolean);
+  const ids = [rootTask.id, ...descendants.filter((t) => t.status !== "done").map((t) => t.id)];
+  const { error } = await supabase
+    .from("tasks")
+    .update({ planned_date: plannedDate, status: plannedDate ? "planned" : "open" })
+    .in("id", ids);
+  if (error) throw error;
 }

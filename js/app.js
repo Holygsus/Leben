@@ -9,6 +9,7 @@ import {
   countDescendantsRecursive,
   completeTaskCascade,
   reopenTaskCascade,
+  planTaskCascade,
 } from "./tasks.js";
 import { listAreas, createArea, updateArea, deleteArea, swapAreaOrder } from "./areas.js";
 import { suggestTasksForPlan, formatTasksForExport, savePlanForDate } from "./planner.js";
@@ -19,7 +20,6 @@ const routes = {
   today: renderTodayView,
   overview: renderOverviewView,
   plan: renderPlanView,
-  areas: renderAreasView,
 };
 
 const FILTER_STORAGE_KEY = "leben-os:overview-filters";
@@ -60,9 +60,7 @@ const overviewState = {
   showDone: storedFilters?.showDone || false,
   collapsedAreas: new Set(),
   collapsedNodes: new Set(),
-  addFormTarget: null, // { areaId, parentTaskId } | null — nur ein offenes Anlegen-Formular gleichzeitig
-  renamingId: null, // Aufgaben-ID, die gerade inline umbenannt wird, oder null
-  movingNodeId: null, // Aufgaben-ID, für die gerade das Verschieben-Panel offen ist, oder null
+  addFormTarget: null, // { areaId, parentTaskId: null } | null — offenes "Aufgabe anlegen"-Formular auf Bereichs-Ebene
   selectedBrainstormIds: new Set(), // Mehrfachauswahl in der "Ohne Bereich"-Liste für Sammel-Aktionen
 };
 
@@ -190,6 +188,8 @@ async function restoreTaskSnapshot(task, descendants) {
     plannedDate: task.planned_date,
     isBrainstorm: task.is_brainstorm,
     isPinned: task.is_pinned,
+    priority: task.priority,
+    isEvent: task.is_event,
   });
   oldToNewId.set(task.id, createdRoot.id);
 
@@ -209,20 +209,14 @@ async function restoreTaskSnapshot(task, descendants) {
         plannedDate: t.planned_date,
         isBrainstorm: t.is_brainstorm,
         isPinned: t.is_pinned,
+        priority: t.priority,
+        isEvent: t.is_event,
       });
       oldToNewId.set(t.id, created.id);
       await insertChildren(t.id);
     }
   };
   await insertChildren(task.id);
-}
-
-// Ein "erledigt"-Häkchen wird rückgängig gemacht: zurück zu "geplant" wenn ein Plandatum
-// gesetzt ist, sonst zurück zu "offen". So verliert eine geplante Aufgabe nicht still ihren
-// Planungsstatus, egal ob man sie in Heute oder in der Übersicht abhakt.
-function toggleTaskDoneStatus(task) {
-  if (task.status === "done") return task.planned_date ? "planned" : "open";
-  return "done";
 }
 
 function todayISO() {
@@ -401,6 +395,16 @@ function buildGymIcon() {
   return buildInlineIcon(`<path d="M6 8v8M18 8v8M2 12h4M18 12h4M9 12h6"/>`);
 }
 
+function buildEditIcon() {
+  return buildInlineIcon(`<path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/>`);
+}
+
+function buildTrashIcon() {
+  return buildInlineIcon(
+    `<path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0-1 14a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1L6 6h12Z"/>`
+  );
+}
+
 // Baut einen einladenderen Leerzustand (Icon + Titel + Untertext) statt eines reinen Textsatzes.
 function buildEmptyState(title, subtitle) {
   const wrap = document.createElement("div");
@@ -530,7 +534,6 @@ function renderShell() {
       <a href="#/today" class="nav-link${route === "today" ? " is-active" : ""}">Heute <span class="nav-count" id="nav-today-count" hidden></span></a>
       <a href="#/overview" class="nav-link${route === "overview" ? " is-active" : ""}">Übersicht</a>
       <a href="#/plan" class="nav-link${route === "plan" ? " is-active" : ""}">Plan</a>
-      <a href="#/areas" class="nav-link${route === "areas" ? " is-active" : ""}">Bereiche</a>
     </nav>
     <div id="view-content"></div>
   `;
@@ -545,15 +548,13 @@ function renderShell() {
   routes[route]();
 }
 
-// Prüft auf offene, unbestätigte Eingaben in der Übersicht (Inline-Anlegen-Formulare, laufende
-// Umbenennung) — Grundlage für die Nachfrage vorm Verlassen der Ansicht per Nav-Klick.
+// Prüft auf offene, unbestätigte Eingaben in der Übersicht (Inline-Anlegen-Formulare) —
+// Grundlage für die Nachfrage vorm Verlassen der Ansicht per Nav-Klick.
 function hasUnsavedOverviewInput() {
   const addInputs = document.querySelectorAll(".inline-add-form input[type='text'], #new-task-title");
   for (const input of addInputs) {
     if (input.value.trim()) return true;
   }
-  const renameInput = document.querySelector(".tree-node-rename-input");
-  if (renameInput && renameInput.value.trim() !== renameInput.dataset.original) return true;
   return false;
 }
 
@@ -565,16 +566,20 @@ async function renderTodayView() {
   container.innerHTML = await res.text();
   showLoading("task-list");
 
-  const [areas, tasks, overdueTasks] = await Promise.all([
-    listAreas(),
-    listTasks({ plannedDate: todayISO() }),
-    listTasks({ plannedBefore: todayISO(), statusNot: "done" }),
-  ]);
+  // Ein einzelner ungefilterter Fetch reicht: Heute, überfällig, Termine und Quick-Win-Kandidaten
+  // werden alle clientseitig aus derselben Liste abgeleitet (spart Roundtrips und macht die
+  // Mutteraufgaben-Gruppierung trivial, weil der volle Baum schon vorliegt).
+  const [areas, allTasks] = await Promise.all([listAreas(), listTasks()]);
   const areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
+  const today = todayISO();
+  const tasks = allTasks.filter((t) => t.planned_date === today);
+  const overdueTasks = allTasks.filter((t) => t.planned_date && t.planned_date < today && t.status !== "done");
 
   renderGreeting();
   renderGymIndicator();
-  renderTodayTasks(tasks, overdueTasks, areaColorById);
+  renderUpcomingEvents(allTasks, today);
+  renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById);
+  renderQuickWin(allTasks, tasks, today);
   wireQuickCapture(areas, renderTodayView);
 }
 
@@ -604,7 +609,11 @@ function renderGymIndicator() {
 // tasks = für heute geplante Aufgaben (bestimmen die Fortschrittsanzeige), overdueTasks = nicht
 // erledigte Aufgaben mit Plandatum in der Vergangenheit (zählen bewusst NICHT in den
 // Tagesfortschritt hinein, werden aber oben in der Liste als "Überfällig" hervorgehoben).
-function renderTodayTasks(tasks, overdueTasks, areaColorById) {
+// allTasks wird für die Mutteraufgaben-Gruppierung gebraucht: Kinder erben beim Einplanen
+// automatisch das Datum ihrer Mutter (siehe planTaskCascade), liegen also normalerweise mit im
+// today-Set — falls trotzdem nur eine Unteraufgabe einzeln eingeplant wurde, wird ihre Mutter aus
+// allTasks als reiner Gruppen-Header mitgerendert (zählt aber nicht in den Fortschritt hinein).
+function renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById) {
   const list = document.getElementById("task-list");
   const emptyState = document.getElementById("empty-state");
   const doneCount = tasks.filter((t) => t.status === "done").length;
@@ -617,7 +626,7 @@ function renderTodayTasks(tasks, overdueTasks, areaColorById) {
 
   list.innerHTML = "";
   for (const task of overdueTasks) {
-    list.appendChild(buildTaskItem(task, areaColorById, renderTodayView));
+    list.appendChild(buildTaskItem(task, areaColorById, allTasks, renderTodayView));
   }
 
   if (tasks.length === 0 && overdueTasks.length === 0) {
@@ -626,22 +635,81 @@ function renderTodayTasks(tasks, overdueTasks, areaColorById) {
   }
   emptyState.hidden = true;
 
-  for (const task of tasks) {
-    list.appendChild(buildTaskItem(task, areaColorById, renderTodayView));
+  const todayIds = new Set(tasks.map((t) => t.id));
+  const tree = filterTreeNodes(buildTaskTree(allTasks, null), (node) => todayIds.has(node.id));
+  for (const node of tree) {
+    list.appendChild(buildTodayGroupEl(node, allTasks, areaColorById, renderTodayView));
   }
 }
 
-function buildTaskItem(task, areaColorById, onChange) {
+// Merkt sich zu-/aufgeklappte Mutteraufgaben in Heute über Re-Renders hinweg (nicht über
+// View-Wechsel hinaus — das ist in Ordnung, entspricht dem Verhalten der Übersicht).
+const todayCollapsedNodes = new Set();
+
+function buildTodayGroupEl(node, allTasks, areaColorById, onChange) {
+  const hasChildren = node.children.length > 0;
+  const collapsed = hasChildren && todayCollapsedNodes.has(node.id);
+
   const li = document.createElement("li");
+  li.className = "task-group";
+
+  const row = document.createElement("div");
+  row.className = "task-item";
+  appendTaskRowContent(row, node, areaColorById, allTasks, onChange);
+
+  if (hasChildren) {
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "tree-toggle";
+    toggle.textContent = collapsed ? "▸" : "▾";
+    toggle.setAttribute("aria-label", collapsed ? "Aufklappen" : "Zuklappen");
+    toggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (todayCollapsedNodes.has(node.id)) todayCollapsedNodes.delete(node.id);
+      else todayCollapsedNodes.add(node.id);
+      onChange();
+    });
+    row.prepend(toggle);
+
+    const count = document.createElement("span");
+    count.className = "count";
+    count.textContent = `${node.children.length} Unteraufgabe${node.children.length === 1 ? "" : "n"}`;
+    row.appendChild(count);
+  }
+
+  li.appendChild(row);
+
+  if (hasChildren && !collapsed) {
+    const childList = document.createElement("ul");
+    childList.className = "task-list task-group-children";
+    for (const child of node.children) {
+      childList.appendChild(buildTodayGroupEl(child, allTasks, areaColorById, onChange));
+    }
+    li.appendChild(childList);
+  }
+
+  return li;
+}
+
+function buildTaskItem(task, areaColorById, allTasks, onChange) {
+  const li = document.createElement("li");
+  li.className = "task-item";
+  appendTaskRowContent(li, task, areaColorById, allTasks, onChange);
+  return li;
+}
+
+// Baut Punkt/Checkbox/Titel/Badges einer Aufgaben-Zeile in ein vorhandenes Element (li oder div) —
+// gemeinsame Basis für flache Zeilen (buildTaskItem) und Gruppen-Header (buildTodayGroupEl). Die
+// Checkbox nutzt immer completeTaskCascade/reopenTaskCascade mit dem vollen allTasks-Kontext, auch
+// für Aufgaben ohne Kinder (dort ist das Ergebnis identisch zum einfachen Statuswechsel).
+function appendTaskRowContent(el, task, areaColorById, allTasks, onChange) {
   const isStale = isTaskStale(task);
   const isOverdue = isTaskOverdue(task);
-  li.className =
-    "task-item" +
-    (task.status === "done" ? " is-done" : "") +
-    (isStale ? " is-stale" : "") +
-    (isOverdue ? " is-overdue" : "");
+  el.classList.toggle("is-done", task.status === "done");
+  el.classList.toggle("is-stale", isStale);
+  el.classList.toggle("is-overdue", isOverdue);
   // Bereichsfarbe als Akzent am linken Rand — außer bei "überfällig", das hat Vorrang (rot).
-  if (!isOverdue && areaColorById[task.area_id]) li.style.borderLeftColor = areaColorById[task.area_id];
+  if (!isOverdue && areaColorById[task.area_id]) el.style.borderLeftColor = areaColorById[task.area_id];
 
   const dot = document.createElement("span");
   dot.className = "task-area-dot";
@@ -654,9 +722,11 @@ function buildTaskItem(task, areaColorById, onChange) {
   checkbox.setAttribute("aria-pressed", String(task.status === "done"));
   checkbox.setAttribute("aria-label", task.title);
   checkbox.textContent = task.status === "done" ? "✓" : "";
-  checkbox.addEventListener("click", async () => {
+  checkbox.addEventListener("click", async (e) => {
+    e.stopPropagation();
     await withErrorToast(async () => {
-      await updateTask(task.id, { status: toggleTaskDoneStatus(task) });
+      if (task.status === "done") await reopenTaskCascade(task, allTasks);
+      else await completeTaskCascade(task, allTasks);
       onChange();
     });
   });
@@ -665,16 +735,125 @@ function buildTaskItem(task, areaColorById, onChange) {
   title.className = "task-title";
   title.textContent = task.title;
 
-  li.append(dot, checkbox, title);
+  el.append(dot, checkbox, title);
 
   if (isOverdue) {
     const badge = document.createElement("span");
     badge.className = "badge badge-overdue";
     badge.textContent = "Überfällig";
-    li.appendChild(badge);
+    el.appendChild(badge);
+  }
+}
+
+// ----- Anstehende Termine -----
+
+function formatShortDate(isoDate) {
+  const [, m, d] = isoDate.split("-").map(Number);
+  return `${d}.${m}`;
+}
+
+function renderUpcomingEvents(allTasks, today) {
+  const widget = document.getElementById("events-widget");
+  const list = document.getElementById("events-widget-list");
+  const moreBtn = document.getElementById("events-widget-more");
+  const events = allTasks
+    .filter((t) => t.is_event && t.status !== "done" && t.planned_date && t.planned_date >= today)
+    .sort((a, b) => (a.planned_date < b.planned_date ? -1 : a.planned_date > b.planned_date ? 1 : 0));
+
+  if (events.length === 0) {
+    widget.hidden = true;
+    return;
+  }
+  widget.hidden = false;
+
+  const renderItems = (items) => {
+    list.innerHTML = "";
+    for (const ev of items) {
+      const li = document.createElement("li");
+      li.textContent = `${formatShortDate(ev.planned_date)} ${ev.title}`;
+      list.appendChild(li);
+    }
+  };
+  renderItems(events.slice(0, 2));
+
+  if (events.length > 2) {
+    moreBtn.hidden = false;
+    moreBtn.textContent = `+${events.length - 2} weitere`;
+    moreBtn.onclick = () => {
+      renderItems(events);
+      moreBtn.hidden = true;
+    };
+  } else {
+    moreBtn.hidden = true;
+  }
+}
+
+// ----- Quick Win des Tages -----
+// Ein zufällig gewählter 5-Minuten-Aufgaben-Vorschlag, der nicht Teil des Tagesplans war —
+// taucht erst auf, sobald 75% der heute geplanten Aufgaben erledigt sind. Wird nur lokal
+// gemerkt (kein Server-Zustand nötig), damit Reroll/Reload denselben Vorschlag zeigen.
+const QUICK_WIN_STORAGE_PREFIX = "leben-os:quick-win:";
+
+function loadQuickWinState(today) {
+  try {
+    const raw = localStorage.getItem(QUICK_WIN_STORAGE_PREFIX + today);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveQuickWinState(today, state) {
+  try {
+    localStorage.setItem(QUICK_WIN_STORAGE_PREFIX + today, JSON.stringify(state));
+  } catch {
+    // z.B. Private-Browsing ohne Storage-Zugriff — Quick Win ist ein Nice-to-have, kein Problem
+    // wenn er nicht über Reloads hinweg persistiert.
+  }
+}
+
+function renderQuickWin(allTasks, tasks, today) {
+  const card = document.getElementById("quick-win-card");
+  const doneCount = tasks.filter((t) => t.status === "done").length;
+  const ratio = tasks.length ? doneCount / tasks.length : 0;
+  if (ratio < 0.75) {
+    card.hidden = true;
+    return;
   }
 
-  return li;
+  const plannedIds = new Set(tasks.map((t) => t.id));
+  const candidates = allTasks.filter((t) => t.status === "open" && t.effort === 5 && !plannedIds.has(t.id));
+  if (candidates.length === 0) {
+    card.hidden = true;
+    return;
+  }
+
+  const state = loadQuickWinState(today);
+  let task = state ? candidates.find((t) => t.id === state.taskId) : null;
+  if (!task) {
+    task = candidates[Math.floor(Math.random() * candidates.length)];
+    saveQuickWinState(today, { taskId: task.id });
+  }
+
+  card.hidden = false;
+  document.getElementById("quick-win-title").textContent = task.title;
+
+  const checkbox = document.getElementById("quick-win-checkbox");
+  checkbox.dataset.checked = "false";
+  checkbox.onclick = async () => {
+    await withErrorToast(async () => {
+      await updateTask(task.id, { status: "done" });
+      showToast(`„${task.title}" erledigt — Quick Win!`);
+      renderTodayView();
+    });
+  };
+
+  document.getElementById("quick-win-reroll").onclick = () => {
+    const others = candidates.filter((t) => t.id !== task.id);
+    const next = others.length > 0 ? others[Math.floor(Math.random() * others.length)] : task;
+    saveQuickWinState(today, { taskId: next.id });
+    renderQuickWin(allTasks, tasks, today);
+  };
 }
 
 // Ein Plandatum in der Vergangenheit, das noch nicht erledigt ist — unabhängig davon ob der
@@ -700,13 +879,14 @@ function isTaskStale(task) {
   return ageMs > 14 * 24 * 60 * 60 * 1000;
 }
 
-// Heute-Schnellerfassung: Titel + optional Bereich + optional Aufwand, aufklappbar bei Fokus.
+// Heute-Schnellerfassung: Titel + optional Bereich/Aufwand/Priorität, aufklappbar bei Fokus.
 function wireQuickCapture(areas, onAdded) {
   const form = document.getElementById("brainstorm-form");
   const input = document.getElementById("brainstorm-input");
   const options = document.getElementById("brainstorm-options");
   const areaSelect = document.getElementById("brainstorm-area");
   const effortGroup = document.getElementById("brainstorm-effort");
+  const priorityGroup = document.getElementById("brainstorm-priority");
 
   areaSelect.innerHTML =
     `<option value="">Bereich (optional)</option>` +
@@ -723,6 +903,17 @@ function wireQuickCapture(areas, onAdded) {
     });
   });
 
+  let selectedPriority = "medium";
+  const setPriority = (value) => {
+    selectedPriority = value;
+    priorityGroup.querySelectorAll(".priority-chip").forEach((c) => {
+      c.dataset.active = String(c.dataset.priority === value);
+    });
+  };
+  priorityGroup.querySelectorAll(".priority-chip").forEach((chip) => {
+    chip.addEventListener("click", () => setPriority(chip.dataset.priority));
+  });
+
   input.addEventListener("focus", () => {
     options.hidden = false;
   });
@@ -737,6 +928,7 @@ function wireQuickCapture(areas, onAdded) {
         title,
         areaId,
         effort: selectedEffort,
+        priority: selectedPriority,
         isBrainstorm: !areaId,
         plannedDate: todayISO(),
         status: "planned",
@@ -747,6 +939,7 @@ function wireQuickCapture(areas, onAdded) {
       areaSelect.value = "";
       selectedEffort = null;
       effortGroup.querySelectorAll(".effort-chip").forEach((c) => (c.dataset.active = "false"));
+      setPriority("medium");
       options.hidden = true;
       onAdded();
     });
@@ -764,8 +957,6 @@ async function renderOverviewView() {
   // Filterzustand bleibt über Navigationswechsel (und dank localStorage auch über Reloads) hinweg
   // erhalten — nur die transienten UI-Zustände unten werden bei jedem View-Wechsel geschlossen.
   overviewState.addFormTarget = null;
-  overviewState.renamingId = null;
-  overviewState.movingNodeId = null;
   overviewState.selectedBrainstormIds.clear();
 
   await loadOverviewData();
@@ -774,6 +965,9 @@ async function renderOverviewView() {
   renderNoAreaSection();
   wireOverviewFilters();
   wireNewTaskForm();
+  await renderAreaManageList();
+  wireNewAreaForm();
+  wireAreaManageToggle();
 }
 
 async function loadOverviewData() {
@@ -788,6 +982,20 @@ async function reloadOverview() {
   renderAreaTree();
   renderNoAreaSection();
   populateNewTaskAreaOptions();
+  await renderAreaManageList();
+}
+
+// Bereiche-Verwaltung ist ein einklappbares Panel in der Übersicht (statt eines eigenen
+// Nav-Tabs): "+" öffnet es und fokussiert das Namensfeld, das Zahnrad-Icon schaltet es um.
+function wireAreaManageToggle() {
+  const panel = document.getElementById("area-manage-panel");
+  document.getElementById("area-manage-toggle").addEventListener("click", () => {
+    panel.hidden = !panel.hidden;
+  });
+  document.getElementById("area-add-btn").addEventListener("click", () => {
+    panel.hidden = false;
+    document.getElementById("new-area-name").focus();
+  });
 }
 
 function taskPassesFilter(task) {
@@ -800,14 +1008,15 @@ function taskPassesFilter(task) {
   return true;
 }
 
-// Baut aus einem Aufgabenbaum (siehe buildTaskTree) einen auf sichtbare Knoten zugeschnittenen
-// Baum: ein Knoten bleibt, wenn er selbst die Filter besteht ODER mindestens ein Nachfahre es tut —
-// sonst würde z.B. eine passende Unteraufgabe verschwinden, nur weil ihr Elternteil nicht matcht.
-function filterVisibleNodes(nodes) {
+// Baut aus einem Aufgabenbaum (siehe buildTaskTree) einen zugeschnittenen Baum: ein Knoten
+// bleibt, wenn er selbst `predicate` erfüllt ODER mindestens ein Nachfahre es tut — sonst würde
+// z.B. eine passende Unteraufgabe verschwinden, nur weil ihr Elternteil nicht matcht. Genutzt
+// für die Übersicht-Filter (taskPassesFilter) und für die Heute-Gruppierung (todayIds-Mitgliedschaft).
+function filterTreeNodes(nodes, predicate) {
   const out = [];
   for (const node of nodes) {
-    const children = filterVisibleNodes(node.children);
-    if (taskPassesFilter(node) || children.length > 0) out.push({ ...node, children });
+    const children = filterTreeNodes(node.children, predicate);
+    if (predicate(node) || children.length > 0) out.push({ ...node, children });
   }
   return out;
 }
@@ -900,7 +1109,7 @@ function renderAreaTree() {
   root.innerHTML = "";
   if (overviewState.areas.length === 0) {
     root.innerHTML = "";
-    root.appendChild(buildEmptyState("Noch keine Bereiche", `Leg welche unter „Bereiche" an.`));
+    root.appendChild(buildEmptyState("Noch keine Bereiche", "Leg über das ⚙-Symbol oben die ersten Bereiche an."));
     return;
   }
   let rendered = 0;
@@ -931,7 +1140,7 @@ function buildAreaSection(area) {
   // zuschneiden — sonst würde buildTaskTree eine passende Unteraufgabe verwaisen lassen, wenn ihr
   // Elternteil selbst nicht durch den Filter kommt.
   const allAreaTasks = overviewState.tasks.filter((t) => t.area_id === area.id).sort(compareByUrgency);
-  const tree = filterVisibleNodes(buildTaskTree(allAreaTasks, null));
+  const tree = filterTreeNodes(buildTaskTree(allAreaTasks, null), taskPassesFilter);
 
   if (hasSearch && tree.length === 0 && !isAddingHere) return null;
 
@@ -1010,10 +1219,8 @@ function buildAreaSection(area) {
 function buildTaskNodeEl(node, area, depth) {
   const wrap = document.createElement("div");
   wrap.className = "tree-node";
-  const isAddingHere = overviewState.addFormTarget && overviewState.addFormTarget.parentTaskId === node.id;
-  const isMovingHere = overviewState.movingNodeId === node.id;
   const hasSearch = !!overviewState.filters.search;
-  const collapsed = overviewState.collapsedNodes.has(node.id) && !isAddingHere && !isMovingHere && !hasSearch;
+  const collapsed = overviewState.collapsedNodes.has(node.id) && !hasSearch;
 
   const header = document.createElement("div");
   header.className = "tree-node-header" + (isTaskOverdue(node) ? " is-overdue" : "");
@@ -1066,52 +1273,7 @@ function buildTaskNodeEl(node, area, depth) {
     header.appendChild(overdueBadge);
   }
 
-  const menuBtn = document.createElement("button");
-  menuBtn.type = "button";
-  menuBtn.className = "icon-btn tree-node-menu";
-  menuBtn.textContent = "⋯";
-  menuBtn.setAttribute("aria-label", "Aktionen");
-  header.appendChild(menuBtn);
   wrap.appendChild(header);
-
-  const actions = document.createElement("div");
-  actions.className = "tree-node-actions";
-  actions.hidden = true;
-  actions.append(
-    actionButton("Umbenennen", () => {
-      overviewState.renamingId = node.id;
-      renderAreaTree();
-    }),
-    actionButton("Unteraufgabe hinzufügen", () => {
-      overviewState.addFormTarget = { areaId: area.id, parentTaskId: node.id };
-      overviewState.collapsedNodes.delete(node.id);
-      renderAreaTree();
-    }),
-    actionButton("Verschieben", () => {
-      overviewState.movingNodeId = node.id;
-      overviewState.collapsedNodes.delete(node.id);
-      renderAreaTree();
-    }),
-    actionButton(node.is_pinned ? "Anheften entfernen" : "Anheften", async () => {
-      await withErrorToast(async () => {
-        await updateTask(node.id, { is_pinned: !node.is_pinned });
-        reloadOverview();
-      });
-    }),
-    actionButton(
-      "Löschen",
-      async () => {
-        await withErrorToast(async () => {
-          await deleteTaskWithUndo(node, overviewState.tasks, reloadOverview);
-        });
-      },
-      "danger"
-    )
-  );
-  menuBtn.addEventListener("click", () => {
-    actions.hidden = !actions.hidden;
-  });
-  wrap.appendChild(actions);
 
   const bodyWrap = document.createElement("div");
   bodyWrap.className = "accordion-wrap";
@@ -1120,9 +1282,6 @@ function buildTaskNodeEl(node, area, depth) {
   const body = document.createElement("div");
   body.className = "tree-node-body";
 
-  if (isAddingHere) body.appendChild(buildInlineAddForm(area.id, node.id));
-  if (isMovingHere) body.appendChild(buildMovePanel(node));
-
   node.children.forEach((child) => body.appendChild(buildTaskNodeEl(child, area, depth + 1)));
 
   bodyWrap.appendChild(body);
@@ -1130,60 +1289,16 @@ function buildTaskNodeEl(node, area, depth) {
   return wrap;
 }
 
-// Zeigt den Aufgabentitel als Text an. Ein Klick auf den Titel (ausserhalb des
-// Umbenennen-Modus) oeffnet die Aufgaben-Detailansicht.
+// Zeigt den Aufgabentitel als Text an. Ein Klick öffnet die Aufgaben-Detailansicht — Umbenennen,
+// Verschieben, Anheften und Löschen laufen seitdem über deren Bearbeiten-Modus statt über ein
+// eigenes Zeilen-Menü.
 function buildTaskNameEl(node) {
-  if (overviewState.renamingId === node.id) {
-    const input = document.createElement("input");
-    input.type = "text";
-    input.className = "input tree-node-rename-input";
-    input.value = node.title;
-    input.dataset.original = node.title;
-    let settled = false;
-    const commit = async () => {
-      if (settled) return;
-      settled = true;
-      const value = input.value.trim();
-      overviewState.renamingId = null;
-      if (value && value !== node.title) {
-        await withErrorToast(async () => {
-          await updateTask(node.id, { title: value });
-          reloadOverview();
-        });
-      } else {
-        renderAreaTree();
-      }
-    };
-    input.addEventListener("blur", commit);
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") input.blur();
-      if (e.key === "Escape") {
-        settled = true;
-        overviewState.renamingId = null;
-        renderAreaTree();
-      }
-    });
-    requestAnimationFrame(() => {
-      input.focus();
-      input.select();
-    });
-    return input;
-  }
   const name = document.createElement("span");
   name.className = "tree-node-name task-title-btn";
   if (node.is_pinned) name.append(buildPinIcon(), " ");
   name.append(node.title);
   name.addEventListener("click", () => openTaskDetail(node));
   return name;
-}
-
-function actionButton(label, onClick, variant) {
-  const b = document.createElement("button");
-  b.type = "button";
-  b.className = "action-btn" + (variant === "danger" ? " action-btn-danger" : "");
-  b.textContent = label;
-  b.addEventListener("click", onClick);
-  return b;
 }
 
 // Inline-Formular zum Anlegen einer Aufgabe (optional als Unteraufgabe) — ersetzt den frueheren
@@ -1232,68 +1347,6 @@ function buildInlineAddForm(areaId, parentTaskId) {
   });
 
   requestAnimationFrame(() => nameInput.focus());
-  return form;
-}
-
-// Inline-Panel zum Verschieben einer Aufgabe in einen anderen Bereich/unter eine andere
-// uebergeordnete Aufgabe. Schliesst die Aufgabe selbst und alle ihre Nachfahren aus der
-// Zielauswahl aus, damit kein Zyklus entstehen kann (eine Aufgabe kann nicht unter sich
-// selbst verschoben werden).
-function buildMovePanel(node) {
-  const excludeIds = collectDescendantIds(overviewState.tasks, node.id);
-  excludeIds.add(node.id);
-
-  const form = document.createElement("form");
-  form.className = "inline-add-form";
-
-  const areaSelect = document.createElement("select");
-  areaSelect.className = "select";
-  areaSelect.setAttribute("aria-label", "Ziel-Bereich");
-  areaSelect.innerHTML = overviewState.areas
-    .map((a) => `<option value="${a.id}"${a.id === node.area_id ? " selected" : ""}>${escapeHtml(a.name)}</option>`)
-    .join("");
-
-  const parentSelect = document.createElement("select");
-  parentSelect.className = "select";
-  parentSelect.setAttribute("aria-label", "Ziel-Aufgabe");
-
-  const refreshParentOptions = () => {
-    parentSelect.innerHTML =
-      `<option value="">Keine uebergeordnete Aufgabe</option>` +
-      taskOptionsHtml(overviewState.tasks, areaSelect.value, null, excludeIds);
-  };
-  refreshParentOptions();
-  areaSelect.addEventListener("change", refreshParentOptions);
-
-  const submitBtn = document.createElement("button");
-  submitBtn.type = "submit";
-  submitBtn.className = "btn";
-  submitBtn.textContent = "Verschieben";
-
-  const cancelBtn = document.createElement("button");
-  cancelBtn.type = "button";
-  cancelBtn.className = "btn btn-secondary";
-  cancelBtn.textContent = "Abbrechen";
-  cancelBtn.addEventListener("click", () => {
-    overviewState.movingNodeId = null;
-    renderAreaTree();
-  });
-
-  form.append(areaSelect, parentSelect, submitBtn, cancelBtn);
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const newAreaId = areaSelect.value;
-    const newParentId = parentSelect.value || null;
-    await withErrorToast(async () => {
-      await updateTask(node.id, { area_id: newAreaId, parent_task_id: newParentId });
-      overviewState.movingNodeId = null;
-      overviewState.collapsedAreas.delete(newAreaId);
-      if (newParentId) overviewState.collapsedNodes.delete(newParentId);
-      reloadOverview();
-    });
-  });
-
   return form;
 }
 
@@ -1488,6 +1541,7 @@ function wireNewTaskForm() {
   const areaSelect = document.getElementById("new-task-area");
   const parentSelect = document.getElementById("new-task-parent");
   const effortSelect = document.getElementById("new-task-effort");
+  const prioritySelect = document.getElementById("new-task-priority");
   const dateChips = wireDateChipGroup(document.getElementById("new-task-date-chips"));
 
   populateNewTaskAreaOptions();
@@ -1504,6 +1558,7 @@ function wireNewTaskForm() {
         areaId: areaSelect.value || null,
         parentTaskId: parentSelect.value || null,
         effort: effortSelect.value ? Number(effortSelect.value) : null,
+        priority: prioritySelect.value,
         isBrainstorm: !areaSelect.value,
         plannedDate,
         status: plannedDate ? "planned" : "open",
@@ -1512,6 +1567,7 @@ function wireNewTaskForm() {
       titleInput.value = "";
       areaSelect.value = "";
       effortSelect.value = "";
+      prioritySelect.value = "medium";
       dateChips.reset();
       refreshNewTaskParentOptions();
       reloadOverview();
@@ -1552,7 +1608,23 @@ async function openTaskDetail(task) {
   await renderTaskDetailCard(task.id, close);
 }
 
-async function renderTaskDetailCard(taskId, close) {
+const PRIORITY_LABEL = { low: "Niedrig", medium: "Mittel", high: "Hoch" };
+
+// Baut die Unteraufgaben-Liste (gemeinsam für Ansicht) — Checkbox kaskadiert wie überall,
+// Klick auf den Titel navigiert ins Detail der Unteraufgabe.
+function subtaskListHtml(children) {
+  return children
+    .map(
+      (c) => `
+        <li class="task-item${c.status === "done" ? " is-done" : ""}" data-child-id="${c.id}">
+          <button type="button" class="task-checkbox" data-checked="${c.status === "done"}" data-action="toggle" aria-pressed="${c.status === "done"}" aria-label="${escapeHtml(c.title)}">${c.status === "done" ? "✓" : ""}</button>
+          <button type="button" class="task-title task-title-btn" data-action="open">${escapeHtml(c.title)}</button>
+        </li>`
+    )
+    .join("");
+}
+
+async function renderTaskDetailCard(taskId, close, editMode = false) {
   const allTasks = await listTasks();
   const task = allTasks.find((t) => t.id === taskId);
   const card = document.getElementById("modal-card");
@@ -1561,11 +1633,138 @@ async function renderTaskDetailCard(taskId, close) {
     return;
   }
 
-  const excludeIds = collectDescendantIds(allTasks, task.id);
-  excludeIds.add(task.id);
   const parentTask = task.parent_task_id ? allTasks.find((t) => t.id === task.parent_task_id) : null;
   const children = allTasks.filter((t) => t.parent_task_id === task.id);
+  const backButtonHtml = parentTask
+    ? `<button type="button" class="task-title-btn" id="td-back">← Zurück zu „${escapeHtml(parentTask.title)}"</button>`
+    : "";
+
+  if (editMode) renderTaskDetailEdit(card, task, allTasks, parentTask, children, backButtonHtml, close);
+  else renderTaskDetailView(card, task, allTasks, children, backButtonHtml, close);
+}
+
+function renderTaskDetailView(card, task, allTasks, children, backButtonHtml, close) {
+  const areaName = task.area_id ? overviewState.areas.find((a) => a.id === task.area_id)?.name : null;
   const doneChildren = children.filter((t) => t.status === "done").length;
+
+  const badges = [];
+  if (areaName) badges.push(`<span class="badge badge-area">${escapeHtml(areaName)}</span>`);
+  badges.push(`<span class="badge badge-priority-${task.priority || "medium"}">${PRIORITY_LABEL[task.priority] || "Mittel"}</span>`);
+  if (task.effort) badges.push(`<span class="badge badge-effort">${task.effort} min</span>`);
+  if (task.is_event && task.planned_date) badges.push(`<span class="badge badge-event">${formatShortDate(task.planned_date)}</span>`);
+  else if (task.planned_date) badges.push(`<span class="badge badge-date">${formatShortDate(task.planned_date)}</span>`);
+  if (isTaskOverdue(task)) badges.push(`<span class="badge badge-overdue">Überfällig</span>`);
+
+  card.innerHTML = `
+    ${backButtonHtml}
+    <div class="modal-view-header">
+      <button type="button" class="task-checkbox" id="td-done-toggle" data-checked="${task.status === "done"}" aria-pressed="${task.status === "done"}" aria-label="Erledigt">${task.status === "done" ? "✓" : ""}</button>
+      <h2 class="modal-view-title">${escapeHtml(task.title)}</h2>
+      <button type="button" class="icon-btn" id="td-pin" aria-label="${task.is_pinned ? "Anheften entfernen" : "Anheften"}"></button>
+      <button type="button" class="icon-btn" id="td-edit" aria-label="Bearbeiten"></button>
+    </div>
+    <div class="modal-badges">${badges.join("")}</div>
+
+    <div class="modal-subtasks">
+      <div class="tree-subheading">Unteraufgaben${children.length ? ` (${doneChildren}/${children.length} erledigt)` : ""}</div>
+      <ul class="task-list" id="td-subtask-list">${subtaskListHtml(children)}</ul>
+      <form class="inline-add-form" id="td-subtask-form">
+        <input class="input" id="td-subtask-title" placeholder="Unteraufgabe hinzufügen" autocomplete="off" required />
+        <div class="effort-chips" id="td-subtask-effort" role="group" aria-label="Aufwand">
+          <button type="button" class="effort-chip" data-effort="5">5</button>
+          <button type="button" class="effort-chip" data-effort="10">10</button>
+          <button type="button" class="effort-chip" data-effort="30">30</button>
+          <button type="button" class="effort-chip" data-effort="60">60</button>
+        </div>
+        <button class="icon-btn" type="submit" aria-label="Hinzufügen">+</button>
+      </form>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="td-cancel" type="button">Schließen</button>
+    </div>`;
+
+  document.getElementById("td-pin").appendChild(buildPinIcon());
+  document.getElementById("td-edit").appendChild(buildEditIcon());
+  document.getElementById("td-cancel").addEventListener("click", close);
+
+  if (backButtonHtml) {
+    document
+      .getElementById("td-back")
+      .addEventListener("click", () => renderTaskDetailCard(task.parent_task_id, close, false));
+  }
+
+  document.getElementById("td-edit").addEventListener("click", () => renderTaskDetailCard(task.id, close, true));
+
+  document.getElementById("td-pin").addEventListener("click", async () => {
+    await withErrorToast(async () => {
+      await updateTask(task.id, { is_pinned: !task.is_pinned });
+      await renderTaskDetailCard(task.id, close, false);
+      reloadOverview();
+    });
+  });
+
+  document.getElementById("td-done-toggle").addEventListener("click", async () => {
+    await withErrorToast(async () => {
+      if (task.status === "done") await reopenTaskCascade(task, allTasks);
+      else await completeTaskCascade(task, allTasks);
+      await renderTaskDetailCard(task.id, close, false);
+      reloadOverview();
+    });
+  });
+
+  let selectedSubtaskEffort = null;
+  const subtaskEffortGroup = document.getElementById("td-subtask-effort");
+  subtaskEffortGroup.querySelectorAll(".effort-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const value = Number(chip.dataset.effort);
+      selectedSubtaskEffort = selectedSubtaskEffort === value ? null : value;
+      subtaskEffortGroup.querySelectorAll(".effort-chip").forEach((c) => {
+        c.dataset.active = String(Number(c.dataset.effort) === selectedSubtaskEffort);
+      });
+    });
+  });
+
+  document.getElementById("td-subtask-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const subtaskTitleInput = document.getElementById("td-subtask-title");
+    const title = subtaskTitleInput.value.trim();
+    if (!title) return;
+    // Eine neue Unteraufgabe übernimmt automatisch das Plandatum der Mutter, falls vorhanden —
+    // sie gehört ja jetzt zur selben Gruppe (siehe planTaskCascade).
+    await withErrorToast(async () => {
+      await createTask({
+        title,
+        areaId: task.area_id,
+        parentTaskId: task.id,
+        effort: selectedSubtaskEffort,
+        plannedDate: task.planned_date,
+        status: task.planned_date ? "planned" : "open",
+      });
+      await renderTaskDetailCard(task.id, close, false);
+    });
+  });
+
+  document.getElementById("td-subtask-list").addEventListener("click", async (e) => {
+    const li = e.target.closest("[data-child-id]");
+    if (!li) return;
+    const child = allTasks.find((t) => t.id === li.dataset.childId);
+    if (!child) return;
+    if (e.target.dataset.action === "toggle") {
+      await withErrorToast(async () => {
+        if (child.status === "done") await reopenTaskCascade(child, allTasks);
+        else await completeTaskCascade(child, allTasks);
+        await renderTaskDetailCard(task.id, close, false);
+      });
+    } else if (e.target.dataset.action === "open") {
+      await renderTaskDetailCard(child.id, close, false);
+    }
+  });
+}
+
+function renderTaskDetailEdit(card, task, allTasks, parentTask, children, backButtonHtml, close) {
+  const excludeIds = collectDescendantIds(allTasks, task.id);
+  excludeIds.add(task.id);
 
   const areaOpts =
     `<option value="">Kein Bereich</option>` +
@@ -1581,19 +1780,13 @@ async function renderTaskDetailCard(taskId, close) {
   const statusOpts = [["open", "Offen"], ["planned", "Geplant"], ["done", "Erledigt"]]
     .map(([v, l]) => `<option value="${v}"${task.status === v ? " selected" : ""}>${l}</option>`)
     .join("");
-  const childrenHtml = children
-    .map(
-      (c) => `
-        <li class="task-item${c.status === "done" ? " is-done" : ""}" data-child-id="${c.id}">
-          <button type="button" class="task-checkbox" data-checked="${c.status === "done"}" data-action="toggle" aria-pressed="${c.status === "done"}" aria-label="${escapeHtml(c.title)}">${c.status === "done" ? "✓" : ""}</button>
-          <button type="button" class="task-title task-title-btn" data-action="open">${escapeHtml(c.title)}</button>
-        </li>`
-    )
+  const priorityOpts = [["low", "Niedrig"], ["medium", "Mittel"], ["high", "Hoch"]]
+    .map(([v, l]) => `<option value="${v}"${(task.priority || "medium") === v ? " selected" : ""}>${l}</option>`)
     .join("");
 
   card.innerHTML = `
-    ${parentTask ? `<button type="button" class="task-title-btn" id="td-back">← Zurück zu „${escapeHtml(parentTask.title)}"</button>` : ""}
-    <h2>Aufgabe</h2>
+    ${backButtonHtml}
+    <h2>Aufgabe bearbeiten</h2>
     <label class="modal-label">Titel
       <input class="input" id="td-title" type="text" value="${escapeHtml(task.title)}" />
     </label>
@@ -1607,8 +1800,17 @@ async function renderTaskDetailCard(taskId, close) {
       <label class="modal-label">Aufwand
         <select class="select" id="td-effort">${effortOpts}</select>
       </label>
+      <label class="modal-label">Priorität
+        <select class="select" id="td-priority">${priorityOpts}</select>
+      </label>
+    </div>
+    <div class="modal-row">
       <label class="modal-label">Status
         <select class="select" id="td-status">${statusOpts}</select>
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox" id="td-is-event" ${task.is_event ? "checked" : ""} />
+        Ist ein Termin
       </label>
     </div>
     <label class="modal-label">Plandatum${isTaskOverdue(task) ? ` <span class="badge badge-overdue">Überfällig</span>` : ""}
@@ -1621,27 +1823,13 @@ async function renderTaskDetailCard(taskId, close) {
       </div>
     </label>
 
-    <div class="modal-subtasks">
-      <div class="tree-subheading">Unteraufgaben${children.length ? ` (${doneChildren}/${children.length} erledigt)` : ""}</div>
-      <ul class="task-list" id="td-subtask-list">${childrenHtml}</ul>
-      <form class="inline-add-form" id="td-subtask-form">
-        <input class="input" id="td-subtask-title" placeholder="Unteraufgabe hinzufuegen" autocomplete="off" required />
-        <div class="date-chips" id="td-subtask-date-chips" role="group" aria-label="Datum">
-          <button type="button" class="date-chip" data-date="today">Heute</button>
-          <button type="button" class="date-chip" data-date="tomorrow">Morgen</button>
-          <button type="button" class="date-chip" data-date="" data-active="true">Kein Datum</button>
-          <button type="button" class="date-chip" data-date="custom">Datum…</button>
-          <input type="date" class="input date-chip-custom-input" aria-label="Eigenes Datum" hidden />
-        </div>
-        <button class="btn" type="submit">Hinzufügen</button>
-      </form>
-    </div>
-
     <div class="modal-actions">
       <button class="btn" id="td-save" type="button">Speichern</button>
-      <button class="btn btn-secondary" id="td-cancel" type="button">Abbrechen</button>
-      <button class="icon-btn icon-btn-danger" id="td-delete" type="button" aria-label="Aufgabe löschen">×</button>
+      <button class="btn btn-secondary" id="td-cancel-edit" type="button">Zurück</button>
+      <button class="icon-btn icon-btn-danger" id="td-delete" type="button" aria-label="Aufgabe löschen"></button>
     </div>`;
+
+  document.getElementById("td-delete").appendChild(buildTrashIcon());
 
   const areaSel = document.getElementById("td-area");
   const parentSel = document.getElementById("td-parent");
@@ -1654,13 +1842,17 @@ async function renderTaskDetailCard(taskId, close) {
   const titleInput = document.getElementById("td-title");
   titleInput.focus();
   titleInput.select();
-  document.getElementById("td-cancel").addEventListener("click", close);
+  document
+    .getElementById("td-cancel-edit")
+    .addEventListener("click", () => renderTaskDetailCard(task.id, close, false));
 
   const dateChips = wireDateChipGroup(document.getElementById("td-date-chips"));
   dateChips.setValue(task.planned_date);
 
   if (parentTask) {
-    document.getElementById("td-back").addEventListener("click", () => renderTaskDetailCard(parentTask.id, close));
+    document
+      .getElementById("td-back")
+      .addEventListener("click", () => renderTaskDetailCard(parentTask.id, close, false));
   }
 
   document.getElementById("td-save").addEventListener("click", async () => {
@@ -1669,17 +1861,21 @@ async function renderTaskDetailCard(taskId, close) {
     const newStatus = document.getElementById("td-status").value;
     const wasDone = task.status === "done";
     const willBeDone = newStatus === "done";
+    const plannedDate = dateChips.getPlannedDate();
     await withErrorToast(async () => {
       if (!wasDone && willBeDone) await completeTaskCascade(task, allTasks);
       else if (wasDone && !willBeDone) await reopenTaskCascade(task, allTasks);
+      else if (children.length > 0) await planTaskCascade(task, plannedDate, allTasks);
       await updateTask(task.id, {
         title: document.getElementById("td-title").value.trim() || task.title,
         area_id: areaId,
         parent_task_id: parentSel.value || null,
         effort: effortVal ? Number(effortVal) : null,
         status: newStatus,
-        planned_date: dateChips.getPlannedDate(),
+        planned_date: plannedDate,
         is_brainstorm: !areaId,
+        priority: document.getElementById("td-priority").value,
+        is_event: document.getElementById("td-is-event").checked,
       });
       close();
       reloadOverview();
@@ -1690,41 +1886,6 @@ async function renderTaskDetailCard(taskId, close) {
       close();
       await deleteTaskWithUndo(task, allTasks, reloadOverview);
     });
-  });
-
-  const subtaskDateChips = wireDateChipGroup(document.getElementById("td-subtask-date-chips"));
-  document.getElementById("td-subtask-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const subtaskTitleInput = document.getElementById("td-subtask-title");
-    const title = subtaskTitleInput.value.trim();
-    if (!title) return;
-    const plannedDate = subtaskDateChips.getPlannedDate();
-    await withErrorToast(async () => {
-      await createTask({
-        title,
-        areaId: task.area_id,
-        parentTaskId: task.id,
-        plannedDate,
-        status: plannedDate ? "planned" : "open",
-      });
-      await renderTaskDetailCard(task.id, close);
-    });
-  });
-
-  document.getElementById("td-subtask-list").addEventListener("click", async (e) => {
-    const li = e.target.closest("[data-child-id]");
-    if (!li) return;
-    const child = allTasks.find((t) => t.id === li.dataset.childId);
-    if (!child) return;
-    if (e.target.dataset.action === "toggle") {
-      await withErrorToast(async () => {
-        if (child.status === "done") await reopenTaskCascade(child, allTasks);
-        else await completeTaskCascade(child, allTasks);
-        await renderTaskDetailCard(task.id, close);
-      });
-    } else if (e.target.dataset.action === "open") {
-      await renderTaskDetailCard(child.id, close);
-    }
   });
 }
 
@@ -1798,7 +1959,7 @@ async function renderPlanView() {
     try {
       const targetDate = planState.targetDate;
       const ids = planState.selected.map((t) => t.id);
-      await Promise.all(ids.map((id) => updateTask(id, { status: "planned", planned_date: targetDate })));
+      await Promise.all(planState.selected.map((task) => planTaskCascade(task, targetDate, planState.pool)));
       await savePlanForDate(targetDate, ids);
       status.textContent = "Plan gespeichert.";
     } catch (err) {
@@ -1884,17 +2045,7 @@ function renderAddTaskSelect() {
     available.map((t) => `<option value="${t.id}">${escapeHtml(t.title)}</option>`).join("");
 }
 
-/* ---------- Bereiche (Verwaltung) ---------- */
-
-async function renderAreasView() {
-  const container = document.getElementById("view-content");
-  const res = await fetch("views/areas.html");
-  container.innerHTML = await res.text();
-  showLoading("area-manage-list");
-
-  await renderAreaManageList();
-  wireNewAreaForm();
-}
+/* ---------- Bereiche (Verwaltung, Teil der Übersicht) ---------- */
 
 async function renderAreaManageList() {
   const list = document.getElementById("area-manage-list");
@@ -1926,7 +2077,7 @@ function buildAreaManageItem(area, areas, index) {
   color.addEventListener("change", async () => {
     await withErrorToast(async () => {
       await updateArea(area.id, { color: color.value });
-      renderAreaManageList();
+      reloadOverview();
     });
   });
 
@@ -1950,7 +2101,7 @@ function buildAreaManageItem(area, areas, index) {
     }
     try {
       await updateArea(area.id, { name: newName });
-      renderAreaManageList();
+      reloadOverview();
     } catch (err) {
       name.value = area.name;
       alert("Umbenennen fehlgeschlagen: " + friendlyErrorMessage(err));
@@ -1973,7 +2124,7 @@ function buildAreaManageItem(area, areas, index) {
   upBtn.addEventListener("click", async () => {
     await withErrorToast(async () => {
       await swapAreaOrder(area, areas[index - 1]);
-      renderAreaManageList();
+      reloadOverview();
     });
   });
 
@@ -1986,7 +2137,7 @@ function buildAreaManageItem(area, areas, index) {
   downBtn.addEventListener("click", async () => {
     await withErrorToast(async () => {
       await swapAreaOrder(area, areas[index + 1]);
-      renderAreaManageList();
+      reloadOverview();
     });
   });
 
@@ -1999,7 +2150,7 @@ function buildAreaManageItem(area, areas, index) {
     if (!confirm(`Bereich „${area.name}" löschen? Zugeordnete Aufgaben bleiben erhalten, verlieren aber ihren Bereich.`)) return;
     await withErrorToast(async () => {
       await deleteArea(area.id);
-      renderAreaManageList();
+      reloadOverview();
     });
   });
 
@@ -2024,7 +2175,7 @@ function wireNewAreaForm() {
       await createArea({ name, color: colorInput.value, sort_order: maxSort + 1 });
       nameInput.value = "";
       colorInput.value = "#378ADD";
-      renderAreaManageList();
+      reloadOverview();
     } catch (err) {
       alert("Anlegen fehlgeschlagen: " + friendlyErrorMessage(err));
     }

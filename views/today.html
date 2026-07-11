@@ -4,6 +4,15 @@
   <div class="gym-indicator" id="gym-indicator" hidden></div>
 </section>
 
+<section class="events-widget" id="events-widget" hidden>
+  <div class="events-widget-header">
+    <span class="inline-icon"><svg viewBox="0 0 24 24"><path d="M7 3v3M17 3v3M4 9h16M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z"/></svg></span>
+    <span>Anstehende Termine</span>
+  </div>
+  <ul class="events-widget-list" id="events-widget-list"></ul>
+  <button type="button" class="events-widget-more" id="events-widget-more" hidden></button>
+</section>
+
 <section class="progress-section">
   <div class="progress-label">
     <span id="progress-text"></span>
@@ -13,12 +22,15 @@
   </div>
 </section>
 
-<ul class="task-list" id="task-list"></ul>
-<div class="empty-state-rich" id="empty-state" hidden>
-  <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-  <strong>Nichts geplant für heute</strong>
-  <span>Leg unten schnell eine Aufgabe an oder genieß den freien Tag.</span>
+<div class="quick-win-card" id="quick-win-card" hidden>
+  <span class="inline-icon quick-win-icon"><svg viewBox="0 0 24 24"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg></span>
+  <button type="button" class="task-checkbox" id="quick-win-checkbox" aria-label="Quick Win erledigt"></button>
+  <span class="task-title" id="quick-win-title"></span>
+  <button type="button" class="icon-btn" id="quick-win-reroll" aria-label="Neuen Quick Win würfeln">⟳</button>
 </div>
+
+<ul class="task-list" id="task-list"></ul>
+<p class="empty-state" id="empty-state" hidden>Nichts geplant für heute — leg unten schnell eine Aufgabe an.</p>
 
 <form class="brainstorm-pill" id="brainstorm-form">
   <div class="brainstorm-options" id="brainstorm-options" hidden>
@@ -30,6 +42,11 @@
       <button type="button" class="effort-chip" data-effort="10">10</button>
       <button type="button" class="effort-chip" data-effort="30">30</button>
       <button type="button" class="effort-chip" data-effort="60">60</button>
+    </div>
+    <div class="priority-chips" id="brainstorm-priority" role="group" aria-label="Priorität">
+      <button type="button" class="priority-chip" data-priority="low">Niedrig</button>
+      <button type="button" class="priority-chip" data-priority="medium" data-active="true">Mittel</button>
+      <button type="button" class="priority-chip" data-priority="high">Hoch</button>
     </div>
   </div>
   <div class="brainstorm-row">
