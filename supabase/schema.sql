@@ -49,14 +49,18 @@ create table if not exists daily_plans (
   unique(user_id, plan_date)
 );
 
--- Module (für spätere Zahnräder — u.a. Finanzplan-Konfiguration, name = 'finanzplan')
+-- Module (für spätere Zahnräder — u.a. Finanzplan-Konfiguration, name = 'finanzplan').
+-- unique(user_id, name) macht das Get-or-create in getFinanceModuleSettings() race-safe: ohne
+-- diesen Constraint könnten zwei parallele erste Ladevorgänge je eine 'finanzplan'-Zeile anlegen,
+-- woraufhin jede weitere Abfrage mit .maybeSingle() an der Mehrdeutigkeit scheitert.
 create table if not exists modules (
   id uuid default gen_random_uuid() primary key,
   user_id uuid references auth.users not null,
   name text not null,
   is_active boolean default false,
   settings jsonb default '{}',
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  unique (user_id, name)
 );
 
 -- Finanzplan: Einnahmen & Ausgaben

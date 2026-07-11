@@ -115,6 +115,20 @@ export function countDescendantsRecursive(taskId, tasks) {
   return collectDescendantIds(tasks, taskId).size;
 }
 
+// Zieht alle Unteraufgaben in den neuen Bereich der Wurzel-Aufgabe mit (die Wurzel selbst muss der
+// Aufrufer separat per updateTask setzen). Ohne das bleiben Unteraufgaben im alten Bereich hängen
+// und werden unsichtbar, weil die Übersicht den Baum je Bereich nur aus dessen eigenen Aufgaben
+// baut — ein Kind, dessen Elternteil nicht mehr im selben Bereich ist, hat dort keine Wurzel mehr.
+export async function cascadeAreaChange(rootTaskId, newAreaId, allTasks) {
+  const descendantIds = [...collectDescendantIds(allTasks, rootTaskId)];
+  if (descendantIds.length === 0) return;
+  const { error } = await supabase
+    .from("tasks")
+    .update({ area_id: newAreaId, is_brainstorm: !newAreaId })
+    .in("id", descendantIds);
+  if (error) throw error;
+}
+
 // Markiert eine Aufgabe und alle ihre Unteraufgaben als erledigt.
 export async function completeTaskCascade(rootTask, allTasks) {
   const ids = [rootTask.id, ...collectDescendantIds(allTasks, rootTask.id)];

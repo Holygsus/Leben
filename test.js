@@ -49,29 +49,54 @@ function assertEqual(actual, expected, label) {
 }
 
 // ---------- suggestTasksForPlan ----------
+// Aktuelle Logik (planner.js): zufällig gemischt, dann stabil nach priority sortiert (high vor
+// medium vor low), max. 2 pro Bereich, insgesamt max. 6 — und nur Top-Level-Aufgaben (Unteraufgaben
+// laufen beim Einplanen automatisch mit, siehe planTaskCascade). Wegen des Zufalls-Shuffles testen
+// wir Invarianten statt exakter Task-Listen.
 {
-  const base = { status: "open", area_id: "a1" };
+  const base = { status: "open" };
   const tasks = [
-    { ...base, id: "e5", effort: 5, created_at: "2026-01-01" },
-    { ...base, id: "e10-1", effort: 10, created_at: "2026-01-02" },
-    { ...base, id: "e10-2", effort: 10, created_at: "2026-01-03", area_id: "a2" },
-    { ...base, id: "e10-3", effort: 10, created_at: "2026-01-04", area_id: "a3" },
-    { ...base, id: "e30", effort: 30, created_at: "2026-01-05", area_id: "a4" },
-    { ...base, id: "done", effort: 5, created_at: "2026-01-01", status: "done" },
+    { ...base, id: "t1", area_id: "a1", priority: "medium", created_at: "2026-01-01" },
+    { ...base, id: "t2", area_id: "a2", priority: "medium", created_at: "2026-01-02" },
+    { ...base, id: "t3", area_id: "a3", priority: "medium", created_at: "2026-01-03" },
+    { ...base, id: "done", area_id: "a4", priority: "medium", status: "done", created_at: "2026-01-01" },
+    { ...base, id: "sub", area_id: "a5", priority: "medium", parent_task_id: "t1", created_at: "2026-01-01" },
   ];
   const selected = suggestTasksForPlan(tasks);
   assertEqual(selected.some((t) => t.id === "done"), false, "suggestTasksForPlan: erledigte Aufgaben werden ignoriert");
-  assertEqual(selected.filter((t) => t.effort === 5).length, 1, "suggestTasksForPlan: genau ein 5-Min-Task");
-  assertEqual(selected.filter((t) => t.effort === 10).length, 2, "suggestTasksForPlan: genau zwei 10-Min-Tasks");
-  assertEqual(selected.filter((t) => t.effort === 30 || t.effort === 60).length, 1, "suggestTasksForPlan: genau ein 30/60-Min-Task");
+  assertEqual(selected.some((t) => t.id === "sub"), false, "suggestTasksForPlan: Unteraufgaben werden ignoriert (laufen kaskadiert mit)");
 
   const sameArea = [
-    { ...base, id: "x1", effort: 10, created_at: "2026-01-01" },
-    { ...base, id: "x2", effort: 10, created_at: "2026-01-02" },
-    { ...base, id: "x3", effort: 10, created_at: "2026-01-03" },
+    { ...base, id: "x1", area_id: "a1", priority: "medium", created_at: "2026-01-01" },
+    { ...base, id: "x2", area_id: "a1", priority: "medium", created_at: "2026-01-02" },
+    { ...base, id: "x3", area_id: "a1", priority: "medium", created_at: "2026-01-03" },
   ];
   const cappedSelection = suggestTasksForPlan(sameArea);
   assertEqual(cappedSelection.length, 2, "suggestTasksForPlan: max. 2 Aufgaben pro Bereich (Deckel greift)");
+
+  const manyAreas = Array.from({ length: 10 }, (_, i) => ({
+    ...base,
+    id: "m" + i,
+    area_id: "area" + i,
+    priority: "medium",
+    created_at: "2026-01-0" + (1 + (i % 9)),
+  }));
+  assertEqual(suggestTasksForPlan(manyAreas).length, 6, "suggestTasksForPlan: max. 6 Aufgaben insgesamt");
+
+  // 3 "high" (je eigener Bereich) + 5 "low" (je eigener Bereich) = Pool von 8, Ziel 6 — die
+  // Prioritätssortierung ist nicht zufällig, nur die Reihenfolge *innerhalb* gleicher Priorität.
+  // Alle 3 "high" müssen deshalb deterministisch enthalten sein.
+  const priorityPool = [
+    ...Array.from({ length: 3 }, (_, i) => ({ ...base, id: "h" + i, area_id: "ha" + i, priority: "high", created_at: "2026-01-01" })),
+    ...Array.from({ length: 5 }, (_, i) => ({ ...base, id: "l" + i, area_id: "la" + i, priority: "low", created_at: "2026-01-01" })),
+  ];
+  const prioritySelection = suggestTasksForPlan(priorityPool);
+  assertEqual(prioritySelection.length, 6, "suggestTasksForPlan: Ziel von 6 wird bei ausreichend Kandidaten erreicht");
+  assertEqual(
+    ["h0", "h1", "h2"].every((id) => prioritySelection.some((t) => t.id === id)),
+    true,
+    "suggestTasksForPlan: alle 'high'-Prioritäten werden vor 'low' bevorzugt"
+  );
 }
 
 // ---------- formatTasksForExport ----------

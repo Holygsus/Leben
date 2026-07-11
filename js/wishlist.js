@@ -53,8 +53,14 @@ export async function addSavingsPotEntry({ amount, note = null, entryDate = null
 
 // Reine Funktion (kein DB-Zugriff) — genutzt sowohl von der Finanzen-Ansicht als auch vom
 // Kaufbereit-Widget in Heute, damit beide dieselbe Logik teilen statt sie zu duplizieren.
+// "ready" ist die manuell bestätigte Kaufbereitschaft (Status-Badge heißt selbst "Kaufbereit")
+// und zeigt sich unabhängig vom aktuellen Spartopf-Stand — die Entscheidung hat der Nutzer schon
+// getroffen. "active" ist die automatische Erkennung: sobald der Spartopf den Preis deckt, taucht
+// der Wunsch hier ebenfalls auf, auch wenn er noch nicht manuell auf "ready" gesetzt wurde.
 export function filterBuyReady(items, potBalance) {
   return items.filter(
-    (item) => item.status === "active" && item.current_price != null && item.current_price <= potBalance
+    (item) =>
+      item.status === "ready" ||
+      (item.status === "active" && item.current_price != null && item.current_price <= potBalance)
   );
 }

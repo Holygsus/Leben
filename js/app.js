@@ -10,6 +10,7 @@ import {
   completeTaskCascade,
   reopenTaskCascade,
   planTaskCascade,
+  cascadeAreaChange,
 } from "./tasks.js";
 import { listAreas, createArea, updateArea, deleteArea, swapAreaOrder } from "./areas.js";
 import { suggestTasksForPlan, formatTasksForExport, savePlanForDate } from "./planner.js";
@@ -83,6 +84,7 @@ const overviewState = {
   collapsedAreas: new Set(),
   collapsedNodes: new Set(),
   addFormTarget: null, // { areaId, parentTaskId: null } | null — offenes "Aufgabe anlegen"-Formular auf Bereichs-Ebene
+  addFormJustOpened: false, // true nur für den einen Render direkt nach dem Öffnen — steuert das Autofokus
   selectedBrainstormIds: new Set(), // Mehrfachauswahl in der "Ohne Bereich"-Liste für Sammel-Aktionen
 };
 
@@ -592,10 +594,12 @@ async function renderTodayView() {
   // Ein einzelner ungefilterter Fetch reicht: Heute, überfällig, Termine und Quick-Win-Kandidaten
   // werden alle clientseitig aus derselben Liste abgeleitet (spart Roundtrips und macht die
   // Mutteraufgaben-Gruppierung trivial, weil der volle Baum schon vorliegt).
-  const [areas, allTasks, activeWishlistItems, potBalance] = await Promise.all([
+  // Ungefiltert holen (nicht nur status:"active") — filterBuyReady() muss auch bereits manuell auf
+  // "ready" gesetzte Wünsche sehen können, sonst fehlen die im Kaufbereit-Widget.
+  const [areas, allTasks, wishlistItems, potBalance] = await Promise.all([
     listAreas(),
     listTasks(),
-    listWishlistItems({ status: "active" }),
+    listWishlistItems(),
     getSavingsPotBalance(),
   ]);
   const areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
@@ -606,7 +610,7 @@ async function renderTodayView() {
   renderGreeting();
   renderGymIndicator();
   renderUpcomingEvents(allTasks, today);
-  renderBuyReadyAlert(activeWishlistItems, potBalance);
+  renderBuyReadyAlert(wishlistItems, potBalance);
   renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById);
   renderQuickWin(allTasks, tasks, today);
   wireQuickCapture(areas, renderTodayView);
@@ -654,7 +658,7 @@ function renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById) {
   progressFill.classList.toggle("is-complete", tasks.length > 0 && doneCount === tasks.length);
 
   list.innerHTML = "";
-  for (const task of overdueTasks) {
+  for (const task of [...overdueTasks].sort(compareByPriority)) {
     list.appendChild(buildTaskItem(task, areaColorById, allTasks, renderTodayView));
   }
 
@@ -666,9 +670,22 @@ function renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById) {
 
   const todayIds = new Set(tasks.map((t) => t.id));
   const tree = filterTreeNodes(buildTaskTree(allTasks, null), (node) => todayIds.has(node.id));
-  for (const node of tree) {
-    list.appendChild(buildTodayGroupEl(node, allTasks, areaColorById, renderTodayView));
-  }
+
+  // Ein überfälliger Elternteil steht schon oben in der flachen Überfällig-Liste — als
+  // Gruppenkopf hier nochmal würde er doppelt erscheinen. Stattdessen werden seine heute-
+  // geplanten Kinder direkt als eigene Gruppen aufgelistet (rekursiv, falls mehrere überfällige
+  // Ebenen verschachtelt sind).
+  const overdueIds = new Set(overdueTasks.map((t) => t.id));
+  // Höchste Priorität zuerst, auf jeder Baumebene einzeln sortiert — so behalten auch die
+  // Kinder eines übersprungenen überfälligen Elternteils (die als eigene Gruppen auftauchen)
+  // ihre eigene Prioritäts-Reihenfolge.
+  const appendGroups = (nodes) => {
+    for (const node of [...nodes].sort(compareByPriority)) {
+      if (overdueIds.has(node.id)) appendGroups(node.children);
+      else list.appendChild(buildTodayGroupEl(node, allTasks, areaColorById, renderTodayView));
+    }
+  };
+  appendGroups(tree);
 }
 
 // Merkt sich zu-/aufgeklappte Mutteraufgaben in Heute über Re-Renders hinweg (nicht über
@@ -851,7 +868,12 @@ function renderQuickWin(allTasks, tasks, today) {
   }
 
   const plannedIds = new Set(tasks.map((t) => t.id));
-  const candidates = allTasks.filter((t) => t.status === "open" && t.effort === 5 && !plannedIds.has(t.id));
+  // Überfällige Aufgaben stehen schon oben mit eigenem Badge — als "neuer" Quick Win nochmal
+  // vorgeschlagen würden sie doppelt auftauchen und dem "nicht Teil des Tagesplans"-Gedanken
+  // widersprechen.
+  const candidates = allTasks.filter(
+    (t) => t.status === "open" && t.effort === 5 && !plannedIds.has(t.id) && !(t.planned_date && t.planned_date < today)
+  );
   if (candidates.length === 0) {
     card.hidden = true;
     return;
@@ -900,6 +922,15 @@ function compareByUrgency(a, b) {
   if (a.planned_date) return -1;
   if (b.planned_date) return 1;
   return new Date(a.created_at) - new Date(b.created_at);
+}
+
+// Priorität soll nur in Heute etwas bewirken — dort aber ohne eigenes Icon/Badge: die
+// höchstpriorisierte Aufgabe steht einfach ganz oben. Innerhalb derselben Priorität bleibt die
+// bisherige Dringlichkeits-Reihenfolge erhalten (compareByUrgency als Tiebreaker).
+const PRIORITY_RANK = { high: 2, medium: 1, low: 0 };
+function compareByPriority(a, b) {
+  const diff = (PRIORITY_RANK[b.priority] ?? 1) - (PRIORITY_RANK[a.priority] ?? 1);
+  return diff !== 0 ? diff : compareByUrgency(a, b);
 }
 
 function isTaskStale(task) {
@@ -1221,6 +1252,10 @@ function buildAreaSection(area) {
   addBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     overviewState.addFormTarget = isAddingHere ? null : { areaId: area.id, parentTaskId: null };
+    // Nur beim tatsächlichen Öffnen automatisch fokussieren — renderAreaTree() läuft auch bei
+    // jedem Suche-Tastenanschlag neu und würde sonst den Fokus aus der Suche ins (dabei komplett
+    // neu gebaute) Formular reißen, obwohl es längst offen ist.
+    overviewState.addFormJustOpened = !isAddingHere;
     renderAreaTree();
   });
 
@@ -1387,7 +1422,12 @@ function buildInlineAddForm(areaId, parentTaskId) {
     });
   });
 
-  requestAnimationFrame(() => nameInput.focus());
+  // Nur fokussieren, wenn das Formular gerade eben geöffnet wurde — nicht bei jedem Rebuild durch
+  // z.B. Suche-Tastenanschläge, sonst würde der Fokus mitten beim Tippen woanders hinspringen.
+  if (overviewState.addFormJustOpened) {
+    overviewState.addFormJustOpened = false;
+    requestAnimationFrame(() => nameInput.focus());
+  }
   return form;
 }
 
@@ -1439,7 +1479,9 @@ function renderNoAreaSection() {
       overviewState.areas.map((a) => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join("");
     areaSelect.addEventListener("change", async () => {
       await withErrorToast(async () => {
-        await updateTask(task.id, { area_id: areaSelect.value || null, is_brainstorm: false });
+        const newAreaId = areaSelect.value || null;
+        await updateTask(task.id, { area_id: newAreaId, is_brainstorm: false });
+        await cascadeAreaChange(task.id, newAreaId, overviewState.tasks);
         reloadOverview();
       });
     });
@@ -1478,7 +1520,12 @@ function renderBulkToolbar() {
     const areaId = areaSelect.value;
     if (!areaId) return;
     await withErrorToast(async () => {
-      await Promise.all(selectedIds.map((id) => updateTask(id, { area_id: areaId, is_brainstorm: false })));
+      await Promise.all(
+        selectedIds.map(async (id) => {
+          await updateTask(id, { area_id: areaId, is_brainstorm: false });
+          await cascadeAreaChange(id, areaId, overviewState.tasks);
+        })
+      );
       overviewState.selectedBrainstormIds.clear();
       showToast(`${selectedIds.length} Aufgabe(n) zugewiesen.`);
       reloadOverview();
@@ -1918,6 +1965,7 @@ function renderTaskDetailEdit(card, task, allTasks, parentTask, children, backBu
         priority: document.getElementById("td-priority").value,
         is_event: document.getElementById("td-is-event").checked,
       });
+      if (areaId !== task.area_id) await cascadeAreaChange(task.id, areaId, allTasks);
       close();
       reloadOverview();
     });
@@ -2465,6 +2513,7 @@ function wireFixedCostsPanel() {
       showToast(`„${name}" angelegt.`);
       nameInput.value = "";
       amountInput.value = "";
+      intervalSelect.value = "monthly";
       await reloadFinance();
     });
   });
@@ -2533,7 +2582,12 @@ function wireCommittedPanel() {
     const name = nameInput.value.trim();
     const amount = Number(amountInput.value);
     const dueDate = dateChips.getPlannedDate();
-    if (!name || !amount || !dueDate) return;
+    if (!name || !amount || !dueDate) {
+      // due_date ist NOT NULL in der DB — ohne diesen Hinweis würde "Anlegen" bei "Kein Datum"
+      // (dem Chip-Default) einfach stumm gar nichts tun.
+      showToast(!dueDate ? "Bitte ein Fälligkeitsdatum wählen." : "Bitte Name und Betrag ausfüllen.", true);
+      return;
+    }
     await withErrorToast(async () => {
       await createCommittedExpense({ name, amount, dueDate });
       showToast(`„${name}" angelegt.`);
