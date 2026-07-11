@@ -783,12 +783,17 @@ async function renderTodayView() {
 // Schnellerfassung neu zu verdrahten. Gemeinsame Basis für den reinen UI-Re-Render (Auf-/Zuklappen)
 // und den daten-refreshenden Re-Render (nach Statusänderung/Unteraufgabe).
 function renderTodayTaskSection() {
+  // Kann auch aus einem verzögerten Callback feuern (z.B. Klick auf "Rückgängig" in einem
+  // Undo-Toast, bis zu 6s nach dem Auslösen) — falls der Nutzer inzwischen die Ansicht gewechselt
+  // hat, ist #task-list weg und es gibt nichts mehr neu zu rendern.
+  if (!document.getElementById("task-list")) return;
   const { allTasks, areaColorById } = todayViewState;
   const today = todayISO();
   const tasks = allTasks.filter((t) => t.planned_date === today);
   const overdueTasks = allTasks.filter((t) => t.planned_date && t.planned_date < today && t.status !== "done");
   renderUpcomingEvents(allTasks, today);
   renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById, refreshTodayTaskList, rerenderTodayTaskListFromCache);
+  renderQuickWin(allTasks, tasks, today);
 }
 
 // Für reine UI-Zustandsänderungen ohne Datenänderung (Auf-/Zuklappen einer Mutteraufgabe) —
@@ -801,6 +806,7 @@ function rerenderTodayTaskListFromCache() {
 // das Detail-Modal angelegt/geändert) — lädt die Aufgaben neu und rendert danach nur den
 // Aufgaben-Teil neu, ohne die komplette Ansicht neu zu fetchen.
 async function refreshTodayTaskList() {
+  if (!document.getElementById("task-list")) return;
   todayViewState.allTasks = await listTasks();
   renderTodayTaskSection();
 }
@@ -982,7 +988,14 @@ function appendTaskRowContent(el, task, areaColorById, allTasks, onChange) {
     e.stopPropagation();
     // overviewState.areas ist leer, wenn Übersicht diese Session noch nicht besucht wurde — ohne
     // sie fehlt im Detail-Modal das Bereichs-Badge (siehe renderTaskDetailView).
-    if (overviewState.areas.length === 0) overviewState.areas = await listAreas();
+    if (overviewState.areas.length === 0) {
+      try {
+        overviewState.areas = await listAreas();
+      } catch (err) {
+        showToast(friendlyErrorMessage(err), true);
+        return;
+      }
+    }
     openTaskDetail(task);
   });
 
@@ -2084,7 +2097,10 @@ function renderTaskDetailView(card, task, allTasks, children, backButtonHtml, cl
           await reopenTaskCascade(child, allTasks);
         } else {
           await completeTaskCascade(child, allTasks);
-          showCompleteUndoToast(child, allTasks, () => renderTaskDetailCard(task.id, close, false));
+          showCompleteUndoToast(child, allTasks, () => {
+            renderTaskDetailCard(task.id, close, false);
+            refreshOpenViewsAfterTaskChange();
+          });
         }
         await renderTaskDetailCard(task.id, close, false);
         refreshOpenViewsAfterTaskChange();
@@ -2393,10 +2409,11 @@ async function exportAllDataAsJson() {
 // Wirft nach ms Millisekunden ab, falls promise bis dahin weder erfüllt noch abgelehnt wurde — der
 // Supabase-Client hat kein eingebautes Timeout, ein hängender Request würde sonst nie ablehnen.
 function withTimeout(promise, ms, message) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms)),
-  ]);
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 // Lädt die Plan-Vorschlagsdaten (Bereiche, offene Aufgaben, Wochenbelegung). Von renderPlanView()
