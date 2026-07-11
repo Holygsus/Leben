@@ -9,28 +9,6 @@
   <div class="gym-indicator" id="gym-indicator" hidden></div>
 </section>
 
-<form class="quick-capture-panel" id="brainstorm-form" hidden>
-  <input type="text" class="input" id="brainstorm-input" placeholder="Was steht an?" autocomplete="off" required />
-  <select class="select" id="brainstorm-area" aria-label="Bereich">
-    <option value="">Bereich (optional)</option>
-  </select>
-  <div class="effort-chips" id="brainstorm-effort" role="group" aria-label="Aufwand">
-    <button type="button" class="effort-chip" data-effort="5">5</button>
-    <button type="button" class="effort-chip" data-effort="10">10</button>
-    <button type="button" class="effort-chip" data-effort="30">30</button>
-    <button type="button" class="effort-chip" data-effort="60">60</button>
-  </div>
-  <div class="priority-chips" id="brainstorm-priority" role="group" aria-label="Priorität">
-    <button type="button" class="priority-chip" data-priority="low">Niedrig</button>
-    <button type="button" class="priority-chip" data-priority="medium" data-active="true">Mittel</button>
-    <button type="button" class="priority-chip" data-priority="high">Hoch</button>
-  </div>
-  <div class="quick-capture-actions">
-    <button class="btn" type="submit">Hinzufügen</button>
-    <button class="btn btn-secondary" type="button" id="quick-add-cancel">Abbrechen</button>
-  </div>
-</form>
-
 <section class="events-widget" id="events-widget" hidden>
   <div class="events-widget-header">
     <span class="inline-icon"><svg viewBox="0 0 24 24"><path d="M7 3v3M17 3v3M4 9h16M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z"/></svg></span>
@@ -68,3 +46,25 @@
 
 <ul class="task-list" id="task-list"></ul>
 <p class="empty-state" id="empty-state" hidden>Nichts geplant für heute — leg über das + oben eine Aufgabe an.</p>
+
+<form class="quick-capture-panel" id="brainstorm-form" hidden>
+  <input type="text" class="input" id="brainstorm-input" placeholder="Was steht an?" autocomplete="off" required />
+  <select class="select" id="brainstorm-area" aria-label="Bereich">
+    <option value="">Bereich (optional)</option>
+  </select>
+  <div class="effort-chips" id="brainstorm-effort" role="group" aria-label="Aufwand">
+    <button type="button" class="effort-chip" data-effort="5">5</button>
+    <button type="button" class="effort-chip" data-effort="10">10</button>
+    <button type="button" class="effort-chip" data-effort="30">30</button>
+    <button type="button" class="effort-chip" data-effort="60">60</button>
+  </div>
+  <div class="priority-chips" id="brainstorm-priority" role="group" aria-label="Priorität">
+    <button type="button" class="priority-chip" data-priority="low">Niedrig</button>
+    <button type="button" class="priority-chip" data-priority="medium" data-active="true">Mittel</button>
+    <button type="button" class="priority-chip" data-priority="high">Hoch</button>
+  </div>
+  <div class="quick-capture-actions">
+    <button class="btn" type="submit">Hinzufügen</button>
+    <button class="btn btn-secondary" type="button" id="quick-add-cancel">Abbrechen</button>
+  </div>
+</form>

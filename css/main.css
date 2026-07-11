@@ -12,6 +12,40 @@ body {
   position: relative;
 }
 
+/* Systemweiter Ladeindikator — zeigt an, dass die App noch lebt/arbeitet (siehe supabase.js
+   trackedFetch), auch wenn ein einzelner Button/Container keinen eigenen Lade-Hinweis hat. */
+
+#global-loading-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 300;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+#global-loading-bar.is-visible {
+  opacity: 1;
+}
+
+#global-loading-bar::before {
+  content: "";
+  display: block;
+  height: 100%;
+  width: 40%;
+  background: var(--color-accent);
+  animation: global-loading-sweep 1.1s ease-in-out infinite;
+}
+
+@keyframes global-loading-sweep {
+  0% { margin-left: -40%; }
+  100% { margin-left: 100%; }
+}
+
 /* Toast */
 
 #toast {
@@ -33,6 +67,13 @@ body {
   align-items: center;
   justify-content: center;
   gap: var(--space-3);
+  cursor: pointer;
+}
+
+/* Ohne diese Regel gewinnt die #toast-Deklaration von oben (ID-Spezifität schlägt die
+   [hidden]-Regel des Browsers) und toast.hidden = true in showToast() bleibt wirkungslos. */
+#toast[hidden] {
+  display: none;
 }
 
 #toast.toast-error {
@@ -452,6 +493,18 @@ body {
 @keyframes loading-pulse {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 1; }
+}
+
+.load-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+
+.load-error .empty-state {
+  margin-top: 0;
 }
 
 /* Aufklappbare Schnellerfassung — per "+"-Button oben ein-/ausgeblendet statt dauerhaft als
@@ -1007,6 +1060,36 @@ body {
 
 .week-day[data-selected="true"] .wd-num {
   color: var(--color-accent);
+}
+
+/* Auf schmalen Handybreiten (z.B. iPhone SE) quetscht sich das starre 7-Spalten-Grid zu sehr
+   zusammen — stattdessen horizontal scrollbare Zellen mit fester Breite. */
+@media (max-width: 380px) {
+  .week-strip {
+    display: flex;
+    overflow-x: auto;
+    gap: var(--space-2);
+    padding-bottom: var(--space-1);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .week-day {
+    flex: 0 0 46px;
+    scroll-snap-align: start;
+  }
+}
+
+.week-day-panel {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.week-day-panel-heading {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-2);
 }
 
 .badge {

@@ -54,7 +54,7 @@
     <ul class="task-list" id="fixed-costs-list"></ul>
     <form id="new-fixed-cost-form" class="new-task-form">
       <input class="input" type="text" id="new-fixed-cost-name" placeholder="Name" required autocomplete="off" />
-      <input class="input" type="number" id="new-fixed-cost-amount" placeholder="Betrag (€)" step="0.01" min="0" required />
+      <input class="input" type="number" id="new-fixed-cost-amount" placeholder="Betrag (€)" step="0.01" min="0" inputmode="decimal" required />
       <select class="select" id="new-fixed-cost-interval" aria-label="Intervall">
         <option value="monthly">Monatlich</option>
         <option value="quarterly">Quartal</option>
@@ -74,7 +74,7 @@
     <ul class="task-list" id="committed-manage-list"></ul>
     <form id="new-committed-form" class="new-task-form">
       <input class="input" type="text" id="new-committed-name" placeholder="Name" required autocomplete="off" />
-      <input class="input" type="number" id="new-committed-amount" placeholder="Betrag (€)" step="0.01" min="0" required />
+      <input class="input" type="number" id="new-committed-amount" placeholder="Betrag (€)" step="0.01" min="0" inputmode="decimal" required />
       <div class="date-chips" id="new-committed-date-chips" role="group" aria-label="Fälligkeitsdatum">
         <button type="button" class="date-chip" data-date="today">Heute</button>
         <button type="button" class="date-chip" data-date="tomorrow">Morgen</button>

@@ -101,6 +101,7 @@ const planState = {
   pool: [],
   selected: [],
   targetDate: null,
+  weekTasks: [], // nicht erledigte Aufgaben mit Plandatum in den nächsten 7 Tagen, siehe loadPlanData()
 };
 
 let toastTimeout = null;
@@ -132,11 +133,17 @@ function showToast(message, isError = false, action = null) {
     toast.appendChild(btn);
   }
 
+  toast.onclick = (e) => {
+    if (e.target.closest(".toast-action")) return;
+    clearTimeout(toastTimeout);
+    toast.hidden = true;
+  };
+
   toast.hidden = false;
   clearTimeout(toastTimeout);
   toastTimeout = setTimeout(() => {
     toast.hidden = true;
-  }, action ? 6000 : 3000);
+  }, action ? 6000 : 2000);
 }
 
 // Ersetzt window.confirm() durch ein Modal im App-eigenen Stil (nutzt dieselbe #modal-root/
@@ -732,6 +739,15 @@ function hasUnsavedOverviewInput() {
 
 /* ---------- Today ---------- */
 
+// Cache der zuletzt geladenen Heute-Aufgaben. Auf-/Zuklappen und Statusänderungen sollen nur den
+// Aufgaben-Teil neu rendern statt views/today.html komplett neu zu fetchen (das hätte #view-content
+// per innerHTML ersetzt und damit den Scroll-Container zurückgesetzt) — siehe
+// renderTodayTaskSection()/refreshTodayTaskList()/rerenderTodayTaskListFromCache().
+const todayViewState = {
+  allTasks: [],
+  areaColorById: {},
+};
+
 async function renderTodayView() {
   const container = document.getElementById("view-content");
   const res = await fetch("views/today.html");
@@ -749,18 +765,44 @@ async function renderTodayView() {
     listWishlistItems(),
     getSavingsPotBalance(),
   ]);
-  const areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
+  todayViewState.allTasks = allTasks;
+  todayViewState.areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
   const today = todayISO();
   const tasks = allTasks.filter((t) => t.planned_date === today);
-  const overdueTasks = allTasks.filter((t) => t.planned_date && t.planned_date < today && t.status !== "done");
 
   renderGreeting();
   renderGymIndicator();
-  renderUpcomingEvents(allTasks, today);
   renderBuyReadyAlert(wishlistItems, potBalance);
-  renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById);
+  renderTodayTaskSection();
   renderQuickWin(allTasks, tasks, today);
   wireQuickCapture(areas, renderTodayView);
+}
+
+// Rendert nur den Aufgaben-Teil (Termine-Widget, Task-Liste inkl. Fortschrittsring) aus dem
+// todayViewState-Cache neu — ohne views/today.html erneut zu fetchen oder Begrüßung/Gym-Indikator/
+// Schnellerfassung neu zu verdrahten. Gemeinsame Basis für den reinen UI-Re-Render (Auf-/Zuklappen)
+// und den daten-refreshenden Re-Render (nach Statusänderung/Unteraufgabe).
+function renderTodayTaskSection() {
+  const { allTasks, areaColorById } = todayViewState;
+  const today = todayISO();
+  const tasks = allTasks.filter((t) => t.planned_date === today);
+  const overdueTasks = allTasks.filter((t) => t.planned_date && t.planned_date < today && t.status !== "done");
+  renderUpcomingEvents(allTasks, today);
+  renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById, refreshTodayTaskList, rerenderTodayTaskListFromCache);
+}
+
+// Für reine UI-Zustandsänderungen ohne Datenänderung (Auf-/Zuklappen einer Mutteraufgabe) —
+// synchroner Re-Render aus dem Cache, kein Netzwerk-Request.
+function rerenderTodayTaskListFromCache() {
+  renderTodayTaskSection();
+}
+
+// Für Aktionen, die die Aufgaben tatsächlich verändert haben (Checkbox-Toggle, Unteraufgabe über
+// das Detail-Modal angelegt/geändert) — lädt die Aufgaben neu und rendert danach nur den
+// Aufgaben-Teil neu, ohne die komplette Ansicht neu zu fetchen.
+async function refreshTodayTaskList() {
+  todayViewState.allTasks = await listTasks();
+  renderTodayTaskSection();
 }
 
 function renderGreeting() {
@@ -793,7 +835,7 @@ function renderGymIndicator() {
 // automatisch das Datum ihrer Mutter (siehe planTaskCascade), liegen also normalerweise mit im
 // today-Set — falls trotzdem nur eine Unteraufgabe einzeln eingeplant wurde, wird ihre Mutter aus
 // allTasks als reiner Gruppen-Header mitgerendert (zählt aber nicht in den Fortschritt hinein).
-function renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById) {
+function renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById, onChange, onToggle) {
   const list = document.getElementById("task-list");
   const emptyState = document.getElementById("empty-state");
   const doneCount = tasks.filter((t) => t.status === "done").length;
@@ -811,7 +853,7 @@ function renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById) {
 
   list.innerHTML = "";
   for (const task of [...overdueTasks].sort(compareByPriority)) {
-    list.appendChild(buildTaskItem(task, areaColorById, allTasks, renderTodayView));
+    list.appendChild(buildTaskItem(task, areaColorById, allTasks, onChange));
   }
 
   if (tasks.length === 0 && overdueTasks.length === 0) {
@@ -834,7 +876,7 @@ function renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById) {
   const appendGroups = (nodes) => {
     for (const node of [...nodes].sort(compareByPriority)) {
       if (overdueIds.has(node.id)) appendGroups(node.children);
-      else list.appendChild(buildTodayGroupEl(node, allTasks, areaColorById, renderTodayView));
+      else list.appendChild(buildTodayGroupEl(node, allTasks, areaColorById, onChange, onToggle));
     }
   };
   appendGroups(tree);
@@ -844,7 +886,7 @@ function renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById) {
 // View-Wechsel hinaus — das ist in Ordnung, entspricht dem Verhalten der Übersicht).
 const todayCollapsedNodes = new Set();
 
-function buildTodayGroupEl(node, allTasks, areaColorById, onChange) {
+function buildTodayGroupEl(node, allTasks, areaColorById, onChange, onToggle) {
   const hasChildren = node.children.length > 0;
   const collapsed = hasChildren && todayCollapsedNodes.has(node.id);
 
@@ -865,7 +907,7 @@ function buildTodayGroupEl(node, allTasks, areaColorById, onChange) {
       e.stopPropagation();
       if (todayCollapsedNodes.has(node.id)) todayCollapsedNodes.delete(node.id);
       else todayCollapsedNodes.add(node.id);
-      onChange();
+      onToggle();
     });
     row.prepend(toggle);
 
@@ -881,7 +923,7 @@ function buildTodayGroupEl(node, allTasks, areaColorById, onChange) {
     const childList = document.createElement("ul");
     childList.className = "task-list task-group-children";
     for (const child of node.children) {
-      childList.appendChild(buildTodayGroupEl(child, allTasks, areaColorById, onChange));
+      childList.appendChild(buildTodayGroupEl(child, allTasks, areaColorById, onChange, onToggle));
     }
     li.appendChild(childList);
   }
@@ -934,8 +976,15 @@ function appendTaskRowContent(el, task, areaColorById, allTasks, onChange) {
   });
 
   const title = document.createElement("span");
-  title.className = "task-title";
+  title.className = "task-title task-title-btn";
   title.textContent = task.title;
+  title.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    // overviewState.areas ist leer, wenn Übersicht diese Session noch nicht besucht wurde — ohne
+    // sie fehlt im Detail-Modal das Bereichs-Badge (siehe renderTaskDetailView).
+    if (overviewState.areas.length === 0) overviewState.areas = await listAreas();
+    openTaskDetail(task);
+  });
 
   el.append(dot, checkbox, title);
 
@@ -1195,6 +1244,11 @@ async function renderOverviewView() {
   overviewState.selectedBrainstormIds.clear();
 
   await loadOverviewData();
+  // Bereiche sollen bei jedem Aufruf der Übersicht eingeklappt starten — anders als in
+  // reloadOverview() (das denselben internen Re-Render während der laufenden Sitzung nutzt und den
+  // Zustand dort bewusst NICHT zurücksetzt, sonst würde manuelles Aufklappen sofort rückgängig
+  // gemacht).
+  overviewState.collapsedAreas = new Set(overviewState.areas.map((a) => a.id));
   renderPinnedTasks();
   renderAreaTree();
   renderNoAreaSection();
@@ -1209,6 +1263,16 @@ async function loadOverviewData() {
   const [areas, tasks] = await Promise.all([listAreas(), listTasks()]);
   overviewState.areas = areas;
   overviewState.tasks = tasks;
+}
+
+// Aktualisiert alle gerade sichtbaren Ansichten nach einer Aufgaben-Änderung im Detail-Modal — das
+// Modal kann sowohl von der Übersicht als auch von Heute aus geöffnet worden sein (siehe
+// appendTaskRowContent/buildTaskNameEl), daher hier anhand der vorhandenen DOM-Elemente erkennen,
+// welche Ansicht gerade aktiv ist, statt fest auf reloadOverview() zu verdrahten (das würde
+// crashen, wenn die Übersicht-Elemente gar nicht im DOM sind).
+function refreshOpenViewsAfterTaskChange() {
+  if (document.getElementById("area-tree")) reloadOverview();
+  if (document.getElementById("task-list")) refreshTodayTaskList();
 }
 
 async function reloadOverview() {
@@ -1956,7 +2020,7 @@ function renderTaskDetailView(card, task, allTasks, children, backButtonHtml, cl
     await withErrorToast(async () => {
       await updateTask(task.id, { is_pinned: !task.is_pinned });
       await renderTaskDetailCard(task.id, close, false);
-      reloadOverview();
+      refreshOpenViewsAfterTaskChange();
     });
   });
 
@@ -1968,11 +2032,11 @@ function renderTaskDetailView(card, task, allTasks, children, backButtonHtml, cl
         await completeTaskCascade(task, allTasks);
         showCompleteUndoToast(task, allTasks, () => {
           renderTaskDetailCard(task.id, close, false);
-          reloadOverview();
+          refreshOpenViewsAfterTaskChange();
         });
       }
       await renderTaskDetailCard(task.id, close, false);
-      reloadOverview();
+      refreshOpenViewsAfterTaskChange();
     });
   });
 
@@ -2005,6 +2069,7 @@ function renderTaskDetailView(card, task, allTasks, children, backButtonHtml, cl
         status: task.planned_date ? "planned" : "open",
       });
       await renderTaskDetailCard(task.id, close, false);
+      refreshOpenViewsAfterTaskChange();
     });
   });
 
@@ -2022,6 +2087,7 @@ function renderTaskDetailView(card, task, allTasks, children, backButtonHtml, cl
           showCompleteUndoToast(child, allTasks, () => renderTaskDetailCard(task.id, close, false));
         }
         await renderTaskDetailCard(task.id, close, false);
+        refreshOpenViewsAfterTaskChange();
       });
     } else if (e.target.dataset.action === "open") {
       await renderTaskDetailCard(child.id, close, false);
@@ -2148,7 +2214,7 @@ function renderTaskDetailEdit(card, task, allTasks, parentTask, children, backBu
       });
       if (areaId !== task.area_id) await cascadeAreaChange(task.id, areaId, allTasks);
       close();
-      reloadOverview();
+      refreshOpenViewsAfterTaskChange();
     });
   });
   document.getElementById("td-duplicate").addEventListener("click", async () => {
@@ -2156,13 +2222,13 @@ function renderTaskDetailEdit(card, task, allTasks, parentTask, children, backBu
       await duplicateTaskTree(task, allTasks);
       close();
       showToast(`„${task.title}" dupliziert.`);
-      reloadOverview();
+      refreshOpenViewsAfterTaskChange();
     });
   });
   document.getElementById("td-delete").addEventListener("click", async () => {
     await withErrorToast(async () => {
       close();
-      await deleteTaskWithUndo(task, allTasks, reloadOverview);
+      await deleteTaskWithUndo(task, allTasks, refreshOpenViewsAfterTaskChange);
     });
   });
 }
@@ -2216,20 +2282,65 @@ function renderWeekStrip(weekTasks, dateInput) {
       planState.targetDate = iso;
       dateInput.value = iso;
       updatePlanDateLabel();
-      strip.querySelectorAll(".week-day").forEach((el) => {
-        el.dataset.selected = String(el === btn);
-      });
+      syncWeekStripSelection();
     });
     strip.appendChild(btn);
   }
+  renderWeekDayPanel(planState.targetDate);
 }
 
-// Hält den Wochenstreifen synchron, wenn planState.targetDate über die Heute/Morgen-Chips oder das
-// native Datums-Input geändert wird (statt per Klick im Streifen selbst).
+// Hält den Wochenstreifen (Auswahl-Highlight + Tagesbelegungs-Panel) synchron, wenn
+// planState.targetDate über die Heute/Morgen-Chips, das native Datums-Input oder einen Klick im
+// Streifen selbst geändert wird.
 function syncWeekStripSelection() {
   document.querySelectorAll("#week-strip .week-day").forEach((el) => {
     el.dataset.selected = String(el.dataset.iso === planState.targetDate);
   });
+  renderWeekDayPanel(planState.targetDate);
+}
+
+// Zeigt unter dem Wochenstreifen die für den gewählten Tag bereits eingeplanten Aufgaben —
+// gefiltert aus planState.weekTasks (bereits für die ganze Rollwoche geladen, siehe loadPlanData),
+// kein zusätzlicher Request nötig.
+function renderWeekDayPanel(iso) {
+  const panel = document.getElementById("week-day-panel");
+  if (!panel || !iso) return;
+  const heading = document.getElementById("week-day-panel-heading");
+  const list = document.getElementById("week-day-panel-list");
+  const emptyState = document.getElementById("week-day-panel-empty");
+
+  const [y, m, d] = iso.split("-").map(Number);
+  const label = new Date(y, m - 1, d).toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" });
+  heading.textContent = `Eingeplant für ${label}`;
+
+  const tasksForDay = planState.weekTasks.filter((t) => t.planned_date === iso).sort(compareByPriority);
+  const areaColorById = Object.fromEntries(planState.areas.map((a) => [a.id, a.color]));
+
+  list.innerHTML = "";
+  emptyState.hidden = tasksForDay.length > 0;
+  panel.hidden = false;
+  for (const task of tasksForDay) {
+    list.appendChild(buildWeekDayTaskRow(task, areaColorById));
+  }
+}
+
+// Rein informative Zeile (kein Checkbox-/Löschen-Verhalten wie buildTaskItem/buildPlanTaskItem) —
+// das Panel zeigt nur, was für den Tag bereits eingeplant ist.
+function buildWeekDayTaskRow(task, areaColorById) {
+  const li = document.createElement("li");
+  li.className = "task-item";
+  if (areaColorById[task.area_id]) li.style.borderLeftColor = areaColorById[task.area_id];
+
+  const dot = document.createElement("span");
+  dot.className = "task-area-dot";
+  dot.style.background = areaColorById[task.area_id] || "var(--color-text-subtle)";
+
+  const title = document.createElement("span");
+  title.className = "task-title";
+  title.textContent = task.title;
+
+  li.append(dot, title);
+  return li;
 }
 
 // Backup/Absicherung: alle eigenen Daten als JSON-Datei herunterladen. Erster Datei-Download-
@@ -2279,11 +2390,66 @@ async function exportAllDataAsJson() {
   URL.revokeObjectURL(url);
 }
 
+// Wirft nach ms Millisekunden ab, falls promise bis dahin weder erfüllt noch abgelehnt wurde — der
+// Supabase-Client hat kein eingebautes Timeout, ein hängender Request würde sonst nie ablehnen.
+function withTimeout(promise, ms, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms)),
+  ]);
+}
+
+// Lädt die Plan-Vorschlagsdaten (Bereiche, offene Aufgaben, Wochenbelegung). Von renderPlanView()
+// getrennt, damit sowohl der initiale Aufruf als auch der Retry-Button nach einem Ladefehler
+// dieselbe Logik nutzen. Ohne try/catch + Timeout blieb der Ladezustand (showLoading) bei einem
+// fehlschlagenden/hängenden Request für immer stehen.
+async function loadPlanData(dateInput) {
+  showLoading("suggested-task-list");
+  try {
+    const [areas, pool, weekTasks] = await withTimeout(
+      Promise.all([
+        listAreas(),
+        listTasks({ status: "open" }),
+        listTasks({ statusNot: "done", plannedFrom: todayISO(), plannedTo: isoDatePlusDays(6) }),
+      ]),
+      15000,
+      "Zeitüberschreitung beim Laden."
+    );
+    planState.areas = areas;
+    planState.pool = pool;
+    planState.weekTasks = weekTasks;
+    planState.selected = suggestTasksForPlan(pool);
+
+    renderWeekStrip(weekTasks, dateInput);
+    renderPlanTaskList();
+    renderAddTaskSelect();
+  } catch (err) {
+    renderPlanLoadError(friendlyErrorMessage(err), dateInput);
+  }
+}
+
+function renderPlanLoadError(message, dateInput) {
+  const list = document.getElementById("suggested-task-list");
+  document.getElementById("suggested-empty-state").hidden = true;
+  list.innerHTML = "";
+  const li = document.createElement("li");
+  li.className = "load-error";
+  const text = document.createElement("p");
+  text.className = "empty-state";
+  text.textContent = message;
+  const retryBtn = document.createElement("button");
+  retryBtn.type = "button";
+  retryBtn.className = "btn btn-secondary";
+  retryBtn.textContent = "Erneut versuchen";
+  retryBtn.addEventListener("click", () => loadPlanData(dateInput));
+  li.append(text, retryBtn);
+  list.appendChild(li);
+}
+
 async function renderPlanView() {
   const container = document.getElementById("view-content");
   const res = await fetch("views/plan.html");
   container.innerHTML = await res.text();
-  showLoading("suggested-task-list");
 
   planState.targetDate = tomorrowISO();
   const dateInput = document.getElementById("plan-date-input");
@@ -2309,18 +2475,7 @@ async function renderPlanView() {
     syncWeekStripSelection();
   });
 
-  const [areas, pool, weekTasks] = await Promise.all([
-    listAreas(),
-    listTasks({ status: "open" }),
-    listTasks({ statusNot: "done", plannedFrom: todayISO(), plannedTo: isoDatePlusDays(6) }),
-  ]);
-  planState.areas = areas;
-  planState.pool = pool;
-  planState.selected = suggestTasksForPlan(pool);
-
-  renderWeekStrip(weekTasks, dateInput);
-  renderPlanTaskList();
-  renderAddTaskSelect();
+  await loadPlanData(dateInput);
 
   document.getElementById("refresh-suggestion").addEventListener("click", () => {
     planState.selected = suggestTasksForPlan(planState.pool);
