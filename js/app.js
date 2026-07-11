@@ -98,6 +98,7 @@ let closeActiveModal = null;
 
 const planState = {
   areas: [],
+  areaColorById: {},
   pool: [],
   selected: [],
   targetDate: null,
@@ -1283,9 +1284,19 @@ async function loadOverviewData() {
 // appendTaskRowContent/buildTaskNameEl), daher hier anhand der vorhandenen DOM-Elemente erkennen,
 // welche Ansicht gerade aktiv ist, statt fest auf reloadOverview() zu verdrahten (das würde
 // crashen, wenn die Übersicht-Elemente gar nicht im DOM sind).
-function refreshOpenViewsAfterTaskChange() {
+// allTasks (optional): falls der Aufrufer die Aufgaben gerade schon selbst per listTasks() neu
+// geladen hat (z.B. renderTaskDetailCard fürs Modal), wird dieser Stand für Heute direkt
+// übernommen statt ihn eine zweite Runde erneut zu fetchen.
+function refreshOpenViewsAfterTaskChange(allTasks) {
   if (document.getElementById("area-tree")) reloadOverview();
-  if (document.getElementById("task-list")) refreshTodayTaskList();
+  if (document.getElementById("task-list")) {
+    if (allTasks) {
+      todayViewState.allTasks = allTasks;
+      renderTodayTaskSection();
+    } else {
+      refreshTodayTaskList();
+    }
+  }
 }
 
 async function reloadOverview() {
@@ -1963,7 +1974,7 @@ async function renderTaskDetailCard(taskId, close, editMode = false) {
   const card = document.getElementById("modal-card");
   if (!task || !card) {
     close();
-    return;
+    return allTasks;
   }
 
   const parentTask = task.parent_task_id ? allTasks.find((t) => t.id === task.parent_task_id) : null;
@@ -1974,6 +1985,9 @@ async function renderTaskDetailCard(taskId, close, editMode = false) {
 
   if (editMode) renderTaskDetailEdit(card, task, allTasks, parentTask, children, backButtonHtml, close);
   else renderTaskDetailView(card, task, allTasks, children, backButtonHtml, close);
+  // Rückgabe erlaubt refreshOpenViewsAfterTaskChange(), den bereits geladenen Stand für Heute
+  // wiederzuverwenden statt ihn direkt danach nochmal per listTasks() zu holen.
+  return allTasks;
 }
 
 function renderTaskDetailView(card, task, allTasks, children, backButtonHtml, close) {
@@ -2032,8 +2046,8 @@ function renderTaskDetailView(card, task, allTasks, children, backButtonHtml, cl
   document.getElementById("td-pin").addEventListener("click", async () => {
     await withErrorToast(async () => {
       await updateTask(task.id, { is_pinned: !task.is_pinned });
-      await renderTaskDetailCard(task.id, close, false);
-      refreshOpenViewsAfterTaskChange();
+      const refreshedTasks = await renderTaskDetailCard(task.id, close, false);
+      refreshOpenViewsAfterTaskChange(refreshedTasks);
     });
   });
 
@@ -2043,13 +2057,13 @@ function renderTaskDetailView(card, task, allTasks, children, backButtonHtml, cl
         await reopenTaskCascade(task, allTasks);
       } else {
         await completeTaskCascade(task, allTasks);
-        showCompleteUndoToast(task, allTasks, () => {
-          renderTaskDetailCard(task.id, close, false);
-          refreshOpenViewsAfterTaskChange();
+        showCompleteUndoToast(task, allTasks, async () => {
+          const refreshedTasks = await renderTaskDetailCard(task.id, close, false);
+          refreshOpenViewsAfterTaskChange(refreshedTasks);
         });
       }
-      await renderTaskDetailCard(task.id, close, false);
-      refreshOpenViewsAfterTaskChange();
+      const refreshedTasks = await renderTaskDetailCard(task.id, close, false);
+      refreshOpenViewsAfterTaskChange(refreshedTasks);
     });
   });
 
@@ -2081,8 +2095,8 @@ function renderTaskDetailView(card, task, allTasks, children, backButtonHtml, cl
         plannedDate: task.planned_date,
         status: task.planned_date ? "planned" : "open",
       });
-      await renderTaskDetailCard(task.id, close, false);
-      refreshOpenViewsAfterTaskChange();
+      const refreshedTasks = await renderTaskDetailCard(task.id, close, false);
+      refreshOpenViewsAfterTaskChange(refreshedTasks);
     });
   });
 
@@ -2097,13 +2111,13 @@ function renderTaskDetailView(card, task, allTasks, children, backButtonHtml, cl
           await reopenTaskCascade(child, allTasks);
         } else {
           await completeTaskCascade(child, allTasks);
-          showCompleteUndoToast(child, allTasks, () => {
-            renderTaskDetailCard(task.id, close, false);
-            refreshOpenViewsAfterTaskChange();
+          showCompleteUndoToast(child, allTasks, async () => {
+            const refreshedTasks = await renderTaskDetailCard(task.id, close, false);
+            refreshOpenViewsAfterTaskChange(refreshedTasks);
           });
         }
-        await renderTaskDetailCard(task.id, close, false);
-        refreshOpenViewsAfterTaskChange();
+        const refreshedTasks = await renderTaskDetailCard(task.id, close, false);
+        refreshOpenViewsAfterTaskChange(refreshedTasks);
       });
     } else if (e.target.dataset.action === "open") {
       await renderTaskDetailCard(child.id, close, false);
@@ -2330,7 +2344,7 @@ function renderWeekDayPanel(iso) {
   heading.textContent = `Eingeplant für ${label}`;
 
   const tasksForDay = planState.weekTasks.filter((t) => t.planned_date === iso).sort(compareByPriority);
-  const areaColorById = Object.fromEntries(planState.areas.map((a) => [a.id, a.color]));
+  const areaColorById = planState.areaColorById;
 
   list.innerHTML = "";
   emptyState.hidden = tasksForDay.length > 0;
@@ -2340,9 +2354,9 @@ function renderWeekDayPanel(iso) {
   }
 }
 
-// Rein informative Zeile (kein Checkbox-/Löschen-Verhalten wie buildTaskItem/buildPlanTaskItem) —
-// das Panel zeigt nur, was für den Tag bereits eingeplant ist.
-function buildWeekDayTaskRow(task, areaColorById) {
+// Gemeinsame Basis für Plan-Zeilen (Vorschlagsliste + Tagesbelegungs-Panel): Punkt in
+// Bereichsfarbe + Titeltext. buildPlanTaskItem ergänzt danach Aufwand/Badge/Entfernen-Button.
+function buildPlanRowBase(task, areaColorById, titleText = task.title) {
   const li = document.createElement("li");
   li.className = "task-item";
   if (areaColorById[task.area_id]) li.style.borderLeftColor = areaColorById[task.area_id];
@@ -2353,10 +2367,16 @@ function buildWeekDayTaskRow(task, areaColorById) {
 
   const title = document.createElement("span");
   title.className = "task-title";
-  title.textContent = task.title;
+  title.textContent = titleText;
 
   li.append(dot, title);
   return li;
+}
+
+// Rein informative Zeile (kein Checkbox-/Löschen-Verhalten wie buildTaskItem/buildPlanTaskItem) —
+// das Panel zeigt nur, was für den Tag bereits eingeplant ist.
+function buildWeekDayTaskRow(task, areaColorById) {
+  return buildPlanRowBase(task, areaColorById);
 }
 
 // Backup/Absicherung: alle eigenen Daten als JSON-Datei herunterladen. Erster Datei-Download-
@@ -2433,6 +2453,7 @@ async function loadPlanData(dateInput) {
       "Zeitüberschreitung beim Laden."
     );
     planState.areas = areas;
+    planState.areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
     planState.pool = pool;
     planState.weekTasks = weekTasks;
     planState.selected = suggestTasksForPlan(pool);
@@ -2551,7 +2572,7 @@ async function renderPlanView() {
 function renderPlanTaskList() {
   const list = document.getElementById("suggested-task-list");
   const emptyState = document.getElementById("suggested-empty-state");
-  const areaColorById = Object.fromEntries(planState.areas.map((a) => [a.id, a.color]));
+  const areaColorById = planState.areaColorById;
 
   list.innerHTML = "";
   if (planState.selected.length === 0) {
@@ -2566,19 +2587,7 @@ function renderPlanTaskList() {
 }
 
 function buildPlanTaskItem(task, areaColorById) {
-  const li = document.createElement("li");
-  li.className = "task-item";
-  if (areaColorById[task.area_id]) li.style.borderLeftColor = areaColorById[task.area_id];
-
-  const dot = document.createElement("span");
-  dot.className = "task-area-dot";
-  dot.style.background = areaColorById[task.area_id] || "var(--color-text-subtle)";
-
-  const title = document.createElement("span");
-  title.className = "task-title";
-  title.textContent = task.title + (task.effort ? ` · ${task.effort} min` : "");
-
-  li.append(dot, title);
+  const li = buildPlanRowBase(task, areaColorById, task.title + (task.effort ? ` · ${task.effort} min` : ""));
 
   if (task.is_brainstorm) {
     const badge = document.createElement("span");
