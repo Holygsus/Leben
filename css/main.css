@@ -51,7 +51,7 @@ body {
 #toast {
   position: fixed;
   left: 50%;
-  top: calc(var(--space-4) + env(safe-area-inset-top));
+  bottom: calc(var(--space-4) + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   z-index: 200;
   max-width: calc(100% - var(--space-6));
@@ -1016,90 +1016,79 @@ body {
   min-height: 40px;
 }
 
-/* Wochenstreifen (Plan) — rollierend heute..+6 Tage, zeigt je Tag die Zahl bereits geplanter
-   Aufgaben und ist antippbar (setzt planState.targetDate). */
+/* Monatskalender (Plan) — zeigt den sichtbaren Kalendermonat inkl. Padding-Tagen aus dem
+   Vor-/Folgemonat, markiert Tage mit bereits geplanten Aufgaben (Punkt) und ist antippbar (setzt
+   planState.targetDate; Antippen eines Padding-Tages wechselt zusätzlich den Monat). */
 
-.week-strip {
+.month-grid-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.month-grid-label {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.month-grid-weekdays {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: var(--space-1);
-  margin-top: var(--space-3);
-}
-
-.week-day {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  min-height: 52px;
-  padding: var(--space-1) 2px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-}
-
-.week-day .wd-label {
-  text-transform: uppercase;
+  margin-bottom: var(--space-1);
+  text-align: center;
   font-size: 0.62rem;
-  letter-spacing: 0.02em;
   font-weight: 600;
+  text-transform: uppercase;
   color: var(--color-text-subtle);
 }
 
-.week-day[data-today="true"] .wd-label {
-  color: var(--color-accent);
+.month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: var(--space-1);
 }
 
-.week-day .wd-num {
+.month-day {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
   font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--color-text);
 }
 
-.week-day .wd-count {
-  min-width: 16px;
-  padding: 0 4px;
-  border-radius: var(--radius-full);
-  background: var(--color-surface-raised);
-  color: var(--color-text-muted);
-  font-size: 0.62rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+.month-day[data-in-month="false"] {
+  opacity: 0.35;
+  border-color: transparent;
+  background: transparent;
 }
 
-.week-day[data-has-tasks="true"] .wd-count {
-  background: var(--color-accent);
-  color: var(--color-accent-contrast);
-}
-
-.week-day[data-has-tasks="false"] .wd-count {
-  visibility: hidden;
-}
-
-.week-day[data-selected="true"] {
-  background: var(--color-surface-raised);
-  border-color: var(--color-accent);
-}
-
-.week-day[data-selected="true"] .wd-num {
+.month-day[data-today="true"] {
   color: var(--color-accent);
 }
 
-/* Auf schmalen Handybreiten (z.B. iPhone SE) quetscht sich das starre 7-Spalten-Grid zu sehr
-   zusammen — stattdessen horizontal scrollbare Zellen mit fester Breite. */
-@media (max-width: 380px) {
-  .week-strip {
-    display: flex;
-    overflow-x: auto;
-    gap: var(--space-2);
-    padding-bottom: var(--space-1);
-    -webkit-overflow-scrolling: touch;
-  }
+.month-day[data-has-tasks="true"]::after {
+  content: "";
+  position: absolute;
+  bottom: 4px;
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+}
 
-  .week-day {
-    flex: 0 0 46px;
-    scroll-snap-align: start;
-  }
+.month-day[data-selected="true"] {
+  background: var(--color-surface-raised);
+  border-color: var(--color-accent);
 }
 
 .week-day-panel {
@@ -1534,7 +1523,7 @@ body {
   .priority-chip:hover,
   .pot-chip:hover,
   .area-chip:hover,
-  .week-day:hover {
+  .month-day:hover {
     background: var(--color-surface-raised);
     border-color: var(--color-text-subtle);
   }

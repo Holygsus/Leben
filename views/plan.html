@@ -6,12 +6,6 @@
     <input type="date" class="input" id="plan-date-input" aria-label="Datum wählen" />
   </div>
   <p class="plan-date" id="plan-date"></p>
-  <div class="week-strip" id="week-strip"></div>
-  <div class="week-day-panel" id="week-day-panel" hidden>
-    <p class="week-day-panel-heading" id="week-day-panel-heading"></p>
-    <ul class="task-list" id="week-day-panel-list"></ul>
-    <p class="empty-state" id="week-day-panel-empty" hidden>Für diesen Tag ist noch nichts eingeplant.</p>
-  </div>
 </section>
 
 <section class="panel">
@@ -19,6 +13,23 @@
   <ul class="task-list" id="suggested-task-list"></ul>
   <p class="empty-state" id="suggested-empty-state" hidden>Keine offenen Aufgaben für einen Vorschlag verfügbar.</p>
   <button class="btn btn-secondary" type="button" id="refresh-suggestion">Neu vorschlagen</button>
+</section>
+
+<section class="panel">
+  <div class="month-grid-header">
+    <button type="button" class="icon-btn" id="month-prev" aria-label="Vorheriger Monat">‹</button>
+    <p class="month-grid-label" id="month-grid-label"></p>
+    <button type="button" class="icon-btn" id="month-next" aria-label="Nächster Monat">›</button>
+  </div>
+  <div class="month-grid-weekdays">
+    <span>Mo</span><span>Di</span><span>Mi</span><span>Do</span><span>Fr</span><span>Sa</span><span>So</span>
+  </div>
+  <div class="month-grid" id="month-grid"></div>
+  <div class="week-day-panel" id="week-day-panel" hidden>
+    <p class="week-day-panel-heading" id="week-day-panel-heading"></p>
+    <ul class="task-list" id="week-day-panel-list"></ul>
+    <p class="empty-state" id="week-day-panel-empty" hidden>Für diesen Tag ist noch nichts eingeplant.</p>
+  </div>
 </section>
 
 <section class="panel">

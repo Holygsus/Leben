@@ -106,7 +106,8 @@ const planState = {
   pool: [],
   selected: [],
   targetDate: null,
-  weekTasks: [], // nicht erledigte Aufgaben mit Plandatum in den nächsten 7 Tagen, siehe loadPlanData()
+  calendarMonth: null, // "YYYY-MM-01" — erster Tag des aktuell angezeigten Kalendermonats
+  monthTasks: [], // nicht erledigte Aufgaben mit Plandatum im sichtbaren Kalendermonat, siehe loadMonthTasksAndRender()
 };
 
 let toastTimeout = null;
@@ -380,6 +381,39 @@ function isoDatePlusDays(days) {
   d.setDate(d.getDate() + days);
   const offset = d.getTimezoneOffset();
   return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 10);
+}
+
+function isoFromLocalDate(d) {
+  const offset = d.getTimezoneOffset();
+  return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 10);
+}
+
+// Baut das Zellenraster für einen Kalendermonat (Montag als erster Wochentag), inkl. Padding-Tagen
+// aus dem Vor-/Folgemonat, damit das Grid immer aus vollen 7er-Reihen besteht (5 oder 6 Wochen).
+function buildMonthGrid(monthIso) {
+  const [y, m] = monthIso.split("-").map(Number);
+  const firstOfMonth = new Date(y, m - 1, 1);
+  const firstWeekday = (firstOfMonth.getDay() + 6) % 7; // Montag = 0 ... Sonntag = 6
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
+  const cells = [];
+  for (let i = 0; i < totalCells; i++) {
+    const date = new Date(y, m - 1, 1 - firstWeekday + i);
+    cells.push({ iso: isoFromLocalDate(date), inMonth: date.getMonth() === m - 1 });
+  }
+  return cells;
+}
+
+function shiftMonth(monthIso, delta) {
+  const [y, m] = monthIso.split("-").map(Number);
+  return isoFromLocalDate(new Date(y, m - 1 + delta, 1));
+}
+
+// [ersterIso, letzterIso] aller sichtbaren Grid-Zellen (inkl. Padding-Tage aus Nachbarmonaten) —
+// so ist data-has-tasks auch für ausgegraute Tage korrekt.
+function monthRange(monthIso) {
+  const cells = buildMonthGrid(monthIso);
+  return [cells[0].iso, cells[cells.length - 1].iso];
 }
 
 // Baut eine neue Datum-Chip-Gruppe (Heute/Morgen/Kein Datum/eigenes Datum) für dynamisch erzeugte
@@ -863,15 +897,20 @@ function renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById, onChange
   const doneCount = tasks.filter((t) => t.status === "done").length;
   updateNavBadge(tasks.length - doneCount + overdueTasks.length);
 
-  const pct = tasks.length ? Math.round((doneCount / tasks.length) * 100) : 0;
-  const remaining = tasks.length - doneCount;
-  document.getElementById("progress-text").textContent = `${doneCount} von ${tasks.length} Aufgaben erledigt`;
+  // Unteraufgaben zählen nicht in den Tagesfortschritt hinein (verfälscht sonst das Bild, wenn
+  // eine Mutteraufgabe viele Kinder hat) — nur für den Ring/Text, die Liste selbst zeigt weiterhin
+  // alle Aufgaben inkl. Unteraufgaben.
+  const topLevelTasks = tasks.filter((t) => !t.parent_task_id);
+  const topLevelDoneCount = topLevelTasks.filter((t) => t.status === "done").length;
+  const pct = topLevelTasks.length ? Math.round((topLevelDoneCount / topLevelTasks.length) * 100) : 0;
+  const remaining = topLevelTasks.length - topLevelDoneCount;
+  document.getElementById("progress-text").textContent = `${topLevelDoneCount} von ${topLevelTasks.length} Aufgaben erledigt`;
   document.getElementById("progress-subtext").textContent =
-    tasks.length === 0 ? "" : remaining > 0 ? `Noch ${remaining} offen für heute.` : "Alles erledigt für heute.";
+    topLevelTasks.length === 0 ? "" : remaining > 0 ? `Noch ${remaining} offen für heute.` : "Alles erledigt für heute.";
   document.getElementById("progress-ring-pct").textContent = `${pct}%`;
   const ring = document.getElementById("progress-ring");
   ring.style.setProperty("--pct", pct);
-  ring.classList.toggle("is-complete", tasks.length > 0 && doneCount === tasks.length);
+  ring.classList.toggle("is-complete", topLevelTasks.length > 0 && topLevelDoneCount === topLevelTasks.length);
 
   list.innerHTML = "";
   for (const task of [...overdueTasks].sort(compareByPriority)) {
@@ -1282,7 +1321,6 @@ async function renderOverviewView() {
   renderAreaTree();
   renderNoAreaSection();
   wireOverviewFilters();
-  wireNewTaskForm();
   await renderAreaManageList();
   wireNewAreaForm();
   wireAreaManageToggle();
@@ -1319,7 +1357,6 @@ async function reloadOverview() {
   renderPinnedTasks();
   renderAreaTree();
   renderNoAreaSection();
-  populateNewTaskAreaOptions();
   await renderAreaManageList();
 }
 
@@ -1872,68 +1909,6 @@ function renderBulkToolbar() {
   toolbar.append(count, areaSelect, pinBtn, deleteBtn, cancelBtn);
 }
 
-// ----- Neue Aufgabe -----
-
-function populateNewTaskAreaOptions() {
-  const areaSelect = document.getElementById("new-task-area");
-  if (!areaSelect) return;
-  const previous = areaSelect.value;
-  areaSelect.innerHTML =
-    `<option value="">Bereich wählen</option>` +
-    overviewState.areas.map((a) => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join("");
-  if (previous && overviewState.areas.some((a) => a.id === previous)) areaSelect.value = previous;
-  refreshNewTaskParentOptions();
-}
-
-function refreshNewTaskParentOptions() {
-  const areaSelect = document.getElementById("new-task-area");
-  const parentSelect = document.getElementById("new-task-parent");
-  if (!areaSelect || !parentSelect) return;
-  parentSelect.innerHTML =
-    `<option value="">Keine uebergeordnete Aufgabe</option>` +
-    taskOptionsHtml(overviewState.tasks, areaSelect.value || null, null);
-}
-
-function wireNewTaskForm() {
-  const form = document.getElementById("new-task-form");
-  const titleInput = document.getElementById("new-task-title");
-  const areaSelect = document.getElementById("new-task-area");
-  const parentSelect = document.getElementById("new-task-parent");
-  const effortSelect = document.getElementById("new-task-effort");
-  const prioritySelect = document.getElementById("new-task-priority");
-  const dateChips = wireDateChipGroup(document.getElementById("new-task-date-chips"));
-
-  populateNewTaskAreaOptions();
-  areaSelect.addEventListener("change", refreshNewTaskParentOptions);
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const title = titleInput.value.trim();
-    if (!title) return;
-    const plannedDate = dateChips.getPlannedDate();
-    await withErrorToast(async () => {
-      await createTask({
-        title,
-        areaId: areaSelect.value || null,
-        parentTaskId: parentSelect.value || null,
-        effort: effortSelect.value ? Number(effortSelect.value) : null,
-        priority: prioritySelect.value,
-        isBrainstorm: !areaSelect.value,
-        plannedDate,
-        status: plannedDate ? "planned" : "open",
-      });
-      showToast(`„${title}" angelegt.`);
-      titleInput.value = "";
-      areaSelect.value = "";
-      effortSelect.value = "";
-      prioritySelect.value = "medium";
-      dateChips.reset();
-      refreshNewTaskParentOptions();
-      reloadOverview();
-    });
-  });
-}
-
 // ----- Aufgaben-Detail (Modal) -----
 
 // Oeffnet das Detail-Modal fuer eine Aufgabe. Die aeussere Modal-Mechanik (Backdrop, Escape,
@@ -2298,62 +2273,73 @@ function updatePlanDateLabel() {
   document.getElementById("plan-date").textContent = label;
 }
 
-// Baut den Wochenstreifen (heute..+6 Tage, bewusst rollierend statt Kalenderwoche Mo-So — passt
-// besser zum bestehenden Heute/Morgen-Denken der App) mit der Anzahl bereits geplanter Aufgaben je
-// Tag. weekTasks = alle nicht erledigten Aufgaben mit Plandatum im Zeitraum (listTasks mit
-// plannedFrom/plannedTo). Antippen eines Tages setzt planState.targetDate wie die Heute/Morgen-Chips.
-function renderWeekStrip(weekTasks, dateInput) {
-  const strip = document.getElementById("week-strip");
+// Baut den Monatskalender (planState.calendarMonth) inkl. Padding-Tagen aus dem Vor-/Folgemonat,
+// mit der Anzahl bereits geplanter Aufgaben je Tag. monthTasks = alle nicht erledigten Aufgaben mit
+// Plandatum im sichtbaren Zeitraum (listTasks mit plannedFrom/plannedTo, siehe monthRange()).
+// Antippen eines Tages setzt planState.targetDate wie die Heute/Morgen-Chips; Antippen eines
+// ausgegrauten Tages aus dem Vor-/Folgemonat wechselt zusätzlich den angezeigten Monat (inkl.
+// Neuladen der Aufgaben für den neuen Monat).
+function renderMonthCalendar(monthTasks, dateInput) {
+  const grid = document.getElementById("month-grid");
+  const label = document.getElementById("month-grid-label");
   const today = todayISO();
+  const [y, m] = planState.calendarMonth.split("-").map(Number);
+  label.textContent = new Date(y, m - 1, 1).toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+
   const countByDate = new Map();
-  for (const t of weekTasks) {
+  for (const t of monthTasks) {
     countByDate.set(t.planned_date, (countByDate.get(t.planned_date) || 0) + 1);
   }
 
-  strip.innerHTML = "";
-  for (let i = 0; i < 7; i++) {
-    const iso = isoDatePlusDays(i);
-    const [y, m, d] = iso.split("-").map(Number);
-    const localDate = new Date(y, m - 1, d);
-    const count = countByDate.get(iso) || 0;
+  grid.innerHTML = "";
+  for (const cell of buildMonthGrid(planState.calendarMonth)) {
+    const [cy, cm, cd] = cell.iso.split("-").map(Number);
+    const localDate = new Date(cy, cm - 1, cd);
+    const count = countByDate.get(cell.iso) || 0;
 
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "week-day";
-    btn.dataset.iso = iso;
-    btn.dataset.today = String(iso === today);
+    btn.className = "month-day";
+    btn.dataset.iso = cell.iso;
+    btn.dataset.inMonth = String(cell.inMonth);
+    btn.dataset.today = String(cell.iso === today);
     btn.dataset.hasTasks = String(count > 0);
-    btn.dataset.selected = String(iso === planState.targetDate);
+    btn.dataset.selected = String(cell.iso === planState.targetDate);
     btn.setAttribute("aria-label", localDate.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" }));
-    btn.innerHTML = `
-      <span class="wd-label">${localDate.toLocaleDateString("de-DE", { weekday: "short" })}</span>
-      <span class="wd-num">${d}</span>
-      <span class="wd-count">${count}</span>`;
-    btn.addEventListener("click", () => {
-      planState.targetDate = iso;
-      dateInput.value = iso;
+    btn.textContent = String(cd);
+    btn.addEventListener("click", async () => {
+      planState.targetDate = cell.iso;
+      dateInput.value = cell.iso;
       updatePlanDateLabel();
-      syncWeekStripSelection();
+      if (!cell.inMonth) {
+        planState.calendarMonth = cell.iso.slice(0, 8) + "01";
+        await withErrorToast(async () => {
+          await loadMonthTasksAndRender(dateInput);
+        });
+      } else {
+        syncMonthCalendarSelection();
+      }
     });
-    strip.appendChild(btn);
+    grid.appendChild(btn);
   }
-  renderWeekDayPanel(planState.targetDate);
+  renderPlannedDayPanel(planState.targetDate);
 }
 
-// Hält den Wochenstreifen (Auswahl-Highlight + Tagesbelegungs-Panel) synchron, wenn
+// Hält den Monatskalender (Auswahl-Highlight + Tagesbelegungs-Panel) synchron, wenn
 // planState.targetDate über die Heute/Morgen-Chips, das native Datums-Input oder einen Klick im
-// Streifen selbst geändert wird.
-function syncWeekStripSelection() {
-  document.querySelectorAll("#week-strip .week-day").forEach((el) => {
+// Grid selbst geändert wird, ohne dass sich der angezeigte Monat ändert (Monatswechsel lädt direkt
+// über renderMonthCalendar neu).
+function syncMonthCalendarSelection() {
+  document.querySelectorAll("#month-grid .month-day").forEach((el) => {
     el.dataset.selected = String(el.dataset.iso === planState.targetDate);
   });
-  renderWeekDayPanel(planState.targetDate);
+  renderPlannedDayPanel(planState.targetDate);
 }
 
-// Zeigt unter dem Wochenstreifen die für den gewählten Tag bereits eingeplanten Aufgaben —
-// gefiltert aus planState.weekTasks (bereits für die ganze Rollwoche geladen, siehe loadPlanData),
-// kein zusätzlicher Request nötig.
-function renderWeekDayPanel(iso) {
+// Zeigt unter dem Kalender die für den gewählten Tag bereits eingeplanten Aufgaben — gefiltert aus
+// planState.monthTasks (bereits für den ganzen sichtbaren Kalendermonat geladen, siehe
+// loadMonthTasksAndRender), kein zusätzlicher Request nötig.
+function renderPlannedDayPanel(iso) {
   const panel = document.getElementById("week-day-panel");
   if (!panel || !iso) return;
   const heading = document.getElementById("week-day-panel-heading");
@@ -2364,7 +2350,7 @@ function renderWeekDayPanel(iso) {
   const label = new Date(y, m - 1, d).toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" });
   heading.textContent = `Eingeplant für ${label}`;
 
-  const tasksForDay = planState.weekTasks.filter((t) => t.planned_date === iso).sort(compareByPriority);
+  const tasksForDay = planState.monthTasks.filter((t) => t.planned_date === iso).sort(compareByPriority);
   const areaColorById = planState.areaColorById;
 
   list.innerHTML = "";
@@ -2457,33 +2443,58 @@ function withTimeout(promise, ms, message) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-// Lädt die Plan-Vorschlagsdaten (Bereiche, offene Aufgaben, Wochenbelegung). Von renderPlanView()
-// getrennt, damit sowohl der initiale Aufruf als auch der Retry-Button nach einem Ladefehler
-// dieselbe Logik nutzen. Ohne try/catch + Timeout blieb der Ladezustand (showLoading) bei einem
-// fehlschlagenden/hängenden Request für immer stehen.
+// Lädt die Plan-Vorschlagsdaten (Bereiche, offene Aufgaben) und den sichtbaren Kalendermonat. Von
+// renderPlanView() getrennt, damit sowohl der initiale Aufruf als auch der Retry-Button nach einem
+// Ladefehler dieselbe Logik nutzen. Ohne try/catch + Timeout blieb der Ladezustand (showLoading)
+// bei einem fehlschlagenden/hängenden Request für immer stehen.
 async function loadPlanData(dateInput) {
   showLoading("suggested-task-list");
   try {
-    const [areas, pool, weekTasks] = await withTimeout(
-      Promise.all([
-        listAreas(),
-        listTasks({ status: "open" }),
-        listTasks({ statusNot: "done", plannedFrom: todayISO(), plannedTo: isoDatePlusDays(6) }),
-      ]),
+    const [areas, pool] = await withTimeout(
+      Promise.all([listAreas(), listTasks({ status: "open" })]),
       15000,
       "Zeitüberschreitung beim Laden."
     );
     planState.areas = areas;
     planState.areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
     planState.pool = pool;
-    planState.weekTasks = weekTasks;
     planState.selected = suggestTasksForPlan(pool);
 
-    renderWeekStrip(weekTasks, dateInput);
+    await loadMonthTasksAndRender(dateInput);
     renderPlanTaskList();
     renderAddTaskSelect();
   } catch (err) {
     renderPlanLoadError(friendlyErrorMessage(err), dateInput);
+  }
+}
+
+// Lädt die Aufgaben für den aktuell sichtbaren Kalendermonat (planState.calendarMonth) neu und
+// rendert den Kalender — eigene Funktion, damit ein Monatswechsel (Prev/Next-Klick oder Antippen
+// eines ausgegrauten Nachbarmonats-Tages) nicht Bereiche/Vorschlagspool erneut laden muss.
+async function loadMonthTasksAndRender(dateInput) {
+  const [firstIso, lastIso] = monthRange(planState.calendarMonth);
+  const monthTasks = await withTimeout(
+    listTasks({ statusNot: "done", plannedFrom: firstIso, plannedTo: lastIso }),
+    15000,
+    "Zeitüberschreitung beim Laden."
+  );
+  planState.monthTasks = monthTasks;
+  renderMonthCalendar(monthTasks, dateInput);
+}
+
+// Hält den angezeigten Kalendermonat mit planState.targetDate synchron, wenn dieser über die
+// Heute/Morgen-Chips oder das native Datums-Input geändert wird (nicht über einen Klick im Grid
+// selbst — das behandelt renderMonthCalendar direkt). Lädt nur neu, wenn sich dadurch tatsächlich
+// der sichtbare Monat ändert.
+async function jumpCalendarToTargetDate(dateInput) {
+  const targetMonth = planState.targetDate.slice(0, 8) + "01";
+  if (targetMonth !== planState.calendarMonth) {
+    planState.calendarMonth = targetMonth;
+    await withErrorToast(async () => {
+      await loadMonthTasksAndRender(dateInput);
+    });
+  } else {
+    syncMonthCalendarSelection();
   }
 }
 
@@ -2511,27 +2522,40 @@ async function renderPlanView() {
   container.innerHTML = await res.text();
 
   planState.targetDate = tomorrowISO();
+  planState.calendarMonth = todayISO().slice(0, 8) + "01";
   const dateInput = document.getElementById("plan-date-input");
   dateInput.value = planState.targetDate;
   updatePlanDateLabel();
 
-  document.getElementById("plan-date-today").addEventListener("click", () => {
+  document.getElementById("plan-date-today").addEventListener("click", async () => {
     planState.targetDate = todayISO();
     dateInput.value = planState.targetDate;
     updatePlanDateLabel();
-    syncWeekStripSelection();
+    await jumpCalendarToTargetDate(dateInput);
   });
-  document.getElementById("plan-date-tomorrow").addEventListener("click", () => {
+  document.getElementById("plan-date-tomorrow").addEventListener("click", async () => {
     planState.targetDate = tomorrowISO();
     dateInput.value = planState.targetDate;
     updatePlanDateLabel();
-    syncWeekStripSelection();
+    await jumpCalendarToTargetDate(dateInput);
   });
-  dateInput.addEventListener("change", () => {
+  dateInput.addEventListener("change", async () => {
     if (!dateInput.value) return;
     planState.targetDate = dateInput.value;
     updatePlanDateLabel();
-    syncWeekStripSelection();
+    await jumpCalendarToTargetDate(dateInput);
+  });
+  document.getElementById("month-prev").addEventListener("click", async () => {
+    planState.calendarMonth = shiftMonth(planState.calendarMonth, -1);
+    await withErrorToast(async () => {
+      await loadMonthTasksAndRender(dateInput);
+    });
+  });
+  document.getElementById("month-next").addEventListener("click", async () => {
+    planState.calendarMonth = shiftMonth(planState.calendarMonth, 1);
+    await withErrorToast(async () => {
+      await loadMonthTasksAndRender(dateInput);
+    });
   });
 
   await loadPlanData(dateInput);
