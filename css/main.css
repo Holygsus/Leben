@@ -1,6 +1,11 @@
+/* Zwei kaum wahrnehmbare Farbverläufe (<8% Deckkraft) statt einer komplett flachen Fläche —
+   bewusst zurückhaltend, damit es nicht wie ein Gradient-Hero wirkt, nur leichte Räumlichkeit. */
 body {
   font-family: var(--font-sans);
-  background: var(--color-bg);
+  background: radial-gradient(120% 90% at 18% 0%, color-mix(in srgb, var(--color-accent) 6%, transparent), transparent 60%),
+    radial-gradient(100% 80% at 100% 100%, color-mix(in srgb, var(--color-accent-warm) 5%, transparent), transparent 55%),
+    var(--color-bg);
+  background-attachment: fixed;
   color: var(--color-text);
 }
 
@@ -123,8 +128,13 @@ body {
 }
 
 .nav-link.is-active {
-  background: var(--color-surface-raised);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-accent) 16%, var(--color-surface-raised)),
+    var(--color-surface-raised)
+  );
   color: var(--color-accent);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--color-accent) 35%, transparent);
 }
 
 .nav-icon {
@@ -367,7 +377,9 @@ body {
   min-height: var(--touch-target);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
-  background: var(--color-surface);
+  /* --task-area-color wird inline pro Zeile gesetzt (JS); ohne Bereich mischt surface mit sich
+     selbst, bleibt also unverändert — kein Sonderfall für "kein Bereich" nötig. */
+  background: color-mix(in srgb, var(--task-area-color, var(--color-surface)) 7%, var(--color-surface));
   border: 1px solid var(--color-border);
   border-left: 3px solid var(--color-border);
   box-shadow: var(--shadow-sm);
@@ -601,7 +613,71 @@ body {
 
 .weekday-chips {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-1);
+}
+
+/* Habit-Zeile: startet im Kompakt-Zustand (Titel + Punktreihe in einer Zeile), die vollen
+   Mo-So-Chips sind ein eigener Block darunter und per [hidden] versteckt, bis .habit-toggle
+   sie aufklappt. Dadurch stehen die 7 antippbaren 40px-Chips nicht dauerhaft im Weg — das war
+   auf iPhone-Breite ohnehin der eigentliche Engpass, nicht nur fehlender Zeilenumbruch. */
+.habit-item {
+  align-items: flex-start;
+}
+
+.habit-item .task-area-dot {
+  margin-top: 19px;
+}
+
+.habit-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.habit-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  width: 100%;
+  min-height: var(--touch-target);
+  text-align: left;
+  color: inherit;
+}
+
+.habit-freq {
+  display: block;
+  font-weight: 400;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-subtle);
+  margin-top: 2px;
+}
+
+.habit-dotrow {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.habit-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+}
+
+.habit-dot.active {
+  background: var(--color-accent);
+}
+
+.habit-dot.is-today.active {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 35%, transparent);
+}
+
+.habit-body .weekday-chips {
+  margin-top: var(--space-2);
 }
 
 .weekday-chip {
@@ -620,6 +696,18 @@ body {
   background: var(--color-accent);
   color: var(--color-accent-contrast);
   border-color: var(--color-accent);
+}
+
+/* Heute fällig: Ring statt reiner Füllfarbe, damit "heute dran" von "grundsätzlich aktiv" zu
+   unterscheiden ist. Heute erledigt gewinnt sichtbar in success-Grün. */
+.weekday-chip.today-due {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+
+.weekday-chip.today-done {
+  background: var(--color-success);
+  border-color: var(--color-success);
+  color: #fff;
 }
 
 .date-chips {
@@ -759,11 +847,22 @@ body {
   margin-bottom: var(--space-3);
 }
 
+/* Sanfter Verlauf statt flacher Fläche — gleiches Prinzip wie .area-section-header, hier auf
+   normale Panel-Titelzeilen (z.B. Finanzen) generalisiert statt nur dort, wo Bereiche schon
+   eine eigene Farbe mitbringen. */
 .panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-3);
   margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-accent-warm) 14%, var(--color-surface)),
+    var(--color-surface) 70%
+  );
 }
 
 .panel-header h2 {
@@ -1111,10 +1210,24 @@ body {
 }
 
 .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 2px var(--space-2);
   border-radius: var(--radius-full);
   font-size: 0.75rem;
   font-weight: 600;
+  flex-shrink: 0;
+}
+
+.badge svg {
+  width: 11px;
+  height: 11px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
   flex-shrink: 0;
 }
 
