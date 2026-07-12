@@ -18,6 +18,34 @@ create table if not exists areas (
   unique (user_id, name)
 );
 
+-- Watchlist: Serien/Anime/Filme, die in ein Wochen-Fernsehprogramm münden (siehe
+-- wissensdatenbank/features/watchlist-fernsehprogramm.md). Muss vor tasks stehen, weil
+-- tasks.watchlist_item_id unten darauf verweist.
+create table if not exists watchlist_items (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users not null,
+  title text not null,
+  type text not null default 'serie' check (type in ('serie', 'anime', 'film')),
+  genres text[] default '{}',
+  -- 'geplant' als konservativer Default (analog wishlist_items.status='inactive'): ein frisch
+  -- angelegter Eintrag nimmt erst an der wöchentlichen Rotation teil, wenn er explizit auf 'aktiv'
+  -- gesetzt wird.
+  status text not null default 'geplant'
+    check (status in ('aktiv', 'geplant', 'irgendwann', 'beendet', 'wartet_auf_neue_staffel')),
+  platform text,
+  -- null = Typ-Standard greift (45/20/90 Min., siehe DEFAULT_DURATION_MIN in js/watchlist.js),
+  -- gesetzt = manueller Override.
+  duration_minutes integer,
+  current_season integer,
+  current_episode integer,
+  next_season_release_date date,
+  sort_order integer default 0,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create index if not exists watchlist_items_user_status_idx on watchlist_items (user_id, status);
+
 -- Aufgaben (frei verschachtelbar über parent_task_id; is_pinned markiert schnell auffindbare
 -- Aufgaben in der Übersicht)
 create table if not exists tasks (
@@ -36,11 +64,17 @@ create table if not exists tasks (
   -- null = kein Habit; [] = Habit-Flag gesetzt, noch keine Wochentage gewählt; nicht-leeres
   -- Array = aktive Wochentags-Zuordnung ('mon'..'sun'), siehe js/habits.js
   habit_weekdays text[],
+  -- Brücke zum Watchlist/Fernsehprogramm-Feature: eine Zeile mit gesetztem watchlist_item_id IST
+  -- der Termin im Fernsehprogramm (planned_date = geplanter Tag), siehe js/watchlist.js. effort
+  -- bleibt bei solchen Zeilen immer NULL — der effort-Check (5/10/30/60) passt nicht zu den
+  -- Watchlist-Dauern (45/20/90 Min.), die stattdessen auf watchlist_items.duration_minutes leben.
+  watchlist_item_id uuid references watchlist_items(id) on delete cascade,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
 
 create index if not exists tasks_parent_task_id_idx on tasks (parent_task_id);
+create index if not exists tasks_watchlist_item_id_idx on tasks (watchlist_item_id);
 
 -- Tagespläne
 create table if not exists daily_plans (
@@ -162,6 +196,23 @@ create table if not exists savings_pot_entries (
   created_at timestamptz default now()
 );
 
+-- Watchlist: Sichtungs-Log — eine Zeile pro gesehener Episode/Film, Bewertung pro Sichtung statt
+-- pro Item (eine schlecht bewertete Folge soll weder Priorität noch Rotation der Serie
+-- beeinflussen). rating nullable — eine Sichtung wird immer geloggt, die Bewertung selbst kann
+-- übersprungen werden.
+create table if not exists watchlist_viewing_log (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users not null,
+  watchlist_item_id uuid references watchlist_items(id) on delete cascade not null,
+  rating text check (rating in ('up', 'down')),
+  season integer,
+  episode integer,
+  watched_at timestamptz default now(),
+  created_at timestamptz default now()
+);
+
+create index if not exists watchlist_viewing_log_item_idx on watchlist_viewing_log (watchlist_item_id);
+
 -- Row Level Security
 alter table areas enable row level security;
 alter table tasks enable row level security;
@@ -175,6 +226,8 @@ alter table committed_expenses enable row level security;
 alter table portfolio_positions enable row level security;
 alter table wishlist_items enable row level security;
 alter table savings_pot_entries enable row level security;
+alter table watchlist_items enable row level security;
+alter table watchlist_viewing_log enable row level security;
 
 drop policy if exists "areas: own data" on areas;
 create policy "areas: own data" on areas for all using (auth.uid() = user_id);
@@ -212,6 +265,12 @@ create policy "wishlist_items: own data" on wishlist_items for all using (auth.u
 drop policy if exists "savings_pot_entries: own data" on savings_pot_entries;
 create policy "savings_pot_entries: own data" on savings_pot_entries for all using (auth.uid() = user_id);
 
+drop policy if exists "watchlist_items: own data" on watchlist_items;
+create policy "watchlist_items: own data" on watchlist_items for all using (auth.uid() = user_id);
+
+drop policy if exists "watchlist_viewing_log: own data" on watchlist_viewing_log;
+create policy "watchlist_viewing_log: own data" on watchlist_viewing_log for all using (auth.uid() = user_id);
+
 -- Auto-Timestamp für tasks.updated_at (und weitere Tabellen mit updated_at)
 create or replace function update_updated_at()
 returns trigger as $$
@@ -234,4 +293,9 @@ create trigger fixed_costs_updated_at
 drop trigger if exists wishlist_items_updated_at on wishlist_items;
 create trigger wishlist_items_updated_at
   before update on wishlist_items
+  for each row execute function update_updated_at();
+
+drop trigger if exists watchlist_items_updated_at on watchlist_items;
+create trigger watchlist_items_updated_at
+  before update on watchlist_items
   for each row execute function update_updated_at();

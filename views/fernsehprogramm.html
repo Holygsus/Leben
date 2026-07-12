@@ -1,0 +1,48 @@
+<section class="view-header">
+  <h1>Fernsehprogramm</h1>
+  <div class="view-header-actions">
+    <button type="button" class="icon-btn" id="watchlist-quick-add-toggle" aria-label="Watchlist-Eintrag hinzufügen">+</button>
+  </div>
+</section>
+
+<form class="quick-capture-panel" id="watchlist-quick-form" hidden>
+  <input type="text" class="input" id="watchlist-quick-title" placeholder="Titel (Serie, Anime, Film)" autocomplete="off" required />
+  <select class="select" id="watchlist-quick-type" aria-label="Typ">
+    <option value="serie">Serie</option>
+    <option value="anime">Anime</option>
+    <option value="film">Film</option>
+  </select>
+  <div class="quick-capture-actions">
+    <button class="btn" type="submit">Hinzufügen</button>
+    <button class="btn btn-secondary" type="button" id="watchlist-quick-cancel">Abbrechen</button>
+  </div>
+</form>
+
+<section class="panel">
+  <h2>Diese Woche</h2>
+  <ul class="task-list" id="watchlist-week-list"></ul>
+  <p class="empty-state" id="watchlist-week-empty-state" hidden>
+    Noch nichts eingeplant — leg über "+" Einträge an und setze sie auf "aktiv".
+  </p>
+</section>
+
+<section class="panel">
+  <h2>Watchlist</h2>
+  <section class="filter-bar">
+    <select id="watchlist-filter-type" class="select" aria-label="Nach Typ filtern">
+      <option value="">Alle Typen</option>
+      <option value="serie">Serie</option>
+      <option value="anime">Anime</option>
+      <option value="film">Film</option>
+    </select>
+    <input type="text" class="input" id="watchlist-filter-genre" placeholder="Genre" autocomplete="off" />
+    <select id="watchlist-filter-rating" class="select" aria-label="Nach Bewertung filtern">
+      <option value="">Alle Bewertungen</option>
+      <option value="0.5">Ø ≥ 50 %</option>
+      <option value="0.75">Ø ≥ 75 %</option>
+    </select>
+  </section>
+  <ul class="events-widget-list" id="watchlist-overview-list"></ul>
+  <button type="button" class="events-widget-more" id="watchlist-overview-more" hidden></button>
+  <p class="empty-state" id="watchlist-overview-empty-state" hidden>Noch keine Watchlist-Einträge.</p>
+</section>

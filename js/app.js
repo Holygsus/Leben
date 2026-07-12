@@ -38,7 +38,24 @@ import {
   listSavingsPotEntries,
   filterBuyReady,
 } from "./wishlist.js";
-import { WEEKDAY_CODES, isHabitTask, autoplanDueHabits } from "./habits.js";
+import { WEEKDAY_CODES, isHabitTask, autoplanDueHabits, weekdayCodeFromIso } from "./habits.js";
+import {
+  listWatchlistItems,
+  createWatchlistItem,
+  updateWatchlistItem,
+  deleteWatchlistItem,
+  listViewingLog,
+  listAllViewingLogEntries,
+  logViewing,
+  deleteViewingLogEntry,
+  isWatchlistTask,
+  getEffectiveDuration,
+  computeAverageRating,
+  filterWatchlistItems,
+  currentWeekDates,
+  autoplanWatchlistForDates,
+  applyWatchlistSwap,
+} from "./watchlist.js";
 
 const app = document.getElementById("app");
 
@@ -48,9 +65,16 @@ const routes = {
   plan: renderPlanView,
   habits: renderHabitsView,
   finance: renderFinanceView,
+  fernsehprogramm: renderFernsehprogrammView,
 };
 
 const WEEKDAY_LABEL = { mon: "Mo", tue: "Di", wed: "Mi", thu: "Do", fri: "Fr", sat: "Sa", sun: "So" };
+
+// Kleine Icons vor Badge-Text — macht "Habit"/"Brainstorm"/"Überfällig" beim schnellen Scrollen
+// schneller unterscheidbar als drei ähnlich lange Wörter in ähnlichen Farbtönen.
+const BADGE_ICON_HABIT = `<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5"/></svg>`;
+const BADGE_ICON_BRAINSTORM = `<svg viewBox="0 0 24 24"><path d="M9 18h6M10 22h4M12 2a6 6 0 0 0-3 11.2c.6.4 1 1.1 1 1.8v.5h4v-.5c0-.7.4-1.4 1-1.8A6 6 0 0 0 12 2Z"/></svg>`;
+const BADGE_ICON_OVERDUE = `<svg viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17h.01"/></svg>`;
 
 const FILTER_STORAGE_KEY = "leben-os:overview-filters";
 
@@ -304,12 +328,16 @@ async function restoreTaskSnapshot(task, descendants) {
 // bereits die Undo-Aktion). reopenTaskCascade leitet den korrekten Status (offen/geplant) selbst
 // wieder aus planned_date her und ist damit ein korrektes Gegenstück zu completeTaskCascade, ohne
 // dass hier ein eigener Vorher-Snapshot nötig wäre.
-function showCompleteUndoToast(task, allTasks, afterChange) {
+// extraLogIdToUndo: optional, nur von Watchlist-Aufgaben gesetzt (siehe promptWatchlistRating) —
+// macht Rückgängig auch den zugehörigen Sichtungs-Log-Eintrag rückgängig, sonst bliebe nach einem
+// Undo eine verwaiste Bewertung stehen, die zu keiner (wieder offenen) Sichtung mehr gehört.
+function showCompleteUndoToast(task, allTasks, afterChange, extraLogIdToUndo = null) {
   showToast(`„${task.title}" erledigt.`, false, {
     label: "Rückgängig",
     onClick: () =>
       withErrorToast(async () => {
         await reopenTaskCascade(task, allTasks);
+        if (extraLogIdToUndo) await deleteViewingLogEntry(extraLogIdToUndo);
         afterChange();
       }),
   });
@@ -753,6 +781,10 @@ function renderShell() {
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 7h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1h13M16 13h2"/></svg>
         <span class="nav-label">Finanzen</span>
       </a>
+      <a href="#/fernsehprogramm" class="nav-link${route === "fernsehprogramm" ? " is-active" : ""}">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 5h18v12H3z"/><path d="M8 21h8M12 17v4M8 2l3 3M16 2l-3 3"/></svg>
+        <span class="nav-label">Fernsehprogramm</span>
+      </a>
     </nav>
     <div id="view-content"></div>
   `;
@@ -802,11 +834,12 @@ async function renderTodayView() {
   // Mutteraufgaben-Gruppierung trivial, weil der volle Baum schon vorliegt).
   // Ungefiltert holen (nicht nur status:"active") — filterBuyReady() muss auch bereits manuell auf
   // "ready" gesetzte Wünsche sehen können, sonst fehlen die im Kaufbereit-Widget.
-  const [areas, allTasks, wishlistItems, potBalance] = await Promise.all([
+  const [areas, allTasks, wishlistItems, potBalance, watchlistItems] = await Promise.all([
     listAreas(),
     listTasks(),
     listWishlistItems(),
     getSavingsPotBalance(),
+    listWatchlistItems(),
   ]);
   todayViewState.areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
   const today = todayISO();
@@ -815,9 +848,16 @@ async function renderTodayView() {
   // würde ein heute fälliges Habit erst nach einem Reload in der Heute-Ansicht auftauchen. Bei
   // Treffern allTasks lokal patchen statt neu zu fetchen (spart einen Roundtrip).
   const duePlannedIds = new Set(await autoplanDueHabits(allTasks, today));
-  todayViewState.allTasks = duePlannedIds.size
+  const patchedTasks = duePlannedIds.size
     ? allTasks.map((t) => (duePlannedIds.has(t.id) ? { ...t, planned_date: today, status: "planned" } : t))
     : allTasks;
+
+  // Analog zu Habits: fehlt für heute noch eine Watchlist-Aufgabe (aktives Item nicht bereits
+  // diese Woche verplant), wird sie hier automatisch angelegt — sonst würde sie erst nach einem
+  // Reload der Fernsehprogramm-Ansicht in Heute auftauchen. Nur für heute, nicht die ganze Woche
+  // (das übernimmt renderFernsehprogrammView separat).
+  const newWatchlistTasks = await autoplanWatchlistForDates(watchlistItems, patchedTasks, [today]);
+  todayViewState.allTasks = newWatchlistTasks.length ? [...patchedTasks, ...newWatchlistTasks] : patchedTasks;
   const tasks = todayViewState.allTasks.filter((t) => t.planned_date === today);
 
   renderGreeting();
@@ -1009,8 +1049,12 @@ function appendTaskRowContent(el, task, areaColorById, allTasks, onChange) {
   el.classList.toggle("is-done", task.status === "done");
   el.classList.toggle("is-stale", isStale);
   el.classList.toggle("is-overdue", isOverdue);
-  // Bereichsfarbe als Akzent am linken Rand — außer bei "überfällig", das hat Vorrang (rot).
-  if (!isOverdue && areaColorById[task.area_id]) el.style.borderLeftColor = areaColorById[task.area_id];
+  // Bereichsfarbe als Akzent am linken Rand + leichter Hintergrund-Tint (main.css .task-item) —
+  // außer bei "überfällig", das hat Vorrang (rot).
+  if (!isOverdue && areaColorById[task.area_id]) {
+    el.style.borderLeftColor = areaColorById[task.area_id];
+    el.style.setProperty("--task-area-color", areaColorById[task.area_id]);
+  }
 
   const dot = document.createElement("span");
   dot.className = "task-area-dot";
@@ -1030,7 +1074,10 @@ function appendTaskRowContent(el, task, areaColorById, allTasks, onChange) {
         await reopenTaskCascade(task, allTasks);
       } else {
         await completeTaskCascade(task, allTasks);
-        showCompleteUndoToast(task, allTasks, onChange);
+        // Nur in der Heute-Ansicht (dieser Checkbox-Pfad ist ihr einziger Aufrufer) — Bewertung
+        // direkt beim Abhaken abfragen, nicht erst später im Fernsehprogramm-Tab (Spec-Vorgabe).
+        const ratingLogId = isWatchlistTask(task) ? await promptWatchlistRating(task) : null;
+        showCompleteUndoToast(task, allTasks, onChange, ratingLogId);
       }
       onChange();
     });
@@ -1059,7 +1106,7 @@ function appendTaskRowContent(el, task, areaColorById, allTasks, onChange) {
   if (isOverdue) {
     const badge = document.createElement("span");
     badge.className = "badge badge-overdue";
-    badge.textContent = "Überfällig";
+    badge.innerHTML = BADGE_ICON_OVERDUE + "Überfällig";
     el.appendChild(badge);
   }
 }
@@ -1652,7 +1699,7 @@ function buildTaskNodeEl(node, area, depth) {
   if (isTaskOverdue(node)) {
     const overdueBadge = document.createElement("span");
     overdueBadge.className = "badge badge-overdue";
-    overdueBadge.textContent = "Überfällig";
+    overdueBadge.innerHTML = BADGE_ICON_OVERDUE + "Überfällig";
     header.appendChild(overdueBadge);
   }
 
@@ -1990,8 +2037,8 @@ function renderTaskDetailView(card, task, allTasks, children, backButtonHtml, cl
   if (task.effort) badges.push(`<span class="badge badge-effort">${task.effort} min</span>`);
   if (task.is_event && task.planned_date) badges.push(`<span class="badge badge-event">${formatShortDate(task.planned_date)}</span>`);
   else if (task.planned_date) badges.push(`<span class="badge badge-date">${formatShortDate(task.planned_date)}</span>`);
-  if (isTaskOverdue(task)) badges.push(`<span class="badge badge-overdue">Überfällig</span>`);
-  if (isHabitTask(task)) badges.push(`<span class="badge badge-habit">Habit</span>`);
+  if (isTaskOverdue(task)) badges.push(`<span class="badge badge-overdue">${BADGE_ICON_OVERDUE}Überfällig</span>`);
+  if (isHabitTask(task)) badges.push(`<span class="badge badge-habit">${BADGE_ICON_HABIT}Habit</span>`);
 
   card.innerHTML = `
     ${backButtonHtml}
@@ -2171,7 +2218,7 @@ function renderTaskDetailEdit(card, task, allTasks, parentTask, children, backBu
         Ist ein Habit
       </label>
     </div>
-    <label class="modal-label">Plandatum${isTaskOverdue(task) ? ` <span class="badge badge-overdue">Überfällig</span>` : ""}
+    <label class="modal-label">Plandatum${isTaskOverdue(task) ? ` <span class="badge badge-overdue">${BADGE_ICON_OVERDUE}Überfällig</span>` : ""}
       <div class="date-chips" id="td-date-chips" role="group" aria-label="Plandatum">
         <button type="button" class="date-chip" data-date="today">Heute</button>
         <button type="button" class="date-chip" data-date="tomorrow">Morgen</button>
@@ -2366,7 +2413,10 @@ function renderPlannedDayPanel(iso) {
 function buildPlanRowBase(task, areaColorById, titleText = task.title) {
   const li = document.createElement("li");
   li.className = "task-item";
-  if (areaColorById[task.area_id]) li.style.borderLeftColor = areaColorById[task.area_id];
+  if (areaColorById[task.area_id]) {
+    li.style.borderLeftColor = areaColorById[task.area_id];
+    li.style.setProperty("--task-area-color", areaColorById[task.area_id]);
+  }
 
   const dot = document.createElement("span");
   dot.className = "task-area-dot";
@@ -2641,7 +2691,7 @@ function buildPlanTaskItem(task, areaColorById) {
   if (task.is_brainstorm) {
     const badge = document.createElement("span");
     badge.className = "badge badge-brainstorm";
-    badge.textContent = "Ohne Bereich";
+    badge.innerHTML = BADGE_ICON_BRAINSTORM + "Ohne Bereich";
     li.appendChild(badge);
   }
 
@@ -2754,53 +2804,104 @@ const financeState = {
 
 /* ---------- Habits ---------- */
 
-const habitsViewState = { allTasks: [] };
+const habitsViewState = { allTasks: [], areaColorById: {} };
 
 async function renderHabitsView() {
   const container = document.getElementById("view-content");
   const res = await fetch("views/habits.html");
   container.innerHTML = await res.text();
-  habitsViewState.allTasks = await listTasks();
+  const [tasks, areas] = await Promise.all([listTasks(), listAreas()]);
+  habitsViewState.allTasks = tasks;
+  habitsViewState.areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
   renderHabitList();
 }
 
-// Rendert die Liste der Habit-Aufgaben mit ihrer Mo-So-Chip-Reihe und verdrahtet den Klick-
-// Handler einmal per Delegation auf #habit-list, analog td-subtask-list im Detail-Modal.
+// Kompakte Punktreihe für den Default-Zustand einer Habit-Zeile: zeigt auf einen Blick, an
+// welchen Wochentagen das Habit aktiv ist, ohne 7 antippbare 40px-Chips permanent vorzuhalten.
+function buildHabitDotRow(task, todayCode) {
+  return `<div class="habit-dotrow" aria-hidden="true">${WEEKDAY_CODES.map((code) => {
+    const active = task.habit_weekdays.includes(code);
+    const isToday = code === todayCode;
+    return `<span class="habit-dot${active ? " active" : ""}${isToday ? " is-today" : ""}"></span>`;
+  }).join("")}</div>`;
+}
+
+function buildHabitChips(task, todayCode) {
+  return WEEKDAY_CODES.map((code) => {
+    const active = task.habit_weekdays.includes(code);
+    const isToday = code === todayCode;
+    const doneToday = isToday && task.planned_date === todayISO() && task.status === "done";
+    const classes = ["weekday-chip"];
+    if (isToday && active) classes.push(doneToday ? "today-done" : "today-due");
+    return `<button type="button" class="${classes.join(" ")}" data-day="${code}" data-active="${active}">${WEEKDAY_LABEL[code]}</button>`;
+  }).join("");
+}
+
+// Rendert die Liste der Habit-Aufgaben. Jede Zeile startet im Kompakt-Zustand (Punktreihe) und
+// klappt per Tap auf die editierbaren Mo-So-Chips auf — analog td-subtask-list im Detail-Modal
+// nutzt auch das hier nur einen delegierten Klick-Handler auf #habit-list statt pro Zeile.
 function renderHabitList() {
   const habitTasks = habitsViewState.allTasks.filter(isHabitTask);
   const list = document.getElementById("habit-list");
-  const empty = document.getElementById("habit-empty-state");
-  empty.hidden = habitTasks.length > 0;
+  const todayCode = weekdayCodeFromIso(todayISO());
+  list.innerHTML = "";
+
+  if (habitTasks.length === 0) {
+    list.appendChild(
+      buildEmptyState("Noch keine Habits", "Markiere eine Aufgabe im Bearbeiten-Modal als Habit — sie taucht dann hier auf.")
+    );
+    return;
+  }
 
   list.innerHTML = habitTasks
-    .map(
-      (t) => `
-      <li class="task-item" data-habit-id="${t.id}">
-        <span class="task-title">${escapeHtml(t.title)}</span>
-        <div class="weekday-chips" role="group" aria-label="Wochentage">
-          ${WEEKDAY_CODES.map(
-            (code) =>
-              `<button type="button" class="weekday-chip" data-day="${code}" data-active="${t.habit_weekdays.includes(code)}">${WEEKDAY_LABEL[code]}</button>`
-          ).join("")}
+    .map((t) => {
+      const areaColor = habitsViewState.areaColorById[t.area_id];
+      const freqLabel = `${t.habit_weekdays.length}× pro Woche`;
+      return `
+      <li class="task-item habit-item" data-habit-id="${t.id}" data-expanded="false" style="${
+        areaColor ? `border-left-color:${areaColor};--task-area-color:${areaColor};` : ""
+      }">
+        <span class="task-area-dot" style="background:${areaColor || "var(--color-text-subtle)"}"></span>
+        <div class="habit-body">
+          <button type="button" class="habit-toggle" aria-expanded="false">
+            <span class="task-title">${escapeHtml(t.title)}<span class="habit-freq">${freqLabel}</span></span>
+            ${buildHabitDotRow(t, todayCode)}
+          </button>
+          <div class="weekday-chips" role="group" aria-label="Wochentage" hidden>
+            ${buildHabitChips(t, todayCode)}
+          </div>
         </div>
-      </li>`
-    )
+      </li>`;
+    })
     .join("");
 
   list.onclick = async (e) => {
     const chip = e.target.closest(".weekday-chip");
-    if (!chip) return;
-    const li = chip.closest("[data-habit-id]");
-    const task = habitsViewState.allTasks.find((t) => t.id === li.dataset.habitId);
-    const day = chip.dataset.day;
-    const nextDays = task.habit_weekdays.includes(day)
-      ? task.habit_weekdays.filter((d) => d !== day)
-      : [...task.habit_weekdays, day];
-    await withErrorToast(async () => {
-      await updateTask(task.id, { habit_weekdays: nextDays });
-      task.habit_weekdays = nextDays;
-      chip.dataset.active = String(nextDays.includes(day));
-    });
+    if (chip) {
+      const li = chip.closest("[data-habit-id]");
+      const task = habitsViewState.allTasks.find((t) => t.id === li.dataset.habitId);
+      const day = chip.dataset.day;
+      const nextDays = task.habit_weekdays.includes(day)
+        ? task.habit_weekdays.filter((d) => d !== day)
+        : [...task.habit_weekdays, day];
+      await withErrorToast(async () => {
+        await updateTask(task.id, { habit_weekdays: nextDays });
+        task.habit_weekdays = nextDays;
+        chip.dataset.active = String(nextDays.includes(day));
+        li.querySelector(".habit-freq").textContent = `${nextDays.length}× pro Woche`;
+        li.querySelector(".habit-dotrow").outerHTML = buildHabitDotRow(task, todayCode);
+      });
+      return;
+    }
+
+    const toggle = e.target.closest(".habit-toggle");
+    if (toggle) {
+      const li = toggle.closest("[data-habit-id]");
+      const expanded = li.dataset.expanded === "true";
+      li.dataset.expanded = String(!expanded);
+      toggle.setAttribute("aria-expanded", String(!expanded));
+      li.querySelector(".weekday-chips").hidden = expanded;
+    }
   };
 }
 
@@ -2972,6 +3073,7 @@ function buildTransactionItem(tx) {
   const li = document.createElement("li");
   li.className = "task-item tx-item";
   li.style.borderLeftColor = POT_COLOR_VAR[tx.pot] || "var(--color-text-subtle)";
+  li.style.setProperty("--task-area-color", POT_COLOR_VAR[tx.pot] || "var(--color-surface)");
 
   const dot = document.createElement("span");
   dot.className = "task-area-dot";
@@ -3384,6 +3486,462 @@ function wireTransactionQuickCapture() {
       closeForm();
       await reloadFinance();
     });
+  });
+}
+
+/* ---------- Fernsehprogramm ---------- */
+
+const watchlistViewState = { items: [], allTasks: [], logEntries: [] };
+
+const WATCHLIST_TYPE_LABEL = { serie: "Serie", anime: "Anime", film: "Film" };
+const WATCHLIST_STATUS_LABEL = {
+  aktiv: "Aktiv",
+  geplant: "Geplant",
+  irgendwann: "Irgendwann",
+  beendet: "Beendet",
+  wartet_auf_neue_staffel: "Wartet auf neue Staffel",
+};
+
+async function renderFernsehprogrammView() {
+  const container = document.getElementById("view-content");
+  const res = await fetch("views/fernsehprogramm.html");
+  container.innerHTML = await res.text();
+  showLoading("watchlist-week-list");
+
+  const [items, allTasks, logEntries] = await Promise.all([listWatchlistItems(), listTasks(), listAllViewingLogEntries()]);
+  const weekDates = currentWeekDates(todayISO());
+  // Anders als in renderTodayView (nur heute) wird hier gleich die ganze Woche aufgefüllt, damit
+  // der Wochenüberblick nicht erst nach 7 Tagen Heute-Besuchen vollständig wird.
+  const newTasks = await autoplanWatchlistForDates(items, allTasks, weekDates);
+  watchlistViewState.items = items;
+  watchlistViewState.allTasks = newTasks.length ? [...allTasks, ...newTasks] : allTasks;
+  watchlistViewState.logEntries = logEntries;
+
+  renderWatchlistWeek();
+  renderWatchlistOverview();
+  wireWatchlistFilters();
+  wireWatchlistQuickAddForm();
+}
+
+function renderWatchlistWeek() {
+  const list = document.getElementById("watchlist-week-list");
+  const empty = document.getElementById("watchlist-week-empty-state");
+  const weekDates = currentWeekDates(todayISO());
+  const itemsById = new Map(watchlistViewState.items.map((i) => [i.id, i]));
+  const tasksByDate = new Map(
+    watchlistViewState.allTasks.filter((t) => isWatchlistTask(t) && weekDates.includes(t.planned_date)).map((t) => [t.planned_date, t])
+  );
+
+  list.innerHTML = weekDates
+    .map((date) => {
+      const label = WEEKDAY_LABEL[weekdayCodeFromIso(date)];
+      const task = tasksByDate.get(date);
+      if (!task) {
+        return `<li class="task-item"><span class="task-title">${label} — <span class="status-message">frei</span></span></li>`;
+      }
+      const item = itemsById.get(task.watchlist_item_id);
+      return `
+        <li class="task-item">
+          <span class="task-title">${label} — ${escapeHtml(item ? item.title : task.title)}</span>
+          <button type="button" class="icon-btn watchlist-swap-btn" data-task-id="${task.id}" aria-label="Tauschen">⇄</button>
+        </li>`;
+    })
+    .join("");
+  empty.hidden = tasksByDate.size > 0;
+
+  list.querySelectorAll(".watchlist-swap-btn").forEach((btn) => {
+    btn.addEventListener("click", () => openWatchlistSwapPicker(btn.dataset.taskId));
+  });
+}
+
+// Zeigt Tauschpartner für einen bereits verplanten Slot: andere verplante Tage dieser Woche
+// (Datum↔Datum-Tausch) sowie unverplante 'aktive' Items (verplant↔unverplant-Tausch) — siehe
+// buildSwapOperations() in js/watchlist.js für die eigentliche Tausch-Logik.
+function openWatchlistSwapPicker(taskId) {
+  const root = document.getElementById("modal-root");
+  document.body.style.overflow = "hidden";
+
+  const close = () => {
+    root.innerHTML = "";
+    document.body.style.overflow = "";
+    document.removeEventListener("keydown", onKeydown);
+    closeActiveModal = null;
+  };
+  const onKeydown = (e) => {
+    if (e.key === "Escape") close();
+  };
+  document.addEventListener("keydown", onKeydown);
+  closeActiveModal = close;
+
+  const weekDates = currentWeekDates(todayISO());
+  const currentTask = watchlistViewState.allTasks.find((t) => t.id === taskId);
+  const itemsById = new Map(watchlistViewState.items.map((i) => [i.id, i]));
+  const scheduledThisWeek = watchlistViewState.allTasks.filter(
+    (t) => isWatchlistTask(t) && weekDates.includes(t.planned_date)
+  );
+  const otherScheduled = scheduledThisWeek.filter((t) => t.id !== taskId);
+  const scheduledItemIds = new Set(scheduledThisWeek.map((t) => t.watchlist_item_id));
+  const unscheduledItems = watchlistViewState.items.filter((i) => i.status === "aktiv" && !scheduledItemIds.has(i.id));
+
+  const optionButtonsHtml =
+    [
+      ...otherScheduled.map((t) => {
+        const item = itemsById.get(t.watchlist_item_id);
+        const label = WEEKDAY_LABEL[weekdayCodeFromIso(t.planned_date)];
+        return `<button type="button" class="btn btn-secondary watchlist-swap-option" data-kind="scheduled" data-task-id="${t.id}" data-date="${t.planned_date}" data-item-id="${t.watchlist_item_id}">${label} — ${escapeHtml(item ? item.title : t.title)}</button>`;
+      }),
+      ...unscheduledItems.map(
+        (i) =>
+          `<button type="button" class="btn btn-secondary watchlist-swap-option" data-kind="unscheduled" data-item-id="${i.id}">${escapeHtml(i.title)} (unverplant)</button>`
+      ),
+    ].join("") || `<p class="empty-state">Keine Tauschpartner verfügbar.</p>`;
+
+  root.innerHTML = `
+    <div class="modal-backdrop" id="swap-backdrop">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-label="Tauschen">
+        <h2 class="modal-view-title">Womit tauschen?</h2>
+        ${optionButtonsHtml}
+        <div class="modal-actions">
+          <button class="btn btn-secondary" type="button" id="swap-cancel">Abbrechen</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById("swap-backdrop").addEventListener("click", (e) => {
+    if (e.target.id === "swap-backdrop") close();
+  });
+  document.getElementById("swap-cancel").addEventListener("click", close);
+  root.querySelectorAll(".watchlist-swap-option").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const slotA = { taskId: currentTask.id, plannedDate: currentTask.planned_date, watchlistItemId: currentTask.watchlist_item_id };
+      const slotB =
+        btn.dataset.kind === "scheduled"
+          ? { taskId: btn.dataset.taskId, plannedDate: btn.dataset.date, watchlistItemId: btn.dataset.itemId }
+          : { watchlistItemId: btn.dataset.itemId };
+      await withErrorToast(async () => {
+        await applyWatchlistSwap(slotA, slotB);
+        close();
+        await renderFernsehprogrammView();
+      });
+    });
+  });
+}
+
+function computeAvgRatingByItemId() {
+  const avgByItemId = {};
+  for (const item of watchlistViewState.items) {
+    const entries = watchlistViewState.logEntries.filter((e) => e.watchlist_item_id === item.id);
+    avgByItemId[item.id] = computeAverageRating(entries);
+  }
+  return avgByItemId;
+}
+
+function renderWatchlistOverview() {
+  const list = document.getElementById("watchlist-overview-list");
+  const moreBtn = document.getElementById("watchlist-overview-more");
+  const emptyState = document.getElementById("watchlist-overview-empty-state");
+
+  if (watchlistViewState.items.length === 0) {
+    emptyState.hidden = false;
+    list.innerHTML = "";
+    moreBtn.hidden = true;
+    return;
+  }
+  emptyState.hidden = true;
+
+  const typeFilter = document.getElementById("watchlist-filter-type").value;
+  const genreFilter = document.getElementById("watchlist-filter-genre").value.trim().toLowerCase();
+  const minRatingFilter = document.getElementById("watchlist-filter-rating").value;
+  const avgByItemId = computeAvgRatingByItemId();
+
+  const filtered = filterWatchlistItems(
+    watchlistViewState.items,
+    { type: typeFilter || undefined, minAvgRating: minRatingFilter ? Number(minRatingFilter) : undefined },
+    avgByItemId
+  );
+  // Genre-Filter hier bewusst nicht über filterWatchlistItems (dort exakter Tag-Match), sondern
+  // als Teilstring-Suche — Genres sind frei eingegebene Tags, kein fester Enum wie Typ/Status.
+  const genreFiltered = genreFilter ? filtered.filter((i) => i.genres?.some((g) => g.toLowerCase().includes(genreFilter))) : filtered;
+
+  const renderItems = (items) => {
+    list.innerHTML = "";
+    for (const item of items) {
+      const li = document.createElement("li");
+      const avg = avgByItemId[item.id];
+      li.textContent = `${WATCHLIST_TYPE_LABEL[item.type]} · ${item.title}${avg == null ? "" : ` · Ø ${Math.round(avg * 100)}%`}`;
+      li.addEventListener("click", () => openWatchlistDetail(item.id));
+      list.appendChild(li);
+    }
+  };
+  renderItems(genreFiltered.slice(0, 5));
+
+  if (genreFiltered.length > 5) {
+    moreBtn.hidden = false;
+    moreBtn.textContent = `+${genreFiltered.length - 5} weitere`;
+    moreBtn.onclick = () => {
+      renderItems(genreFiltered);
+      moreBtn.hidden = true;
+    };
+  } else {
+    moreBtn.hidden = true;
+  }
+}
+
+function wireWatchlistFilters() {
+  document.getElementById("watchlist-filter-type").addEventListener("change", renderWatchlistOverview);
+  document.getElementById("watchlist-filter-genre").addEventListener("input", renderWatchlistOverview);
+  document.getElementById("watchlist-filter-rating").addEventListener("change", renderWatchlistOverview);
+}
+
+function wireWatchlistQuickAddForm() {
+  const toggleBtn = document.getElementById("watchlist-quick-add-toggle");
+  const form = document.getElementById("watchlist-quick-form");
+  const titleInput = document.getElementById("watchlist-quick-title");
+  const typeSelect = document.getElementById("watchlist-quick-type");
+  const cancelBtn = document.getElementById("watchlist-quick-cancel");
+
+  const closeForm = () => {
+    form.hidden = true;
+    form.reset();
+  };
+
+  toggleBtn.addEventListener("click", () => {
+    if (form.hidden) {
+      form.hidden = false;
+      titleInput.focus();
+    } else {
+      closeForm();
+    }
+  });
+  cancelBtn.addEventListener("click", closeForm);
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = titleInput.value.trim();
+    if (!title) return;
+    await withErrorToast(async () => {
+      await createWatchlistItem({ title, type: typeSelect.value });
+      closeForm();
+      await renderFernsehprogrammView();
+    });
+  });
+}
+
+// ----- Watchlist-Detail (Modal) -----
+
+async function openWatchlistDetail(itemId) {
+  const root = document.getElementById("modal-root");
+  document.body.style.overflow = "hidden";
+
+  const close = () => {
+    root.innerHTML = "";
+    document.body.style.overflow = "";
+    document.removeEventListener("keydown", onKeydown);
+    closeActiveModal = null;
+  };
+  const onKeydown = (e) => {
+    if (e.key === "Escape") close();
+  };
+  document.addEventListener("keydown", onKeydown);
+  closeActiveModal = close;
+
+  root.innerHTML = `
+    <div class="modal-backdrop" id="watchlist-detail-backdrop">
+      <div class="modal-card" id="watchlist-detail-card" role="dialog" aria-modal="true" aria-label="Watchlist-Eintrag"></div>
+    </div>`;
+  document.getElementById("watchlist-detail-backdrop").addEventListener("click", (e) => {
+    if (e.target.id === "watchlist-detail-backdrop") close();
+  });
+
+  await renderWatchlistDetailCard(itemId, close);
+}
+
+async function renderWatchlistDetailCard(itemId, close) {
+  const [items, log] = await Promise.all([listWatchlistItems(), listViewingLog(itemId)]);
+  const item = items.find((i) => i.id === itemId);
+  const card = document.getElementById("watchlist-detail-card");
+  if (!item || !card) {
+    close();
+    return;
+  }
+
+  const avg = computeAverageRating(log);
+  const avgLabel = avg == null ? "—" : `${Math.round(avg * 100)} % positiv`;
+  const logHtml = log.length
+    ? log
+        .map((entry) => {
+          const ratingIcon = entry.rating === "up" ? "👍" : entry.rating === "down" ? "👎" : "übersprungen";
+          const epLabel = entry.season != null || entry.episode != null ? `S${entry.season ?? "?"}E${entry.episode ?? "?"} · ` : "";
+          return `
+          <li class="task-item">
+            <span class="task-title">${epLabel}${ratingIcon} · ${formatShortDate(entry.watched_at.slice(0, 10))}</span>
+            <button type="button" class="icon-btn icon-btn-danger watchlist-log-delete" data-log-id="${entry.id}" aria-label="Sichtung löschen">×</button>
+          </li>`;
+        })
+        .join("")
+    : `<p class="empty-state">Noch keine Sichtung geloggt.</p>`;
+
+  card.innerHTML = `
+    <h2 class="modal-view-title">${escapeHtml(item.title)}</h2>
+    <p class="status-message">Ø Bewertung: ${avgLabel}</p>
+
+    <label class="modal-label">Titel
+      <input type="text" class="input" id="wd-title" value="${escapeHtml(item.title)}" />
+    </label>
+    <label class="modal-label">Typ
+      <select class="select" id="wd-type">
+        ${Object.entries(WATCHLIST_TYPE_LABEL)
+          .map(([v, l]) => `<option value="${v}" ${item.type === v ? "selected" : ""}>${l}</option>`)
+          .join("")}
+      </select>
+    </label>
+    <label class="modal-label">Status
+      <select class="select" id="wd-status">
+        ${Object.entries(WATCHLIST_STATUS_LABEL)
+          .map(([v, l]) => `<option value="${v}" ${item.status === v ? "selected" : ""}>${l}</option>`)
+          .join("")}
+      </select>
+    </label>
+    <label class="modal-label">Genres (Komma-getrennt)
+      <input type="text" class="input" id="wd-genres" value="${escapeHtml((item.genres || []).join(", "))}" />
+    </label>
+    <label class="modal-label">Plattform
+      <input type="text" class="input" id="wd-platform" value="${escapeHtml(item.platform || "")}" />
+    </label>
+    <label class="modal-label">Dauer-Override in Min. (leer = Typ-Standard, ${getEffectiveDuration({ type: item.type, duration_minutes: null })} Min.)
+      <input type="number" class="input" id="wd-duration" value="${item.duration_minutes ?? ""}" min="1" />
+    </label>
+    <label class="modal-label">Staffel
+      <input type="number" class="input" id="wd-season" value="${item.current_season ?? ""}" min="1" />
+    </label>
+    <label class="modal-label">Folge
+      <input type="number" class="input" id="wd-episode" value="${item.current_episode ?? ""}" min="1" />
+    </label>
+    <label class="modal-label">Release-Termin nächste Staffel
+      <input type="date" class="input" id="wd-release-date" value="${item.next_season_release_date || ""}" />
+    </label>
+
+    <div class="modal-actions">
+      <button class="btn" type="button" id="wd-save">Speichern</button>
+      <button class="btn btn-secondary" type="button" id="wd-close">Schließen</button>
+    </div>
+
+    <h3>Episodenguide</h3>
+    <ul class="task-list" id="wd-log-list">${logHtml}</ul>
+
+    <button class="btn" type="button" id="wd-delete" style="background:var(--color-danger)">Eintrag löschen</button>
+  `;
+
+  document.getElementById("wd-close").addEventListener("click", close);
+
+  document.getElementById("wd-save").addEventListener("click", async () => {
+    const genres = document
+      .getElementById("wd-genres")
+      .value.split(",")
+      .map((g) => g.trim())
+      .filter(Boolean);
+    const durationRaw = document.getElementById("wd-duration").value;
+    const seasonRaw = document.getElementById("wd-season").value;
+    const episodeRaw = document.getElementById("wd-episode").value;
+    await withErrorToast(async () => {
+      await updateWatchlistItem(item.id, {
+        title: document.getElementById("wd-title").value.trim() || item.title,
+        type: document.getElementById("wd-type").value,
+        status: document.getElementById("wd-status").value,
+        genres,
+        platform: document.getElementById("wd-platform").value.trim() || null,
+        duration_minutes: durationRaw ? Number(durationRaw) : null,
+        current_season: seasonRaw ? Number(seasonRaw) : null,
+        current_episode: episodeRaw ? Number(episodeRaw) : null,
+        next_season_release_date: document.getElementById("wd-release-date").value || null,
+      });
+      showToast("Gespeichert.");
+      close();
+      await renderFernsehprogrammView();
+    });
+  });
+
+  document.getElementById("wd-delete").addEventListener("click", async () => {
+    const ok = await showConfirm(
+      `„${item.title}" wirklich löschen? Das entfernt auch alle geloggten Sichtungen und geplanten Fernsehprogramm-Termine.`,
+      { confirmLabel: "Löschen", danger: true }
+    );
+    if (!ok) return;
+    await withErrorToast(async () => {
+      await deleteWatchlistItem(item.id);
+      close();
+      await renderFernsehprogrammView();
+    });
+  });
+
+  card.querySelectorAll(".watchlist-log-delete").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      await withErrorToast(async () => {
+        await deleteViewingLogEntry(btn.dataset.logId);
+        await renderWatchlistDetailCard(itemId, close);
+      });
+    });
+  });
+}
+
+// ----- Bewertungs-Popup beim Erledigen in der Heute-Ansicht -----
+
+// Öffnet direkt beim Abhaken einer Watchlist-Aufgabe ein kleines 👍/👎-Popup (plus "Überspringen").
+// Loggt die Sichtung immer (auch bei Überspringen, rating bleibt dann null) und rückt bei
+// Serien/Anime current_episode automatisch eine Folge weiter — einfache v1-Warteschlangenlogik
+// ohne Staffel-Rollover, der bleibt manuell über next_season_release_date (siehe Plan). Gibt die
+// neue Log-Zeilen-ID zurück, damit showCompleteUndoToast sie bei Rückgängig mit entfernen kann.
+async function promptWatchlistRating(task) {
+  const items = await listWatchlistItems();
+  const item = items.find((i) => i.id === task.watchlist_item_id);
+  if (!item) return null;
+
+  return new Promise((resolve) => {
+    const root = document.getElementById("modal-root");
+    document.body.style.overflow = "hidden";
+
+    const close = (logId) => {
+      root.innerHTML = "";
+      document.body.style.overflow = "";
+      document.removeEventListener("keydown", onKeydown);
+      closeActiveModal = null;
+      resolve(logId);
+    };
+    const onKeydown = (e) => {
+      if (e.key === "Escape") submit(null);
+    };
+    document.addEventListener("keydown", onKeydown);
+    closeActiveModal = () => close(null);
+
+    const submit = async (rating) => {
+      const logRow = await logViewing({
+        watchlistItemId: item.id,
+        rating,
+        season: item.current_season,
+        episode: item.current_episode,
+      });
+      if (item.type !== "film" && item.current_episode != null) {
+        await updateWatchlistItem(item.id, { current_episode: item.current_episode + 1 });
+      }
+      close(logRow.id);
+    };
+
+    root.innerHTML = `
+      <div class="modal-backdrop" id="rating-backdrop">
+        <div class="modal-card" role="dialog" aria-modal="true" aria-label="Bewertung">
+          <h2 class="modal-view-title">„${escapeHtml(item.title)}" geschaut — wie war's?</h2>
+          <div class="modal-actions">
+            <button class="btn" type="button" id="rating-up">👍</button>
+            <button class="btn" type="button" id="rating-down">👎</button>
+          </div>
+          <button class="btn btn-secondary" type="button" id="rating-skip">Überspringen</button>
+        </div>
+      </div>`;
+    document.getElementById("rating-backdrop").addEventListener("click", (e) => {
+      if (e.target.id === "rating-backdrop") submit(null);
+    });
+    document.getElementById("rating-up").addEventListener("click", () => submit("up"));
+    document.getElementById("rating-down").addEventListener("click", () => submit("down"));
+    document.getElementById("rating-skip").addEventListener("click", () => submit(null));
   });
 }
 

@@ -1,7 +1,7 @@
 // Cached nur die statische App-Hülle (HTML/CSS/JS) für schnelleres Laden/Offline-Start.
 // Supabase- und CDN-Requests (anderer Origin) werden bewusst NICHT abgefangen — Daten sollen
 // immer frisch vom Netzwerk kommen, nur das Grundgerüst der App wird lokal vorgehalten.
-const CACHE_NAME = "leben-os-shell-v6";
+const CACHE_NAME = "leben-os-shell-v7";
 
 const SHELL_ASSETS = [
   "index.html",
@@ -18,12 +18,14 @@ const SHELL_ASSETS = [
   "js/habits.js",
   "js/finance.js",
   "js/wishlist.js",
+  "js/watchlist.js",
   "js/supabase.js",
   "views/today.html",
   "views/overview.html",
   "views/plan.html",
   "views/habits.html",
   "views/finance.html",
+  "views/fernsehprogramm.html",
 ];
 
 self.addEventListener("install", (event) => {
