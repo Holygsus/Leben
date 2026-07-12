@@ -13,7 +13,7 @@ import {
   cascadeAreaChange,
 } from "./tasks.js";
 import { listAreas, createArea, updateArea, deleteArea, swapAreaOrder } from "./areas.js";
-import { suggestTasksForPlan, formatTasksForExport, savePlanForDate } from "./planner.js";
+import { suggestTasksForPlan, formatTasksForExport, savePlanForDate, budgetForDate } from "./planner.js";
 import {
   listTransactions,
   createTransaction,
@@ -2458,7 +2458,7 @@ async function loadPlanData(dateInput) {
     planState.areas = areas;
     planState.areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
     planState.pool = pool;
-    planState.selected = suggestTasksForPlan(pool);
+    planState.selected = suggestTasksForPlan(pool, planState.targetDate);
 
     await loadMonthTasksAndRender(dateInput);
     renderPlanTaskList();
@@ -2561,7 +2561,7 @@ async function renderPlanView() {
   await loadPlanData(dateInput);
 
   document.getElementById("refresh-suggestion").addEventListener("click", () => {
-    planState.selected = suggestTasksForPlan(planState.pool);
+    planState.selected = suggestTasksForPlan(planState.pool, planState.targetDate);
     renderPlanTaskList();
     renderAddTaskSelect();
   });
@@ -2618,6 +2618,10 @@ function renderPlanTaskList() {
   const list = document.getElementById("suggested-task-list");
   const emptyState = document.getElementById("suggested-empty-state");
   const areaColorById = planState.areaColorById;
+
+  const usedMinutes = planState.selected.reduce((sum, t) => sum + (t.effort || 0), 0);
+  document.getElementById("plan-budget").textContent =
+    `${usedMinutes} / ${budgetForDate(planState.targetDate)} Min`;
 
   list.innerHTML = "";
   if (planState.selected.length === 0) {
