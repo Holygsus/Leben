@@ -603,10 +603,6 @@ function buildPinIcon() {
   return buildInlineIcon(`<path d="M12 2l2 6 6 2-5 4 1 7-6-4-6 4 1-7-5-4 6-2z"/>`);
 }
 
-function buildGymIcon() {
-  return buildInlineIcon(`<path d="M6 8v8M18 8v8M2 12h4M18 12h4M9 12h6"/>`);
-}
-
 function buildEditIcon() {
   return buildInlineIcon(`<path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/>`);
 }
@@ -754,8 +750,36 @@ function updateNavBadge(count) {
   badge.textContent = String(count);
 }
 
+// Nur Heute/Übersicht bleiben direkt in der Nav-Leiste sichtbar — die übrigen Routen wandern ins
+// "Mehr"-Menü (siehe wireNavMoreMenu), sonst wirkt die Leiste mit sechs Einträgen nebeneinander
+// überladen. MORE_ROUTES bestimmt sowohl den Menüinhalt als auch, wann der "Mehr"-Button selbst
+// als aktiv markiert wird (aktuelle Route liegt hinter dem Menü statt direkt in der Leiste).
+const MORE_ROUTES = [
+  {
+    route: "plan",
+    label: "Plan",
+    icon: `<path d="M7 3v3M17 3v3M4 9h16M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z"/>`,
+  },
+  {
+    route: "habits",
+    label: "Habits",
+    icon: `<path d="M9 11l3 3L22 4M2 12a10 10 0 1 0 10-10"/>`,
+  },
+  {
+    route: "finance",
+    label: "Finanzen",
+    icon: `<path d="M3 7h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1h13M16 13h2"/>`,
+  },
+  {
+    route: "fernsehprogramm",
+    label: "Fernsehprogramm",
+    icon: `<path d="M3 5h18v12H3z"/><path d="M8 21h8M12 17v4M8 2l3 3M16 2l-3 3"/>`,
+  },
+];
+
 function renderShell() {
   const route = currentRoute();
+  const isMoreRoute = MORE_ROUTES.some((r) => r.route === route);
   // Offenes Detail-Modal schließen — es liegt außerhalb von #app und würde sonst
   // beim Ansichtswechsel über der neuen Ansicht hängen bleiben.
   if (closeActiveModal) closeActiveModal();
@@ -769,22 +793,21 @@ function renderShell() {
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
         <span class="nav-label">Übersicht</span>
       </a>
-      <a href="#/plan" class="nav-link${route === "plan" ? " is-active" : ""}">
-        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M7 3v3M17 3v3M4 9h16M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z"/></svg>
-        <span class="nav-label">Plan</span>
-      </a>
-      <a href="#/habits" class="nav-link${route === "habits" ? " is-active" : ""}">
-        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4M2 12a10 10 0 1 0 10-10"/></svg>
-        <span class="nav-label">Habits</span>
-      </a>
-      <a href="#/finance" class="nav-link${route === "finance" ? " is-active" : ""}">
-        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 7h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1h13M16 13h2"/></svg>
-        <span class="nav-label">Finanzen</span>
-      </a>
-      <a href="#/fernsehprogramm" class="nav-link${route === "fernsehprogramm" ? " is-active" : ""}">
-        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 5h18v12H3z"/><path d="M8 21h8M12 17v4M8 2l3 3M16 2l-3 3"/></svg>
-        <span class="nav-label">Fernsehprogramm</span>
-      </a>
+      <div class="nav-more">
+        <button type="button" class="nav-link nav-more-toggle${isMoreRoute ? " is-active" : ""}" id="nav-more-toggle" aria-haspopup="true" aria-expanded="false">
+          <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+          <span class="nav-label">Mehr</span>
+        </button>
+        <div class="nav-more-menu" id="nav-more-menu" hidden>
+          ${MORE_ROUTES.map(
+            (r) => `
+            <a href="#/${r.route}" class="nav-link${route === r.route ? " is-active" : ""}">
+              <svg class="nav-icon" viewBox="0 0 24 24">${r.icon}</svg>
+              <span class="nav-label">${r.label}</span>
+            </a>`
+          ).join("")}
+        </div>
+      </div>
     </nav>
     <div id="view-content"></div>
   `;
@@ -799,7 +822,36 @@ function renderShell() {
     });
     if (proceed) location.hash = link.getAttribute("href");
   });
+  wireNavMoreMenu();
   routes[route]();
+}
+
+// "Mehr"-Menü: Klick auf den Button öffnet/schließt ein Dropdown mit den restlichen Routen, Klick
+// außerhalb oder auf einen der Menü-Links schließt es wieder. Der Outside-Click-Listener wird nur
+// registriert, solange das Menü tatsächlich offen ist (statt dauerhaft mitzulaufen) — sonst würde
+// irgendein beliebiger erster Klick nach dem Rendern (z.B. auf eine Aufgabe) den Mechanismus schon
+// verbrauchen, bevor das Menü je geöffnet wurde.
+function wireNavMoreMenu() {
+  const toggle = document.getElementById("nav-more-toggle");
+  const menu = document.getElementById("nav-more-menu");
+
+  const closeMenu = () => {
+    menu.hidden = true;
+    toggle.setAttribute("aria-expanded", "false");
+    document.removeEventListener("click", closeMenu);
+  };
+
+  toggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (menu.hidden) {
+      menu.hidden = false;
+      toggle.setAttribute("aria-expanded", "true");
+      document.addEventListener("click", closeMenu, { once: true });
+    } else {
+      closeMenu();
+    }
+  });
+  menu.addEventListener("click", closeMenu);
 }
 
 // Prüft auf offene, unbestätigte Eingaben in der Übersicht (Inline-Anlegen-Formulare) —
@@ -861,7 +913,6 @@ async function renderTodayView() {
   const tasks = todayViewState.allTasks.filter((t) => t.planned_date === today);
 
   renderGreeting();
-  renderGymIndicator();
   renderBuyReadyAlert(wishlistItems, potBalance);
   renderTodayTaskSection();
   renderQuickWin(todayViewState.allTasks, tasks, today);
@@ -869,9 +920,9 @@ async function renderTodayView() {
 }
 
 // Rendert nur den Aufgaben-Teil (Termine-Widget, Task-Liste inkl. Fortschrittsring) aus dem
-// todayViewState-Cache neu — ohne views/today.html erneut zu fetchen oder Begrüßung/Gym-Indikator/
-// Schnellerfassung neu zu verdrahten. Gemeinsame Basis für den reinen UI-Re-Render (Auf-/Zuklappen)
-// und den daten-refreshenden Re-Render (nach Statusänderung/Unteraufgabe).
+// todayViewState-Cache neu — ohne views/today.html erneut zu fetchen oder Begrüßung/Schnellerfassung
+// neu zu verdrahten. Gemeinsame Basis für den reinen UI-Re-Render (Auf-/Zuklappen) und den
+// daten-refreshenden Re-Render (nach Statusänderung/Unteraufgabe).
 function renderTodayTaskSection() {
   // Kann auch aus einem verzögerten Callback feuern (z.B. Klick auf "Rückgängig" in einem
   // Undo-Toast, bis zu 6s nach dem Auslösen) — falls der Nutzer inzwischen die Ansicht gewechselt
@@ -911,17 +962,6 @@ function renderGreeting() {
     day: "numeric",
     month: "long",
   });
-}
-
-function renderGymIndicator() {
-  const day = new Date().getDay();
-  const el = document.getElementById("gym-indicator");
-  const isGymDay = [1, 3, 5].includes(day);
-  el.hidden = !isGymDay;
-  if (isGymDay) {
-    el.innerHTML = "";
-    el.append(buildGymIcon(), " Heute ist Gym-Tag");
-  }
 }
 
 // tasks = für heute geplante Aufgaben (bestimmen die Fortschrittsanzeige), overdueTasks = nicht
@@ -1253,9 +1293,13 @@ function compareByUrgency(a, b) {
 
 // Priorität soll nur in Heute etwas bewirken — dort aber ohne eigenes Icon/Badge: die
 // höchstpriorisierte Aufgabe steht einfach ganz oben. Innerhalb derselben Priorität bleibt die
-// bisherige Dringlichkeits-Reihenfolge erhalten (compareByUrgency als Tiebreaker).
+// bisherige Dringlichkeits-Reihenfolge erhalten (compareByUrgency als Tiebreaker). Erledigte
+// Aufgaben rutschen zuerst gebündelt ans Ende, statt an ihrer Prioritäts-Position stehen zu bleiben
+// — sonst wirkt die Liste bei jedem erneuten Aufruf von Heute wie "durcheinandergewürfelt".
 const PRIORITY_RANK = { high: 2, medium: 1, low: 0 };
 function compareByPriority(a, b) {
+  const doneDiff = (a.status === "done" ? 1 : 0) - (b.status === "done" ? 1 : 0);
+  if (doneDiff !== 0) return doneDiff;
   const diff = (PRIORITY_RANK[b.priority] ?? 1) - (PRIORITY_RANK[a.priority] ?? 1);
   return diff !== 0 ? diff : compareByUrgency(a, b);
 }
@@ -1322,26 +1366,36 @@ function wireQuickCapture(areas, onAdded) {
   });
   cancelBtn.addEventListener("click", closeForm);
 
+  const submitBtn = form.querySelector('button[type="submit"]');
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    // Verhindert Doppel-Anlagen bei schnellem Doppelklick/Doppel-Enter, solange der vorherige
+    // Request noch läuft (der Titel bliebe sonst bis zum Response im Feld stehen und würde ein
+    // zweites Mal abgeschickt).
+    if (submitBtn.disabled) return;
     const title = input.value.trim();
     if (!title) return;
     const areaId = areaSelect.value || null;
-    await withErrorToast(async () => {
-      await createTask({
-        title,
-        areaId,
-        effort: selectedEffort,
-        priority: selectedPriority,
-        isBrainstorm: !areaId,
-        plannedDate: todayISO(),
-        status: "planned",
+    submitBtn.disabled = true;
+    try {
+      await withErrorToast(async () => {
+        await createTask({
+          title,
+          areaId,
+          effort: selectedEffort,
+          priority: selectedPriority,
+          isBrainstorm: !areaId,
+          plannedDate: todayISO(),
+          status: "planned",
+        });
+        const areaName = areaId ? areas.find((a) => a.id === areaId)?.name : null;
+        showToast(areaName ? `„${title}" zu ${areaName} hinzugefügt.` : `„${title}" hinzugefügt.`);
+        closeForm();
+        onAdded();
       });
-      const areaName = areaId ? areas.find((a) => a.id === areaId)?.name : null;
-      showToast(areaName ? `„${title}" zu ${areaName} hinzugefügt.` : `„${title}" hinzugefügt.`);
-      closeForm();
-      onAdded();
-    });
+    } finally {
+      submitBtn.disabled = false;
+    }
   });
 }
 
@@ -1764,16 +1818,24 @@ function buildInlineAddForm(areaId, parentTaskId) {
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    // Verhindert Doppel-Anlagen bei schnellem Doppelklick/Doppel-Enter, solange der vorherige
+    // Request noch läuft.
+    if (submitBtn.disabled) return;
     const title = nameInput.value.trim();
     if (!title) return;
     const plannedDate = dateChips.getPlannedDate();
-    await withErrorToast(async () => {
-      await createTask({ title, areaId, parentTaskId, plannedDate, status: plannedDate ? "planned" : "open" });
-      overviewState.addFormTarget = null;
-      overviewState.collapsedAreas.delete(areaId);
-      if (parentTaskId) overviewState.collapsedNodes.delete(parentTaskId);
-      reloadOverview();
-    });
+    submitBtn.disabled = true;
+    try {
+      await withErrorToast(async () => {
+        await createTask({ title, areaId, parentTaskId, plannedDate, status: plannedDate ? "planned" : "open" });
+        overviewState.addFormTarget = null;
+        overviewState.collapsedAreas.delete(areaId);
+        if (parentTaskId) overviewState.collapsedNodes.delete(parentTaskId);
+        reloadOverview();
+      });
+    } finally {
+      submitBtn.disabled = false;
+    }
   });
 
   // Nur fokussieren, wenn das Formular gerade eben geöffnet wurde — nicht bei jedem Rebuild durch
@@ -1790,7 +1852,11 @@ function buildInlineAddForm(areaId, parentTaskId) {
 function renderNoAreaSection() {
   const panel = document.getElementById("no-area-panel");
   const list = document.getElementById("brainstorm-list");
-  const noArea = overviewState.tasks.filter((t) => !t.area_id && taskPassesFilter(t)).sort(compareByUrgency);
+  // Watchlist-Einträge haben ebenfalls keine area_id, gehören aber ins Fernsehprogramm statt in die
+  // "Ohne Bereich"-Liste hier — sonst tauchen Serien/Filme fälschlich in der Übersicht auf.
+  const noArea = overviewState.tasks
+    .filter((t) => !t.area_id && !isWatchlistTask(t) && taskPassesFilter(t))
+    .sort(compareByUrgency);
 
   // Auswahl auf noch sichtbare Aufgaben begrenzen (z.B. nach Filterwechsel oder Zuweisung).
   const visibleIds = new Set(noArea.map((t) => t.id));
@@ -3448,8 +3514,10 @@ function wireTransactionQuickCapture() {
   const toggleBtn = document.getElementById("tx-quick-toggle");
   const cancelBtn = document.getElementById("tx-quick-cancel");
   const amountInput = document.getElementById("tx-quick-amount");
+  const directionGroup = document.getElementById("tx-quick-direction");
   const potGroup = document.getElementById("tx-quick-pot");
   const noteInput = document.getElementById("tx-quick-note");
+  const submitBtn = form.querySelector('button[type="submit"]');
 
   let selectedPot = "freiheit";
   potGroup.querySelectorAll(".pot-chip").forEach((chip) => {
@@ -3459,11 +3527,29 @@ function wireTransactionQuickCapture() {
     });
   });
 
+  // Töpfe ordnen Ausgaben einem Verwendungszweck zu — bei einer Einnahme ergibt das fachlich
+  // keinen Sinn, daher wird die Topf-Auswahl dafür ausgeblendet statt nur deaktiviert.
+  let selectedDirection = "expense";
+  directionGroup.querySelectorAll(".priority-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      selectedDirection = chip.dataset.direction;
+      directionGroup
+        .querySelectorAll(".priority-chip")
+        .forEach((c) => (c.dataset.active = String(c.dataset.direction === selectedDirection)));
+      potGroup.hidden = selectedDirection === "income";
+    });
+  });
+
   const closeForm = () => {
     form.hidden = true;
     form.reset();
     selectedPot = "freiheit";
     potGroup.querySelectorAll(".pot-chip").forEach((c) => (c.dataset.active = String(c.dataset.pot === "freiheit")));
+    selectedDirection = "expense";
+    directionGroup
+      .querySelectorAll(".priority-chip")
+      .forEach((c) => (c.dataset.active = String(c.dataset.direction === "expense")));
+    potGroup.hidden = false;
   };
 
   toggleBtn.addEventListener("click", () => {
@@ -3478,14 +3564,25 @@ function wireTransactionQuickCapture() {
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (submitBtn.disabled) return;
     const amount = Number(amountInput.value);
     if (!amount) return;
-    await withErrorToast(async () => {
-      await createTransaction({ amount, pot: selectedPot, note: noteInput.value.trim() || null });
-      showToast(`${formatEuro(amount)} erfasst.`);
-      closeForm();
-      await reloadFinance();
-    });
+    submitBtn.disabled = true;
+    try {
+      await withErrorToast(async () => {
+        await createTransaction({
+          amount,
+          direction: selectedDirection,
+          pot: selectedDirection === "income" ? null : selectedPot,
+          note: noteInput.value.trim() || null,
+        });
+        showToast(`${formatEuro(amount)} erfasst.`);
+        closeForm();
+        await reloadFinance();
+      });
+    } finally {
+      submitBtn.disabled = false;
+    }
   });
 }
 
@@ -3521,6 +3618,17 @@ async function renderFernsehprogrammView() {
   renderWatchlistOverview();
   wireWatchlistFilters();
   wireWatchlistQuickAddForm();
+  wireWatchlistPanelToggle();
+}
+
+// Watchlist-Übersicht ist standardmäßig eingeklappt — beim Öffnen des Tabs soll nur "Diese Woche"
+// (das eigentliche Fernsehprogramm) direkt sichtbar sein, die volle Watchlist bleibt über den
+// Toggle erreichbar (gleiches Muster wie #fixed-costs-toggle in Finanzen).
+function wireWatchlistPanelToggle() {
+  const panel = document.getElementById("watchlist-panel");
+  document.getElementById("watchlist-toggle").addEventListener("click", () => {
+    panel.hidden = !panel.hidden;
+  });
 }
 
 function renderWatchlistWeek() {

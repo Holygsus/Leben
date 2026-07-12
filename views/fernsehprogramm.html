@@ -27,22 +27,27 @@
 </section>
 
 <section class="panel">
-  <h2>Watchlist</h2>
-  <section class="filter-bar">
-    <select id="watchlist-filter-type" class="select" aria-label="Nach Typ filtern">
-      <option value="">Alle Typen</option>
-      <option value="serie">Serie</option>
-      <option value="anime">Anime</option>
-      <option value="film">Film</option>
-    </select>
-    <input type="text" class="input" id="watchlist-filter-genre" placeholder="Genre" autocomplete="off" />
-    <select id="watchlist-filter-rating" class="select" aria-label="Nach Bewertung filtern">
-      <option value="">Alle Bewertungen</option>
-      <option value="0.5">Ø ≥ 50 %</option>
-      <option value="0.75">Ø ≥ 75 %</option>
-    </select>
-  </section>
-  <ul class="events-widget-list" id="watchlist-overview-list"></ul>
-  <button type="button" class="events-widget-more" id="watchlist-overview-more" hidden></button>
-  <p class="empty-state" id="watchlist-overview-empty-state" hidden>Noch keine Watchlist-Einträge.</p>
+  <div class="panel-header">
+    <h2>Watchlist</h2>
+    <button type="button" class="icon-btn" id="watchlist-toggle" aria-label="Watchlist anzeigen">⚙</button>
+  </div>
+  <div id="watchlist-panel" hidden>
+    <section class="filter-bar">
+      <select id="watchlist-filter-type" class="select" aria-label="Nach Typ filtern">
+        <option value="">Alle Typen</option>
+        <option value="serie">Serie</option>
+        <option value="anime">Anime</option>
+        <option value="film">Film</option>
+      </select>
+      <input type="text" class="input" id="watchlist-filter-genre" placeholder="Genre" autocomplete="off" />
+      <select id="watchlist-filter-rating" class="select" aria-label="Nach Bewertung filtern">
+        <option value="">Alle Bewertungen</option>
+        <option value="0.5">Ø ≥ 50 %</option>
+        <option value="0.75">Ø ≥ 75 %</option>
+      </select>
+    </section>
+    <ul class="events-widget-list" id="watchlist-overview-list"></ul>
+    <button type="button" class="events-widget-more" id="watchlist-overview-more" hidden></button>
+    <p class="empty-state" id="watchlist-overview-empty-state" hidden>Noch keine Watchlist-Einträge.</p>
+  </div>
 </section>
