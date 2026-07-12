@@ -38,6 +38,7 @@ import {
   listSavingsPotEntries,
   filterBuyReady,
 } from "./wishlist.js";
+import { WEEKDAY_CODES, isHabitTask, autoplanDueHabits } from "./habits.js";
 
 const app = document.getElementById("app");
 
@@ -45,8 +46,11 @@ const routes = {
   today: renderTodayView,
   overview: renderOverviewView,
   plan: renderPlanView,
+  habits: renderHabitsView,
   finance: renderFinanceView,
 };
+
+const WEEKDAY_LABEL = { mon: "Mo", tue: "Di", wed: "Mi", thu: "Do", fri: "Fr", sat: "Sa", sun: "So" };
 
 const FILTER_STORAGE_KEY = "leben-os:overview-filters";
 
@@ -707,6 +711,10 @@ function renderShell() {
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M7 3v3M17 3v3M4 9h16M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z"/></svg>
         <span class="nav-label">Plan</span>
       </a>
+      <a href="#/habits" class="nav-link${route === "habits" ? " is-active" : ""}">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4M2 12a10 10 0 1 0 10-10"/></svg>
+        <span class="nav-label">Habits</span>
+      </a>
       <a href="#/finance" class="nav-link${route === "finance" ? " is-active" : ""}">
         <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 7h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1h13M16 13h2"/></svg>
         <span class="nav-label">Finanzen</span>
@@ -766,16 +774,23 @@ async function renderTodayView() {
     listWishlistItems(),
     getSavingsPotBalance(),
   ]);
-  todayViewState.allTasks = allTasks;
   todayViewState.areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
   const today = todayISO();
-  const tasks = allTasks.filter((t) => t.planned_date === today);
+
+  // Fällige Habits vor dem Rendern automatisch einplanen (planned_date/status setzen) — sonst
+  // würde ein heute fälliges Habit erst nach einem Reload in der Heute-Ansicht auftauchen. Bei
+  // Treffern allTasks lokal patchen statt neu zu fetchen (spart einen Roundtrip).
+  const duePlannedIds = new Set(await autoplanDueHabits(allTasks, today));
+  todayViewState.allTasks = duePlannedIds.size
+    ? allTasks.map((t) => (duePlannedIds.has(t.id) ? { ...t, planned_date: today, status: "planned" } : t))
+    : allTasks;
+  const tasks = todayViewState.allTasks.filter((t) => t.planned_date === today);
 
   renderGreeting();
   renderGymIndicator();
   renderBuyReadyAlert(wishlistItems, potBalance);
   renderTodayTaskSection();
-  renderQuickWin(allTasks, tasks, today);
+  renderQuickWin(todayViewState.allTasks, tasks, today);
   wireQuickCapture(areas, renderTodayView);
 }
 
@@ -2001,6 +2016,7 @@ function renderTaskDetailView(card, task, allTasks, children, backButtonHtml, cl
   if (task.is_event && task.planned_date) badges.push(`<span class="badge badge-event">${formatShortDate(task.planned_date)}</span>`);
   else if (task.planned_date) badges.push(`<span class="badge badge-date">${formatShortDate(task.planned_date)}</span>`);
   if (isTaskOverdue(task)) badges.push(`<span class="badge badge-overdue">Überfällig</span>`);
+  if (isHabitTask(task)) badges.push(`<span class="badge badge-habit">Habit</span>`);
 
   card.innerHTML = `
     ${backButtonHtml}
@@ -2175,6 +2191,10 @@ function renderTaskDetailEdit(card, task, allTasks, parentTask, children, backBu
         <input type="checkbox" id="td-is-event" ${task.is_event ? "checked" : ""} />
         Ist ein Termin
       </label>
+      <label class="checkbox-label">
+        <input type="checkbox" id="td-is-habit" ${isHabitTask(task) ? "checked" : ""} />
+        Ist ein Habit
+      </label>
     </div>
     <label class="modal-label">Plandatum${isTaskOverdue(task) ? ` <span class="badge badge-overdue">Überfällig</span>` : ""}
       <div class="date-chips" id="td-date-chips" role="group" aria-label="Plandatum">
@@ -2241,6 +2261,7 @@ function renderTaskDetailEdit(card, task, allTasks, parentTask, children, backBu
         is_brainstorm: !areaId,
         priority: document.getElementById("td-priority").value,
         is_event: document.getElementById("td-is-event").checked,
+        habit_weekdays: document.getElementById("td-is-habit").checked ? task.habit_weekdays ?? [] : null,
       });
       if (areaId !== task.area_id) await cascadeAreaChange(task.id, areaId, allTasks);
       close();
@@ -2702,6 +2723,58 @@ const financeState = {
   potBalance: 0,
   txFilterPot: "",
 };
+
+/* ---------- Habits ---------- */
+
+const habitsViewState = { allTasks: [] };
+
+async function renderHabitsView() {
+  const container = document.getElementById("view-content");
+  const res = await fetch("views/habits.html");
+  container.innerHTML = await res.text();
+  habitsViewState.allTasks = await listTasks();
+  renderHabitList();
+}
+
+// Rendert die Liste der Habit-Aufgaben mit ihrer Mo-So-Chip-Reihe und verdrahtet den Klick-
+// Handler einmal per Delegation auf #habit-list, analog td-subtask-list im Detail-Modal.
+function renderHabitList() {
+  const habitTasks = habitsViewState.allTasks.filter(isHabitTask);
+  const list = document.getElementById("habit-list");
+  const empty = document.getElementById("habit-empty-state");
+  empty.hidden = habitTasks.length > 0;
+
+  list.innerHTML = habitTasks
+    .map(
+      (t) => `
+      <li class="task-item" data-habit-id="${t.id}">
+        <span class="task-title">${escapeHtml(t.title)}</span>
+        <div class="weekday-chips" role="group" aria-label="Wochentage">
+          ${WEEKDAY_CODES.map(
+            (code) =>
+              `<button type="button" class="weekday-chip" data-day="${code}" data-active="${t.habit_weekdays.includes(code)}">${WEEKDAY_LABEL[code]}</button>`
+          ).join("")}
+        </div>
+      </li>`
+    )
+    .join("");
+
+  list.onclick = async (e) => {
+    const chip = e.target.closest(".weekday-chip");
+    if (!chip) return;
+    const li = chip.closest("[data-habit-id]");
+    const task = habitsViewState.allTasks.find((t) => t.id === li.dataset.habitId);
+    const day = chip.dataset.day;
+    const nextDays = task.habit_weekdays.includes(day)
+      ? task.habit_weekdays.filter((d) => d !== day)
+      : [...task.habit_weekdays, day];
+    await withErrorToast(async () => {
+      await updateTask(task.id, { habit_weekdays: nextDays });
+      task.habit_weekdays = nextDays;
+      chip.dataset.active = String(nextDays.includes(day));
+    });
+  };
+}
 
 async function renderFinanceView() {
   const container = document.getElementById("view-content");

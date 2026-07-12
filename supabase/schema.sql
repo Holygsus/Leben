@@ -33,6 +33,9 @@ create table if not exists tasks (
   is_pinned boolean default false,
   priority text check (priority in ('low', 'medium', 'high')) default 'medium',
   is_event boolean default false,
+  -- null = kein Habit; [] = Habit-Flag gesetzt, noch keine Wochentage gewählt; nicht-leeres
+  -- Array = aktive Wochentags-Zuordnung ('mon'..'sun'), siehe js/habits.js
+  habit_weekdays text[],
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );

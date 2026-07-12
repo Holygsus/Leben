@@ -599,6 +599,29 @@ body {
   border-color: var(--pot-color, var(--color-accent));
 }
 
+.weekday-chips {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.weekday-chip {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.weekday-chip[data-active="true"] {
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+  border-color: var(--color-accent);
+}
+
 .date-chips {
   display: flex;
   flex-wrap: wrap;
@@ -1469,6 +1492,11 @@ body {
 .badge-event {
   background: color-mix(in srgb, var(--color-accent) 18%, transparent);
   color: var(--color-accent);
+}
+
+.badge-habit {
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
 }
 
 .modal-subtasks {

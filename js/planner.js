@@ -21,7 +21,9 @@ function shuffle(items) {
 // (Unteraufgaben werden beim Einplanen automatisch mitkaskadiert, siehe planTaskCascade),
 // daher werden hier nur Top-Level-Aufgaben als Kandidaten betrachtet.
 export function suggestTasksForPlan(openTasks) {
-  const pool = openTasks.filter((t) => t.status === "open" && !t.parent_task_id);
+  // Habit-Aufgaben (habit_weekdays gesetzt) werden bereits automatisch über den Habit-Tab
+  // eingeplant und sollen deshalb nicht zusätzlich als manueller Plan-Vorschlag auftauchen.
+  const pool = openTasks.filter((t) => t.status === "open" && !t.parent_task_id && t.habit_weekdays == null);
 
   // Zufällig mischen und danach *stabil* nach Priorität sortieren, damit hohe Priorität
   // vorgezogen wird, aber die Zufallsreihenfolge innerhalb derselben Priorität erhalten bleibt.
