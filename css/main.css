@@ -191,6 +191,10 @@ body {
   z-index: 10;
 }
 
+.nav-more-menu[hidden] {
+  display: none;
+}
+
 .nav-more-menu .nav-link {
   flex-direction: row;
   justify-content: flex-start;
