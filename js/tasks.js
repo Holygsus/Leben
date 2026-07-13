@@ -1,5 +1,17 @@
 import { supabase } from "./supabase.js";
 import { getCurrentUserId } from "./auth.js";
+import { isHabitTask } from "./habits.js";
+
+// "T00:00:00" + lokale Getter statt toISOString(): siehe js/watchlist.js formatIsoDate für die
+// Begründung (toISOString() rechnet nach UTC zurück und kann in Zeitzonen östlich von UTC auf den
+// falschen Tag rollen).
+function localTodayIso() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 export async function listTasks({
   areaId,
@@ -133,11 +145,34 @@ export async function cascadeAreaChange(rootTaskId, newAreaId, allTasks) {
   if (error) throw error;
 }
 
-// Markiert eine Aufgabe und alle ihre Unteraufgaben als erledigt.
+// Markiert eine Aufgabe und alle ihre Unteraufgaben als erledigt. Loggt zusätzlich einen
+// Streak-Eintrag (habit_completions), falls rootTask selbst ein Habit ist, oder falls rootTask ein
+// Pool-Kind einer Habit-Mutter ist (Aufgaben-Pool-Modus, siehe js/habits.js) — die Streak gehört
+// dann der Mutter, nicht dem einzelnen Pool-Kind. Upsert mit ignoreDuplicates auf (task_id, date):
+// mehrfaches Erledigen am selben Tag ist ein No-op statt eines Fehlers.
 export async function completeTaskCascade(rootTask, allTasks) {
   const ids = [rootTask.id, ...collectDescendantIds(allTasks, rootTask.id)];
   const { error } = await supabase.from("tasks").update({ status: "done" }).in("id", ids);
   if (error) throw error;
+
+  let habitTaskId = null;
+  if (isHabitTask(rootTask)) {
+    habitTaskId = rootTask.id;
+  } else if (rootTask.parent_task_id) {
+    const parent = allTasks.find((t) => t.id === rootTask.parent_task_id);
+    if (parent && isHabitTask(parent)) habitTaskId = parent.id;
+  }
+
+  if (habitTaskId) {
+    const userId = await getCurrentUserId();
+    const { error: logError } = await supabase
+      .from("habit_completions")
+      .upsert(
+        { user_id: userId, task_id: habitTaskId, date: localTodayIso() },
+        { onConflict: "task_id,date", ignoreDuplicates: true }
+      );
+    if (logError) throw logError;
+  }
 }
 
 // Macht das Erledigen einer Aufgabe rückgängig: sie selbst und alle Unteraufgaben werden

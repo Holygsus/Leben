@@ -38,7 +38,7 @@ import {
   listSavingsPotEntries,
   filterBuyReady,
 } from "./wishlist.js";
-import { WEEKDAY_CODES, isHabitTask, autoplanDueHabits, weekdayCodeFromIso } from "./habits.js";
+import { WEEKDAY_CODES, isHabitTask, autoplanDueHabits, weekdayCodeFromIso, RECURRENCE_LABEL } from "./habits.js";
 import {
   listWatchlistItems,
   createWatchlistItem,
@@ -2903,6 +2903,13 @@ function buildHabitChips(task, todayCode) {
   }).join("");
 }
 
+function buildRecurrenceOptions(task) {
+  const current = task.habit_recurrence || "weekly";
+  return Object.entries(RECURRENCE_LABEL)
+    .map(([value, label]) => `<option value="${value}"${current === value ? " selected" : ""}>${label}</option>`)
+    .join("");
+}
+
 // Rendert die Liste der Habit-Aufgaben. Jede Zeile startet im Kompakt-Zustand (Punktreihe) und
 // klappt per Tap auf die editierbaren Mo-So-Chips auf — analog td-subtask-list im Detail-Modal
 // nutzt auch das hier nur einen delegierten Klick-Handler auf #habit-list statt pro Zeile.
@@ -2933,8 +2940,14 @@ function renderHabitList() {
             <span class="task-title">${escapeHtml(t.title)}<span class="habit-freq">${freqLabel}</span></span>
             ${buildHabitDotRow(t, todayCode)}
           </button>
-          <div class="weekday-chips" role="group" aria-label="Wochentage" hidden>
-            ${buildHabitChips(t, todayCode)}
+          <div class="habit-expanded" hidden>
+            <div class="weekday-chips" role="group" aria-label="Wochentage">
+              ${buildHabitChips(t, todayCode)}
+            </div>
+            <label class="modal-label habit-recurrence-row">
+              Wiederholung
+              <select class="select habit-recurrence-select" data-habit-recurrence>${buildRecurrenceOptions(t)}</select>
+            </label>
           </div>
         </div>
       </li>`;
@@ -2966,8 +2979,22 @@ function renderHabitList() {
       const expanded = li.dataset.expanded === "true";
       li.dataset.expanded = String(!expanded);
       toggle.setAttribute("aria-expanded", String(!expanded));
-      li.querySelector(".weekday-chips").hidden = expanded;
+      li.querySelector(".habit-expanded").hidden = expanded;
     }
+  };
+
+  list.onchange = async (e) => {
+    const select = e.target.closest("[data-habit-recurrence]");
+    if (!select) return;
+    const li = select.closest("[data-habit-id]");
+    const task = habitsViewState.allTasks.find((t) => t.id === li.dataset.habitId);
+    const nextRecurrence = select.value;
+    await withErrorToast(async () => {
+      // habit_last_due_date bewusst NICHT mitschicken — ein Intervall-Wechsel allein darf den
+      // Anker nicht zurücksetzen (siehe isRecurrenceDue in habits.js).
+      await updateTask(task.id, { habit_recurrence: nextRecurrence });
+      task.habit_recurrence = nextRecurrence;
+    });
   };
 }
 

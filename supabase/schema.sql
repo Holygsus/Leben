@@ -64,6 +64,12 @@ create table if not exists tasks (
   -- null = kein Habit; [] = Habit-Flag gesetzt, noch keine Wochentage gewählt; nicht-leeres
   -- Array = aktive Wochentags-Zuordnung ('mon'..'sun'), siehe js/habits.js
   habit_weekdays text[],
+  -- 'weekly' (Default) = jede Woche an den gewählten habit_weekdays fällig; 'biweekly'/'monthly'
+  -- gaten zusätzlich über habit_last_due_date, siehe isRecurrenceDue() in js/habits.js.
+  habit_recurrence text default 'weekly' check (habit_recurrence in ('weekly', 'biweekly', 'monthly')),
+  -- Letzter Tag, an dem dieses Habit tatsächlich fällig wurde (Anker für die Intervall-Berechnung
+  -- oben) — null = noch nie fällig geworden. Wird nur von autoplanDueHabits() geschrieben.
+  habit_last_due_date date,
   -- Brücke zum Watchlist/Fernsehprogramm-Feature: eine Zeile mit gesetztem watchlist_item_id IST
   -- der Termin im Fernsehprogramm (planned_date = geplanter Tag), siehe js/watchlist.js. effort
   -- bleibt bei solchen Zeilen immer NULL — der effort-Check (5/10/30/60) passt nicht zu den
@@ -213,6 +219,19 @@ create table if not exists watchlist_viewing_log (
 
 create index if not exists watchlist_viewing_log_item_idx on watchlist_viewing_log (watchlist_item_id);
 
+-- Habit-Streak-Log: eine Zeile pro Tag, an dem eine Habit-Mutter (direkt oder über ein Pool-Kind)
+-- erledigt wurde. unique(task_id, date) macht das Logging in completeTaskCascade() idempotent.
+create table if not exists habit_completions (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users not null,
+  task_id uuid references tasks(id) on delete cascade not null,
+  date date not null,
+  created_at timestamptz default now(),
+  unique (task_id, date)
+);
+
+create index if not exists habit_completions_task_id_idx on habit_completions (task_id);
+
 -- Row Level Security
 alter table areas enable row level security;
 alter table tasks enable row level security;
@@ -228,6 +247,7 @@ alter table wishlist_items enable row level security;
 alter table savings_pot_entries enable row level security;
 alter table watchlist_items enable row level security;
 alter table watchlist_viewing_log enable row level security;
+alter table habit_completions enable row level security;
 
 drop policy if exists "areas: own data" on areas;
 create policy "areas: own data" on areas for all using (auth.uid() = user_id);
@@ -270,6 +290,9 @@ create policy "watchlist_items: own data" on watchlist_items for all using (auth
 
 drop policy if exists "watchlist_viewing_log: own data" on watchlist_viewing_log;
 create policy "watchlist_viewing_log: own data" on watchlist_viewing_log for all using (auth.uid() = user_id);
+
+drop policy if exists "habit_completions: own data" on habit_completions;
+create policy "habit_completions: own data" on habit_completions for all using (auth.uid() = user_id);
 
 -- Auto-Timestamp für tasks.updated_at (und weitere Tabellen mit updated_at)
 create or replace function update_updated_at()

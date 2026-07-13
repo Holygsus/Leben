@@ -704,7 +704,11 @@ body {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 35%, transparent);
 }
 
-.habit-body .weekday-chips {
+.habit-body .habit-expanded {
+  margin-top: var(--space-2);
+}
+
+.habit-recurrence-row {
   margin-top: var(--space-2);
 }
 
