@@ -27,10 +27,6 @@ export function budgetForDate(targetDateIso) {
   return isWeekendIso(targetDateIso) ? BUDGET_MINUTES.weekend : BUDGET_MINUTES.weekday;
 }
 
-function round5(minutes) {
-  return Math.round(minutes / 5) * 5;
-}
-
 // Mutteraufgabe + Unteraufgaben zählen als eine Gruppe/ein Slot im Verteilungs-Algorithmus
 // (Unteraufgaben werden beim Einplanen automatisch mitkaskadiert, siehe planTaskCascade),
 // daher werden hier nur Top-Level-Aufgaben als Kandidaten betrachtet.
@@ -53,7 +49,10 @@ export function suggestTasksForPlan(openTasks, targetDateIso) {
     list.sort(byPriorityThenAge);
   }
 
-  const areaCap = byArea.size > 0 ? round5(totalBudget / byArea.size) : 0;
+  // Kein round5 mehr: eine gerundete Bereichs-Cap-Schwelle verschenkt Budget systematisch (z. B. 10
+  // Bereiche à 120 Min → round5(12)=10, macht 20 Min garantiert ungenutzt), unabhängig von der
+  // Aufgabenlage. Die exakte Division genügt, da areaCap nur als Vergleichsschwelle dient.
+  const areaCap = byArea.size > 0 ? totalBudget / byArea.size : 0;
 
   const selected = [];
   const areaMinutes = new Map();

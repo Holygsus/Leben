@@ -59,7 +59,8 @@ export function findHabitsDueToday(allTasks, todayIso) {
 
   const results = [];
   for (const mother of dueMothers) {
-    const openChildren = allTasks.filter((t) => t.parent_task_id === mother.id && t.status === "open");
+    const children = allTasks.filter((t) => t.parent_task_id === mother.id);
+    const openChildren = children.filter((t) => t.status === "open");
 
     if (openChildren.length === 0) {
       if (mother.planned_date !== todayIso) results.push({ motherId: mother.id, targetId: mother.id });
@@ -67,8 +68,10 @@ export function findHabitsDueToday(allTasks, todayIso) {
     }
 
     // Nicht erneut würfeln, wenn schon eines der Kinder heute geplant ist — sonst würde bei jedem
-    // Render (z.B. jedes Öffnen der Heute-Ansicht) ein neues Kind gezogen.
-    if (openChildren.some((c) => c.planned_date === todayIso)) continue;
+    // Render (z.B. jedes Öffnen der Heute-Ansicht) ein neues Kind gezogen. Muss über ALLE Kinder
+    // prüfen, nicht nur die offenen: ein bereits gezogenes Kind wechselt sofort auf status
+    // "planned" und würde sonst aus openChildren rausfallen, wodurch der Guard nie greift.
+    if (children.some((c) => c.planned_date === todayIso)) continue;
 
     const picked = pickOpenChild(openChildren);
     results.push({ motherId: mother.id, targetId: picked.id });

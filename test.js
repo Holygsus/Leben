@@ -10,6 +10,7 @@ import {
   planMissingSlots,
   buildSwapOperations,
 } from "./js/watchlist.js";
+import { findHabitsDueToday } from "./js/habits.js";
 
 const results = document.getElementById("results");
 let passCount = 0;
@@ -58,13 +59,11 @@ function assertEqual(actual, expected, label) {
   assertEqual(countDescendantsRecursive("1", tasks), 2, "countDescendantsRecursive: zählt transitive Nachfahren");
 }
 
-// ---------- suggestTasksForPlan ----------
-// Aktuelle Logik (planner.js): zufällig gemischt, dann stabil nach priority sortiert (high vor
-// medium vor low), max. 2 pro Bereich, insgesamt max. 6 — und nur Top-Level-Aufgaben (Unteraufgaben
-// laufen beim Einplanen automatisch mit, siehe planTaskCascade). Wegen des Zufalls-Shuffles testen
-// wir Invarianten statt exakter Task-Listen.
+// ---------- suggestTasksForPlan (V2: Minutenbudget mit Bereichs-Fairness) ----------
+// 2026-07-14 ist ein Dienstag (Werktag, Budget 120 Min, siehe BUDGET_MINUTES/isWeekendIso).
 {
-  const base = { status: "open" };
+  const WEEKDAY = "2026-07-14";
+  const base = { status: "open", effort: 10 };
   const tasks = [
     { ...base, id: "t1", area_id: "a1", priority: "medium", created_at: "2026-01-01" },
     { ...base, id: "t2", area_id: "a2", priority: "medium", created_at: "2026-01-02" },
@@ -72,40 +71,40 @@ function assertEqual(actual, expected, label) {
     { ...base, id: "done", area_id: "a4", priority: "medium", status: "done", created_at: "2026-01-01" },
     { ...base, id: "sub", area_id: "a5", priority: "medium", parent_task_id: "t1", created_at: "2026-01-01" },
   ];
-  const selected = suggestTasksForPlan(tasks);
+  const selected = suggestTasksForPlan(tasks, WEEKDAY);
   assertEqual(selected.some((t) => t.id === "done"), false, "suggestTasksForPlan: erledigte Aufgaben werden ignoriert");
   assertEqual(selected.some((t) => t.id === "sub"), false, "suggestTasksForPlan: Unteraufgaben werden ignoriert (laufen kaskadiert mit)");
 
-  const sameArea = [
-    { ...base, id: "x1", area_id: "a1", priority: "medium", created_at: "2026-01-01" },
-    { ...base, id: "x2", area_id: "a1", priority: "medium", created_at: "2026-01-02" },
-    { ...base, id: "x3", area_id: "a1", priority: "medium", created_at: "2026-01-03" },
-  ];
-  const cappedSelection = suggestTasksForPlan(sameArea);
-  assertEqual(cappedSelection.length, 2, "suggestTasksForPlan: max. 2 Aufgaben pro Bereich (Deckel greift)");
-
-  const manyAreas = Array.from({ length: 10 }, (_, i) => ({
-    ...base,
-    id: "m" + i,
-    area_id: "area" + i,
-    priority: "medium",
-    created_at: "2026-01-0" + (1 + (i % 9)),
-  }));
-  assertEqual(suggestTasksForPlan(manyAreas).length, 6, "suggestTasksForPlan: max. 6 Aufgaben insgesamt");
-
-  // 3 "high" (je eigener Bereich) + 5 "low" (je eigener Bereich) = Pool von 8, Ziel 6 — die
-  // Prioritätssortierung ist nicht zufällig, nur die Reihenfolge *innerhalb* gleicher Priorität.
-  // Alle 3 "high" müssen deshalb deterministisch enthalten sein.
-  const priorityPool = [
-    ...Array.from({ length: 3 }, (_, i) => ({ ...base, id: "h" + i, area_id: "ha" + i, priority: "high", created_at: "2026-01-01" })),
-    ...Array.from({ length: 5 }, (_, i) => ({ ...base, id: "l" + i, area_id: "la" + i, priority: "low", created_at: "2026-01-01" })),
-  ];
-  const prioritySelection = suggestTasksForPlan(priorityPool);
-  assertEqual(prioritySelection.length, 6, "suggestTasksForPlan: Ziel von 6 wird bei ausreichend Kandidaten erreicht");
+  // Regressionstest für die round5-Rundung des Bereichs-Caps: 10 Bereiche à 2 Aufgaben (6+6 Min).
+  // Bug-Variante: areaCap = round5(120/10) = round5(12) = 10 → die zweite 6-Min-Aufgabe passt in
+  // keinem Bereich mehr rein (6+6=12 > 10), nur die 10 ersten (Phase 1) werden gewählt, 60 von 120
+  // Minuten bleiben ungenutzt. Fix: areaCap = 120/10 = 12 (ungerundet) → 6+6=12 passt exakt, alle
+  // 20 Aufgaben werden gewählt, das Budget wird vollständig ausgeschöpft.
+  const evenAreas = Array.from({ length: 10 }, (_, i) => [
+    { ...base, id: `e${i}a`, area_id: `area${i}`, priority: "medium", effort: 6, created_at: "2026-01-01" },
+    { ...base, id: `e${i}b`, area_id: `area${i}`, priority: "medium", effort: 6, created_at: "2026-01-02" },
+  ]).flat();
+  const evenSelection = suggestTasksForPlan(evenAreas, WEEKDAY);
+  assertEqual(evenSelection.length, 20, "suggestTasksForPlan: areaCap-Rundung verschenkt kein Budget mehr (alle 20 Aufgaben passen)");
   assertEqual(
-    ["h0", "h1", "h2"].every((id) => prioritySelection.some((t) => t.id === id)),
-    true,
-    "suggestTasksForPlan: alle 'high'-Prioritäten werden vor 'low' bevorzugt"
+    evenSelection.reduce((sum, t) => sum + t.effort, 0),
+    120,
+    "suggestTasksForPlan: Tagesbudget wird bei exakt passenden Aufgaben voll ausgeschöpft"
+  );
+
+  // Bereichs-Fairness bleibt erhalten: ein einzelner gieriger Bereich darf sich nicht mehr als
+  // seinen fairen Anteil (hier 120/2=60 Min) nehmen, auch wenn er genug eigene Aufgaben hätte.
+  const twoAreasHungry = [
+    { ...base, id: "g1", area_id: "hungry", priority: "medium", effort: 40, created_at: "2026-01-01" },
+    { ...base, id: "g2", area_id: "hungry", priority: "medium", effort: 40, created_at: "2026-01-02" },
+    { ...base, id: "g3", area_id: "hungry", priority: "medium", effort: 40, created_at: "2026-01-03" },
+    { ...base, id: "o1", area_id: "other", priority: "medium", effort: 40, created_at: "2026-01-01" },
+  ];
+  const fairSelection = suggestTasksForPlan(twoAreasHungry, WEEKDAY);
+  assertEqual(
+    fairSelection.filter((t) => t.area_id === "hungry").length,
+    1,
+    "suggestTasksForPlan: Bereichs-Cap begrenzt einen gierigen Bereich auf seinen fairen Anteil"
   );
 }
 
@@ -216,6 +215,30 @@ function assertEqual(actual, expected, label) {
     buildSwapOperations(unscheduled, scheduledA),
     [{ taskId: "t1", updates: { watchlist_item_id: "i3" } }],
     "buildSwapOperations: Reihenfolge der Slots spielt keine Rolle"
+  );
+}
+
+// ---------- Habits: findHabitsDueToday (Pool-Modus) ----------
+{
+  const today = "2026-07-14"; // Dienstag
+  const mother = { id: "m1", parent_task_id: null, habit_weekdays: ["tue"], planned_date: null };
+  const childA = { id: "cA", parent_task_id: "m1", status: "open", priority: "medium" };
+  const childB = { id: "cB", parent_task_id: "m1", status: "open", priority: "medium" };
+  const childC = { id: "cC", parent_task_id: "m1", status: "open", priority: "medium" };
+
+  const firstPick = findHabitsDueToday([mother, childA, childB, childC], today);
+  assertEqual(firstPick.length, 1, "findHabitsDueToday: erster Aufruf zieht genau ein Pool-Kind");
+
+  // Simuliert autoplanDueHabits: das gezogene Kind wechselt auf status "planned" mit planned_date=heute.
+  const pickedId = firstPick[0].targetId;
+  const afterPlanning = [mother, childA, childB, childC].map((c) =>
+    c.id === pickedId ? { ...c, status: "planned", planned_date: today } : c
+  );
+  const secondPick = findHabitsDueToday(afterPlanning, today);
+  assertEqual(
+    secondPick.length,
+    0,
+    "findHabitsDueToday: erneuter Aufruf am selben Tag zieht KEIN weiteres Kind nach (Reload-Guard)"
   );
 }
 

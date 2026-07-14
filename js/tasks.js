@@ -92,6 +92,9 @@ export async function deleteTask(id) {
 }
 
 // Baut aus der flachen Task-Liste einen Baum (children pro Knoten) entlang parent_task_id.
+// visited-Guard analog zu collectDescendantIds: reine Absicherung gegen (eigentlich unmögliche)
+// Zyklen in den Daten — ohne sie würde ein Zyklus in parent_task_id (Datenimport, manueller
+// DB-Edit) hier in einer Endlosrekursion enden, während collectDescendantIds robust bliebe.
 export function buildTaskTree(tasks, parentTaskId = null) {
   const byParent = new Map();
   for (const t of tasks) {
@@ -99,11 +102,16 @@ export function buildTaskTree(tasks, parentTaskId = null) {
     if (!byParent.has(key)) byParent.set(key, []);
     byParent.get(key).push(t);
   }
-  const attach = (parentKey) =>
-    (byParent.get(parentKey) || []).map((node) => ({
-      ...node,
-      children: attach(node.id),
-    }));
+  const visited = new Set();
+  const attach = (parentKey) => {
+    const result = [];
+    for (const node of byParent.get(parentKey) || []) {
+      if (visited.has(node.id)) continue;
+      visited.add(node.id);
+      result.push({ ...node, children: attach(node.id) });
+    }
+    return result;
+  };
   return attach(parentTaskId || "root");
 }
 
@@ -145,30 +153,37 @@ export async function cascadeAreaChange(rootTaskId, newAreaId, allTasks) {
   if (error) throw error;
 }
 
+// Löst die Habit-Mutter auf, deren Streak-Log ein rootTask betrifft — entweder rootTask selbst
+// (falls es ein Habit ist) oder dessen Elternteil (Pool-Kind-Modus, siehe js/habits.js). Geteilt
+// zwischen completeTaskCascade und reopenTaskCascade, damit beide denselben Log-Eintrag treffen.
+function resolveHabitTaskId(rootTask, allTasks) {
+  if (isHabitTask(rootTask)) return rootTask.id;
+  if (rootTask.parent_task_id) {
+    const parent = allTasks.find((t) => t.id === rootTask.parent_task_id);
+    if (parent && isHabitTask(parent)) return parent.id;
+  }
+  return null;
+}
+
 // Markiert eine Aufgabe und alle ihre Unteraufgaben als erledigt. Loggt zusätzlich einen
 // Streak-Eintrag (habit_completions), falls rootTask selbst ein Habit ist, oder falls rootTask ein
 // Pool-Kind einer Habit-Mutter ist (Aufgaben-Pool-Modus, siehe js/habits.js) — die Streak gehört
-// dann der Mutter, nicht dem einzelnen Pool-Kind. Upsert mit ignoreDuplicates auf (task_id, date):
+// dann der Mutter, nicht dem einzelnen Pool-Kind. Datum ist das geplante Fälligkeitsdatum der
+// Aufgabe (nicht der Erledigungszeitpunkt) — ein überfällig nachgeholtes Habit zählt so für den
+// eigentlich fälligen Tag, nicht für heute. Upsert mit ignoreDuplicates auf (task_id, date):
 // mehrfaches Erledigen am selben Tag ist ein No-op statt eines Fehlers.
 export async function completeTaskCascade(rootTask, allTasks) {
   const ids = [rootTask.id, ...collectDescendantIds(allTasks, rootTask.id)];
   const { error } = await supabase.from("tasks").update({ status: "done" }).in("id", ids);
   if (error) throw error;
 
-  let habitTaskId = null;
-  if (isHabitTask(rootTask)) {
-    habitTaskId = rootTask.id;
-  } else if (rootTask.parent_task_id) {
-    const parent = allTasks.find((t) => t.id === rootTask.parent_task_id);
-    if (parent && isHabitTask(parent)) habitTaskId = parent.id;
-  }
-
+  const habitTaskId = resolveHabitTaskId(rootTask, allTasks);
   if (habitTaskId) {
     const userId = await getCurrentUserId();
     const { error: logError } = await supabase
       .from("habit_completions")
       .upsert(
-        { user_id: userId, task_id: habitTaskId, date: localTodayIso() },
+        { user_id: userId, task_id: habitTaskId, date: rootTask.planned_date || localTodayIso() },
         { onConflict: "task_id,date", ignoreDuplicates: true }
       );
     if (logError) throw logError;
@@ -176,7 +191,9 @@ export async function completeTaskCascade(rootTask, allTasks) {
 }
 
 // Macht das Erledigen einer Aufgabe rückgängig: sie selbst und alle Unteraufgaben werden
-// wieder geöffnet (auf "planned" falls ein Plandatum gesetzt ist, sonst "open").
+// wieder geöffnet (auf "planned" falls ein Plandatum gesetzt ist, sonst "open"). Entfernt
+// symmetrisch zu completeTaskCascade auch den zugehörigen Streak-Log-Eintrag, sonst bliebe eine
+// versehentlich abgehakte und sofort rückgängig gemachte Habit-Erledigung fälschlich im Log stehen.
 export async function reopenTaskCascade(rootTask, allTasks) {
   const descendantIds = collectDescendantIds(allTasks, rootTask.id);
   const byId = new Map(allTasks.map((t) => [t.id, t]));
@@ -193,6 +210,16 @@ export async function reopenTaskCascade(rootTask, allTasks) {
   if (idsWithoutDate.length) {
     const { error } = await supabase.from("tasks").update({ status: "open" }).in("id", idsWithoutDate);
     if (error) throw error;
+  }
+
+  const habitTaskId = resolveHabitTaskId(rootTask, allTasks);
+  if (habitTaskId) {
+    const { error: logError } = await supabase
+      .from("habit_completions")
+      .delete()
+      .eq("task_id", habitTaskId)
+      .eq("date", rootTask.planned_date || localTodayIso());
+    if (logError) throw logError;
   }
 }
 

@@ -667,22 +667,48 @@ let seedPromise = null;
 function ensureAreasSeededOnce(userId) {
   // init() and onAuthStateChange can both fire around the same first login;
   // without memoizing, both could see "no areas yet" and insert the defaults twice.
-  if (!seedPromise) seedPromise = ensureAreasSeeded(userId);
+  // Ein fehlgeschlagener Versuch (Netzwerkfehler) darf nicht dauerhaft gecacht bleiben, sonst
+  // hängt der Nutzer nach einem einzigen Hänger für immer fest, ohne dass ein Reload/erneuter
+  // Login-Trigger einen neuen Versuch auslöst.
+  if (!seedPromise) {
+    seedPromise = ensureAreasSeeded(userId).catch((err) => {
+      seedPromise = null;
+      throw err;
+    });
+  }
   return seedPromise;
 }
 
 async function init() {
-  const session = await getSession();
+  let session;
+  try {
+    session = await getSession();
+  } catch (err) {
+    renderLogin();
+    showToast(friendlyErrorMessage(err), true);
+    return;
+  }
+
   if (session) {
-    await ensureAreasSeededOnce(session.user.id);
-    renderShell();
+    try {
+      await ensureAreasSeededOnce(session.user.id);
+      renderShell();
+    } catch (err) {
+      showToast(friendlyErrorMessage(err), true);
+    }
   } else {
     renderLogin();
   }
 
-  onAuthStateChange((newSession) => {
+  // Nur auf echte An-/Abmeldungen reagieren, nicht auf INITIAL_SESSION (redundant zum getSession()
+  // oben) oder TOKEN_REFRESHED (feuert automatisch ~stündlich im Hintergrund) — sonst rendert die
+  // komplette Shell neu, während der Nutzer z.B. gerade in ein Formular tippt.
+  onAuthStateChange((newSession, event) => {
+    if (event !== "SIGNED_IN" && event !== "SIGNED_OUT") return;
     if (newSession) {
-      ensureAreasSeededOnce(newSession.user.id).then(renderShell);
+      ensureAreasSeededOnce(newSession.user.id)
+        .then(renderShell)
+        .catch((err) => showToast(friendlyErrorMessage(err), true));
     } else {
       seedPromise = null;
       renderLogin();
@@ -777,12 +803,22 @@ const MORE_ROUTES = [
   },
 ];
 
+// Erhöht sich bei jedem renderShell()-Aufruf. Die render*View()-Funktionen lesen ihren Stand direkt
+// nach dem Start in eine lokale Variable und vergleichen kurz vor dem entscheidenden
+// innerHTML-Write erneut dagegen — wechselt der Nutzer währenddessen schnell die Route (z.B.
+// Heute → Finanzen → Heute), bricht der veraltete, inzwischen überholte Aufruf statt seine Ansicht
+// über die aktuell sichtbare zu schreiben.
+let renderGeneration = 0;
+let closeNavMoreMenu = null;
+
 function renderShell() {
+  renderGeneration++;
   const route = currentRoute();
   const isMoreRoute = MORE_ROUTES.some((r) => r.route === route);
   // Offenes Detail-Modal schließen — es liegt außerhalb von #app und würde sonst
   // beim Ansichtswechsel über der neuen Ansicht hängen bleiben.
   if (closeActiveModal) closeActiveModal();
+  if (closeNavMoreMenu) closeNavMoreMenu();
   app.innerHTML = `
     <nav class="app-nav">
       <a href="#/today" class="nav-link${route === "today" ? " is-active" : ""}">
@@ -839,7 +875,12 @@ function wireNavMoreMenu() {
     menu.hidden = true;
     toggle.setAttribute("aria-expanded", "false");
     document.removeEventListener("click", closeMenu);
+    closeNavMoreMenu = null;
   };
+  // Registriert bei renderShell() zum Aufräumen — verlässt der Nutzer die Route per Browser-
+  // Zurück/Vorwärts statt per Klick, während das Menü offen ist, bliebe sonst ein Listener auf
+  // document hängen, der auf die gleich entfernten toggle/menu-Elemente verweist.
+  closeNavMoreMenu = closeMenu;
 
   toggle.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -876,8 +917,10 @@ const todayViewState = {
 };
 
 async function renderTodayView() {
+  const myGeneration = renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/today.html");
+  if (myGeneration !== renderGeneration) return;
   container.innerHTML = await res.text();
   showLoading("task-list");
 
@@ -908,7 +951,7 @@ async function renderTodayView() {
   // diese Woche verplant), wird sie hier automatisch angelegt — sonst würde sie erst nach einem
   // Reload der Fernsehprogramm-Ansicht in Heute auftauchen. Nur für heute, nicht die ganze Woche
   // (das übernimmt renderFernsehprogrammView separat).
-  const newWatchlistTasks = await autoplanWatchlistForDates(watchlistItems, patchedTasks, [today]);
+  const newWatchlistTasks = await autoplanWatchlistForDates(watchlistItems, [today]);
   todayViewState.allTasks = newWatchlistTasks.length ? [...patchedTasks, ...newWatchlistTasks] : patchedTasks;
   const tasks = todayViewState.allTasks.filter((t) => t.planned_date === today);
 
@@ -1402,8 +1445,10 @@ function wireQuickCapture(areas, onAdded) {
 /* ---------- Overview ---------- */
 
 async function renderOverviewView() {
+  const myGeneration = renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/overview.html");
+  if (myGeneration !== renderGeneration) return;
   container.innerHTML = await res.text();
   showLoading("area-tree");
 
@@ -2633,8 +2678,10 @@ function renderPlanLoadError(message, dateInput) {
 }
 
 async function renderPlanView() {
+  const myGeneration = renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/plan.html");
+  if (myGeneration !== renderGeneration) return;
   container.innerHTML = await res.text();
 
   planState.targetDate = tomorrowISO();
@@ -2873,8 +2920,10 @@ const financeState = {
 const habitsViewState = { allTasks: [], areaColorById: {} };
 
 async function renderHabitsView() {
+  const myGeneration = renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/habits.html");
+  if (myGeneration !== renderGeneration) return;
   container.innerHTML = await res.text();
   const [tasks, areas] = await Promise.all([listTasks(), listAreas()]);
   habitsViewState.allTasks = tasks;
@@ -2999,8 +3048,10 @@ function renderHabitList() {
 }
 
 async function renderFinanceView() {
+  const myGeneration = renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/finance.html");
+  if (myGeneration !== renderGeneration) return;
   container.innerHTML = await res.text();
   showLoading("pot-grid");
 
@@ -3089,7 +3140,7 @@ function renderPotGrid() {
   } else {
     const notgroschenProgress = financeState.transactions
       .filter((t) => t.pot === "sicherheit")
-      .reduce((sum, t) => sum + Number(t.amount), 0);
+      .reduce((sum, t) => sum + (t.direction === "expense" ? Number(t.amount) : -Number(t.amount)), 0);
     const notgroschenTarget = settings.notgroschen_target || 0;
     const notgroschenPct = notgroschenTarget ? Math.round((notgroschenProgress / notgroschenTarget) * 100) : 0;
     cards.push(
@@ -3359,22 +3410,29 @@ function wireFixedCostsPanel() {
   document.getElementById("fixed-costs-toggle").addEventListener("click", () => {
     panel.hidden = !panel.hidden;
   });
-  document.getElementById("new-fixed-cost-form").addEventListener("submit", async (e) => {
+  const fixedCostForm = document.getElementById("new-fixed-cost-form");
+  const fixedCostSubmitBtn = fixedCostForm.querySelector('button[type="submit"]');
+  fixedCostForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const nameInput = document.getElementById("new-fixed-cost-name");
     const amountInput = document.getElementById("new-fixed-cost-amount");
     const intervalSelect = document.getElementById("new-fixed-cost-interval");
     const name = nameInput.value.trim();
     const amount = Number(amountInput.value);
-    if (!name || !amount) return;
-    await withErrorToast(async () => {
-      await createFixedCost({ name, amount, interval: intervalSelect.value });
-      showToast(`„${name}" angelegt.`);
-      nameInput.value = "";
-      amountInput.value = "";
-      intervalSelect.value = "monthly";
-      await reloadFinance();
-    });
+    if (!name || !amount || fixedCostSubmitBtn.disabled) return;
+    fixedCostSubmitBtn.disabled = true;
+    try {
+      await withErrorToast(async () => {
+        await createFixedCost({ name, amount, interval: intervalSelect.value });
+        showToast(`„${name}" angelegt.`);
+        nameInput.value = "";
+        amountInput.value = "";
+        intervalSelect.value = "monthly";
+        await reloadFinance();
+      });
+    } finally {
+      fixedCostSubmitBtn.disabled = false;
+    }
   });
 }
 
@@ -3434,27 +3492,35 @@ function wireCommittedPanel() {
     panel.hidden = !panel.hidden;
   });
   const dateChips = wireDateChipGroup(document.getElementById("new-committed-date-chips"));
-  document.getElementById("new-committed-form").addEventListener("submit", async (e) => {
+  const committedForm = document.getElementById("new-committed-form");
+  const committedSubmitBtn = committedForm.querySelector('button[type="submit"]');
+  committedForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const nameInput = document.getElementById("new-committed-name");
     const amountInput = document.getElementById("new-committed-amount");
     const name = nameInput.value.trim();
     const amount = Number(amountInput.value);
     const dueDate = dateChips.getPlannedDate();
+    if (committedSubmitBtn.disabled) return;
     if (!name || !amount || !dueDate) {
       // due_date ist NOT NULL in der DB — ohne diesen Hinweis würde "Anlegen" bei "Kein Datum"
       // (dem Chip-Default) einfach stumm gar nichts tun.
       showToast(!dueDate ? "Bitte ein Fälligkeitsdatum wählen." : "Bitte Name und Betrag ausfüllen.", true);
       return;
     }
-    await withErrorToast(async () => {
-      await createCommittedExpense({ name, amount, dueDate });
-      showToast(`„${name}" angelegt.`);
-      nameInput.value = "";
-      amountInput.value = "";
-      dateChips.reset();
-      await reloadFinance();
-    });
+    committedSubmitBtn.disabled = true;
+    try {
+      await withErrorToast(async () => {
+        await createCommittedExpense({ name, amount, dueDate });
+        showToast(`„${name}" angelegt.`);
+        nameInput.value = "";
+        amountInput.value = "";
+        dateChips.reset();
+        await reloadFinance();
+      });
+    } finally {
+      committedSubmitBtn.disabled = false;
+    }
   });
 }
 
@@ -3543,6 +3609,8 @@ function wireTransactionQuickCapture() {
   const amountInput = document.getElementById("tx-quick-amount");
   const directionGroup = document.getElementById("tx-quick-direction");
   const potGroup = document.getElementById("tx-quick-pot");
+  const notgroschenToggle = document.getElementById("tx-quick-notgroschen-toggle");
+  const notgroschenCheckbox = document.getElementById("tx-quick-notgroschen-checkbox");
   const noteInput = document.getElementById("tx-quick-note");
   const submitBtn = form.querySelector('button[type="submit"]');
 
@@ -3564,6 +3632,7 @@ function wireTransactionQuickCapture() {
         .querySelectorAll(".priority-chip")
         .forEach((c) => (c.dataset.active = String(c.dataset.direction === selectedDirection)));
       potGroup.hidden = selectedDirection === "income";
+      notgroschenToggle.hidden = selectedDirection !== "income";
     });
   });
 
@@ -3577,6 +3646,8 @@ function wireTransactionQuickCapture() {
       .querySelectorAll(".priority-chip")
       .forEach((c) => (c.dataset.active = String(c.dataset.direction === "expense")));
     potGroup.hidden = false;
+    notgroschenCheckbox.checked = false;
+    notgroschenToggle.hidden = true;
   };
 
   toggleBtn.addEventListener("click", () => {
@@ -3600,7 +3671,7 @@ function wireTransactionQuickCapture() {
         await createTransaction({
           amount,
           direction: selectedDirection,
-          pot: selectedDirection === "income" ? null : selectedPot,
+          pot: selectedDirection === "income" ? (notgroschenCheckbox.checked ? "sicherheit" : null) : selectedPot,
           note: noteInput.value.trim() || null,
         });
         showToast(`${formatEuro(amount)} erfasst.`);
@@ -3627,8 +3698,10 @@ const WATCHLIST_STATUS_LABEL = {
 };
 
 async function renderFernsehprogrammView() {
+  const myGeneration = renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/fernsehprogramm.html");
+  if (myGeneration !== renderGeneration) return;
   container.innerHTML = await res.text();
   showLoading("watchlist-week-list");
 
@@ -3636,7 +3709,7 @@ async function renderFernsehprogrammView() {
   const weekDates = currentWeekDates(todayISO());
   // Anders als in renderTodayView (nur heute) wird hier gleich die ganze Woche aufgefüllt, damit
   // der Wochenüberblick nicht erst nach 7 Tagen Heute-Besuchen vollständig wird.
-  const newTasks = await autoplanWatchlistForDates(items, allTasks, weekDates);
+  const newTasks = await autoplanWatchlistForDates(items, weekDates);
   watchlistViewState.items = items;
   watchlistViewState.allTasks = newTasks.length ? [...allTasks, ...newTasks] : allTasks;
   watchlistViewState.logEntries = logEntries;
@@ -4054,8 +4127,11 @@ async function promptWatchlistRating(task) {
         season: item.current_season,
         episode: item.current_episode,
       });
-      if (item.type !== "film" && item.current_episode != null) {
-        await updateWatchlistItem(item.id, { current_episode: item.current_episode + 1 });
+      // Neu angelegte Items starten mit current_episode=null (kein Default beim Anlegen) — die
+      // erste Sichtung soll den Auto-Fortschritt trotzdem anstoßen statt still zu bleiben, bis der
+      // Nutzer manuell eine Startfolge im Bearbeiten-Modal einträgt.
+      if (item.type !== "film") {
+        await updateWatchlistItem(item.id, { current_episode: (item.current_episode ?? 0) + 1 });
       }
       close(logRow.id);
     };
@@ -4081,6 +4157,21 @@ async function promptWatchlistRating(task) {
 }
 
 /* ---------- Bereiche (Verwaltung, Teil der Übersicht) ---------- */
+
+// Sperrt alle Auf/Ab/Löschen-Buttons der Bereichsliste während einer laufenden Aktion — verhindert,
+// dass ein schneller Doppelklick (oder ein Klick auf eine andere Zeile, während eine erste
+// Umsortierung noch läuft) zwei sich überschneidende Updates auslöst, die dieselbe sort_order
+// doppelt vergeben könnten. reloadOverview() ersetzt bei Erfolg ohnehin die ganze Liste; bei einem
+// Fehler (den withErrorToast abfängt, ohne erneut zu werfen) werden die Buttons wieder freigegeben.
+async function withLockedAreaControls(action) {
+  const buttons = document.querySelectorAll("#area-manage-list .area-manage-controls button");
+  buttons.forEach((b) => (b.disabled = true));
+  try {
+    await withErrorToast(action);
+  } finally {
+    buttons.forEach((b) => (b.disabled = false));
+  }
+}
 
 async function renderAreaManageList() {
   const list = document.getElementById("area-manage-list");
@@ -4166,7 +4257,7 @@ function buildAreaManageItem(area, areas, index) {
   upBtn.setAttribute("aria-label", "Nach oben");
   upBtn.disabled = index === 0;
   upBtn.addEventListener("click", async () => {
-    await withErrorToast(async () => {
+    await withLockedAreaControls(async () => {
       await swapAreaOrder(area, areas[index - 1]);
       reloadOverview();
     });
@@ -4179,7 +4270,7 @@ function buildAreaManageItem(area, areas, index) {
   downBtn.setAttribute("aria-label", "Nach unten");
   downBtn.disabled = index === areas.length - 1;
   downBtn.addEventListener("click", async () => {
-    await withErrorToast(async () => {
+    await withLockedAreaControls(async () => {
       await swapAreaOrder(area, areas[index + 1]);
       reloadOverview();
     });
@@ -4196,7 +4287,7 @@ function buildAreaManageItem(area, areas, index) {
       { confirmLabel: "Löschen", cancelLabel: "Abbrechen", danger: true }
     );
     if (!proceed) return;
-    await withErrorToast(async () => {
+    await withLockedAreaControls(async () => {
       await deleteArea(area.id);
       reloadOverview();
     });
@@ -4287,19 +4378,23 @@ function wireNewAreaForm() {
   const colorInput = document.getElementById("new-area-color");
   wireColorContrastWarning(colorInput, document.getElementById("new-area-color-warning"));
 
+  const submitBtn = form.querySelector('button[type="submit"]');
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const name = nameInput.value.trim();
-    if (!name) return;
-    const areas = await listAreas();
-    const maxSort = areas.reduce((m, a) => Math.max(m, a.sort_order ?? 0), -1);
+    if (!name || submitBtn.disabled) return;
+    submitBtn.disabled = true;
     try {
+      const areas = await listAreas();
+      const maxSort = areas.reduce((m, a) => Math.max(m, a.sort_order ?? 0), -1);
       await createArea({ name, color: colorInput.value, sort_order: maxSort + 1 });
       nameInput.value = "";
       colorInput.value = "#378ADD";
       reloadOverview();
     } catch (err) {
       showToast("Anlegen fehlgeschlagen: " + friendlyErrorMessage(err), true);
+    } finally {
+      submitBtn.disabled = false;
     }
   });
 }

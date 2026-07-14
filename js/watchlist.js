@@ -181,22 +181,45 @@ export function buildSwapOperations(slotA, slotB) {
 // watchlist_item_id gesetzt). effort bleibt NULL, siehe Kommentar in supabase/schema.sql —
 // tasks.effort erlaubt nur 5/10/30/60, die Watchlist-Dauer würde den Check verletzen. Erneuter
 // Aufruf für dieselbe Woche findet nichts mehr zu tun, sobald alle Tage belegt sind.
-export async function autoplanWatchlistForDates(items, allTasks, dates) {
-  const watchlistTasksThisWeek = allTasks.filter((t) => t.watchlist_item_id != null && dates.includes(t.planned_date));
-  const assignments = planMissingSlots(items, watchlistTasksThisWeek, dates);
-  if (assignments.length === 0) return [];
+//
+// Heute-Ansicht (nur [heute]) und Fernsehprogramm-Ansicht (ganze Woche) rufen das unabhängig
+// voneinander auf und können fast gleichzeitig laufen. inFlight serialisiert überlappende Aufrufe
+// in diesem Tab; der erneute DB-Read direkt vor dem Insert (statt dem ggf. veralteten
+// allTasks-Parameter zu vertrauen) verhindert, dass der zweite Aufruf denselben Tag doppelt belegt.
+let inFlight = null;
+export async function autoplanWatchlistForDates(items, dates) {
+  if (inFlight) await inFlight.catch(() => {});
 
-  const userId = await getCurrentUserId();
-  const rows = assignments.map(({ date, item }) => ({
-    user_id: userId,
-    title: item.title,
-    status: "planned",
-    planned_date: date,
-    watchlist_item_id: item.id,
-  }));
-  const { data, error } = await supabase.from("tasks").insert(rows).select();
-  if (error) throw error;
-  return data;
+  const run = (async () => {
+    const { data: freshTasks, error: fetchError } = await supabase
+      .from("tasks")
+      .select("watchlist_item_id, planned_date")
+      .not("watchlist_item_id", "is", null)
+      .in("planned_date", dates);
+    if (fetchError) throw fetchError;
+
+    const assignments = planMissingSlots(items, freshTasks, dates);
+    if (assignments.length === 0) return [];
+
+    const userId = await getCurrentUserId();
+    const rows = assignments.map(({ date, item }) => ({
+      user_id: userId,
+      title: item.title,
+      status: "planned",
+      planned_date: date,
+      watchlist_item_id: item.id,
+    }));
+    const { data, error } = await supabase.from("tasks").insert(rows).select();
+    if (error) throw error;
+    return data;
+  })();
+
+  inFlight = run;
+  try {
+    return await run;
+  } finally {
+    if (inFlight === run) inFlight = null;
+  }
 }
 
 // Wendet buildSwapOperations() tatsächlich an.
