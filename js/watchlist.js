@@ -1,6 +1,7 @@
 import { supabase } from "./supabase.js";
 import { getCurrentUserId } from "./auth.js";
 import { WEEKDAY_CODES, weekdayCodeFromIso } from "./habits.js";
+import { budgetForDate } from "./planner.js";
 
 export const DEFAULT_DURATION_MIN = { serie: 45, anime: 20, film: 90 };
 
@@ -93,12 +94,12 @@ export function getEffectiveDuration(item) {
 // gespeichertes Feld (Spec-Vorgabe: eine schlecht bewertete Folge soll die Serie nicht automatisch
 // abwerten). Übersprungene Bewertungen (rating null) fließen nicht in den Schnitt ein. null =
 // noch keine Bewertung vorhanden, nicht 0 — damit sich "unbewertet" von "immer negativ bewertet"
-// unterscheiden lässt.
+// unterscheiden lässt. Skala 1-10 (siehe migration-010.sql), arithmetisches Mittel statt des
+// früheren Anteils positiver Bewertungen.
 export function computeAverageRating(logEntries) {
   const rated = logEntries.filter((e) => e.rating != null);
   if (rated.length === 0) return null;
-  const up = rated.filter((e) => e.rating === "up").length;
-  return up / rated.length;
+  return rated.reduce((sum, e) => sum + e.rating, 0) / rated.length;
 }
 
 export function filterWatchlistItems(items, { type, genre, minAvgRating } = {}, avgRatingByItemId = {}) {
@@ -140,18 +141,55 @@ export function currentWeekDates(todayIso) {
 // Warteschlangen-Zuteilung: für jeden Wochentag ohne bestehende Watchlist-Aufgabe wird das nächste
 // aktive, diese Woche noch nicht verplante Item zugeteilt (Reihenfolge: sort_order, dann
 // created_at). Reine Berechnung — DB-Schreiben passiert erst in autoplanWatchlistForDates().
-export function planMissingSlots(items, watchlistTasksThisWeek, weekDates) {
+//
+// Zweistufig, analog zum "Bereichs-Minimum ignoriert Cap"-Prinzip aus
+// wissensdatenbank/features/tagesplan-algorithmus-v2.md: der erste Eintrag pro Tag ist garantiert,
+// unabhängig vom Budget. Ein zweiter Eintrag für denselben Tag wird nur zugeteilt, wenn nach Abzug
+// der normalen Tagesaufgaben (committedMinutesByDate, vom Aufrufer geliefert) und der Dauer des
+// ersten Eintrags noch Kapazität im Tagesbudget übrig ist.
+export function planMissingSlots(items, watchlistTasksThisWeek, weekDates, committedMinutesByDate = {}) {
+  const itemsById = new Map(items.map((i) => [i.id, i]));
   const scheduledItemIds = new Set(watchlistTasksThisWeek.map((t) => t.watchlist_item_id));
-  const scheduledDates = new Set(watchlistTasksThisWeek.map((t) => t.planned_date));
+  const scheduledByDate = new Map();
+  for (const t of watchlistTasksThisWeek) {
+    if (!scheduledByDate.has(t.planned_date)) scheduledByDate.set(t.planned_date, []);
+    scheduledByDate.get(t.planned_date).push(t);
+  }
+
   const pool = items
     .filter((i) => i.status === "aktiv" && !scheduledItemIds.has(i.id))
     .sort((a, b) => a.sort_order - b.sort_order || (a.created_at < b.created_at ? -1 : 1));
 
-  const missingDates = weekDates.filter((d) => !scheduledDates.has(d));
   const assignments = [];
-  for (let i = 0; i < missingDates.length && i < pool.length; i++) {
-    assignments.push({ date: missingDates[i], item: pool[i] });
+  const firstEntryThisRunByDate = new Map();
+
+  const missingDates = weekDates.filter((d) => !scheduledByDate.has(d));
+  for (const date of missingDates) {
+    if (pool.length === 0) break;
+    const item = pool.shift();
+    assignments.push({ date, item });
+    firstEntryThisRunByDate.set(date, item);
   }
+
+  for (const date of weekDates) {
+    if (pool.length === 0) break;
+    const existing = scheduledByDate.get(date) ?? [];
+    const firstEntryThisRun = firstEntryThisRunByDate.get(date);
+    // Zweiter Slot ist nur für Tage mit genau einem (garantierten) ersten Eintrag definiert — Tage
+    // ohne jeden Eintrag können hier nicht vorkommen (oben immer zuerst befüllt, solange Pool
+    // reicht), Tage mit bereits 2+ Einträgen sind voll.
+    if (existing.length + (firstEntryThisRun ? 1 : 0) !== 1) continue;
+
+    const firstItem = firstEntryThisRun ?? itemsById.get(existing[0]?.watchlist_item_id);
+    if (!firstItem) continue;
+    const usedSoFar = (committedMinutesByDate[date] ?? 0) + getEffectiveDuration(firstItem);
+    const candidate = pool[0];
+    if (usedSoFar + getEffectiveDuration(candidate) > budgetForDate(date)) continue;
+
+    pool.shift();
+    assignments.push({ date, item: candidate });
+  }
+
   return assignments;
 }
 
@@ -191,14 +229,23 @@ export async function autoplanWatchlistForDates(items, dates) {
   if (inFlight) await inFlight.catch(() => {});
 
   const run = (async () => {
-    const { data: freshTasks, error: fetchError } = await supabase
+    // Ein Query für alle Aufgaben dieser Tage statt nur Watchlist-Zeilen: dieselben Zeilen liefern
+    // sowohl die bereits belegten Watchlist-Slots als auch, für die Kapazitätsprüfung im zweiten
+    // Slot pro Tag (siehe planMissingSlots), die normalen Tagesaufgaben-Minuten.
+    const { data: dayTasks, error: fetchError } = await supabase
       .from("tasks")
-      .select("watchlist_item_id, planned_date")
-      .not("watchlist_item_id", "is", null)
+      .select("watchlist_item_id, planned_date, effort")
       .in("planned_date", dates);
     if (fetchError) throw fetchError;
 
-    const assignments = planMissingSlots(items, freshTasks, dates);
+    const freshTasks = dayTasks.filter((t) => t.watchlist_item_id != null);
+    const committedMinutesByDate = {};
+    for (const t of dayTasks) {
+      if (t.watchlist_item_id != null || t.effort == null) continue;
+      committedMinutesByDate[t.planned_date] = (committedMinutesByDate[t.planned_date] ?? 0) + t.effort;
+    }
+
+    const assignments = planMissingSlots(items, freshTasks, dates, committedMinutesByDate);
     if (assignments.length === 0) return [];
 
     const userId = await getCurrentUserId();

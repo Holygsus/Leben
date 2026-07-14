@@ -132,6 +132,7 @@ const planState = {
   targetDate: null,
   calendarMonth: null, // "YYYY-MM-01" — erster Tag des aktuell angezeigten Kalendermonats
   monthTasks: [], // nicht erledigte Aufgaben mit Plandatum im sichtbaren Kalendermonat, siehe loadMonthTasksAndRender()
+  watchlistItemsById: new Map(), // für die Budget-Anzeige: Dauer bereits verplanter Watchlist-Aufgaben auflösen (effort bleibt bei denen NULL)
 };
 
 let toastTimeout = null;
@@ -1845,6 +1846,29 @@ function buildInlineAddForm(areaId, parentTaskId) {
 
   const dateChips = createDateChipGroup();
 
+  // Effort-Chips analog td-subtask-effort/brainstorm-effort — direkter Klick statt des früheren
+  // Umwegs über das Detail-Modal-Dropdown. Toggle-Verhalten: erneuter Klick auf den aktiven Chip
+  // deaktiviert ihn wieder, null bleibt ein gültiger Zustand ("kein Aufwand angegeben").
+  const effortGroup = document.createElement("div");
+  effortGroup.className = "effort-chips";
+  effortGroup.setAttribute("role", "group");
+  effortGroup.setAttribute("aria-label", "Aufwand");
+  let selectedEffort = null;
+  for (const value of [5, 10, 30, 60]) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "effort-chip";
+    chip.dataset.effort = String(value);
+    chip.textContent = String(value);
+    chip.addEventListener("click", () => {
+      selectedEffort = selectedEffort === value ? null : value;
+      effortGroup.querySelectorAll(".effort-chip").forEach((c) => {
+        c.dataset.active = String(Number(c.dataset.effort) === selectedEffort);
+      });
+    });
+    effortGroup.appendChild(chip);
+  }
+
   const submitBtn = document.createElement("button");
   submitBtn.type = "submit";
   submitBtn.className = "btn";
@@ -1859,7 +1883,7 @@ function buildInlineAddForm(areaId, parentTaskId) {
     renderAreaTree();
   });
 
-  form.append(nameInput, dateChips.el, submitBtn, cancelBtn);
+  form.append(nameInput, dateChips.el, effortGroup, submitBtn, cancelBtn);
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1872,7 +1896,14 @@ function buildInlineAddForm(areaId, parentTaskId) {
     submitBtn.disabled = true;
     try {
       await withErrorToast(async () => {
-        await createTask({ title, areaId, parentTaskId, plannedDate, status: plannedDate ? "planned" : "open" });
+        await createTask({
+          title,
+          areaId,
+          parentTaskId,
+          plannedDate,
+          effort: selectedEffort,
+          status: plannedDate ? "planned" : "open",
+        });
         overviewState.addFormTarget = null;
         overviewState.collapsedAreas.delete(areaId);
         if (parentTaskId) overviewState.collapsedNodes.delete(parentTaskId);
@@ -2380,6 +2411,13 @@ function renderTaskDetailEdit(card, task, allTasks, parentTask, children, backBu
     const wasDone = task.status === "done";
     const willBeDone = newStatus === "done";
     const plannedDate = dateChips.getPlannedDate();
+    // Status wird aus dem gesetzten Datum abgeleitet statt roh aus dem Dropdown übernommen — sonst
+    // bleibt eine Aufgabe mit frisch gesetztem Datum "offen", solange das Dropdown nicht zusätzlich
+    // manuell umgestellt wird, und taucht trotz Eigendatum erneut im Tagesplan-Vorschlag auf
+    // (suggestTasksForPlan filtert nur nach status, nicht nach planned_date). "Erledigt" bleibt ein
+    // expliziter Entscheid über das Dropdown, alles andere folgt demselben Muster wie
+    // buildInlineAddForm/planTaskCascade.
+    const derivedStatus = willBeDone ? "done" : plannedDate ? "planned" : "open";
     await withErrorToast(async () => {
       if (!wasDone && willBeDone) await completeTaskCascade(task, allTasks);
       else if (wasDone && !willBeDone) await reopenTaskCascade(task, allTasks);
@@ -2389,7 +2427,7 @@ function renderTaskDetailEdit(card, task, allTasks, parentTask, children, backBu
         area_id: areaId,
         parent_task_id: parentSel.value || null,
         effort: effortVal ? Number(effortVal) : null,
-        status: newStatus,
+        status: derivedStatus,
         planned_date: plannedDate,
         is_brainstorm: !areaId,
         priority: document.getElementById("td-priority").value,
@@ -2611,14 +2649,15 @@ function withTimeout(promise, ms, message) {
 async function loadPlanData(dateInput) {
   showLoading("suggested-task-list");
   try {
-    const [areas, pool] = await withTimeout(
-      Promise.all([listAreas(), listTasks({ status: "open" })]),
+    const [areas, pool, watchlistItems] = await withTimeout(
+      Promise.all([listAreas(), listTasks({ status: "open" }), listWatchlistItems()]),
       15000,
       "Zeitüberschreitung beim Laden."
     );
     planState.areas = areas;
     planState.areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
     planState.pool = pool;
+    planState.watchlistItemsById = new Map(watchlistItems.map((i) => [i.id, i]));
     planState.selected = suggestTasksForPlan(pool, planState.targetDate);
 
     await loadMonthTasksAndRender(dateInput);
@@ -2782,9 +2821,21 @@ function renderPlanTaskList() {
   const emptyState = document.getElementById("suggested-empty-state");
   const areaColorById = planState.areaColorById;
 
-  const usedMinutes = planState.selected.reduce((sum, t) => sum + (t.effort || 0), 0);
+  // Bereits für den Zieltag feststehende Aufgaben (v. a. Watchlist-Einträge) laufen mit effort=NULL
+  // (siehe autoplanWatchlistForDates in watchlist.js) und wurden bisher unsichtbar mit 0 Minuten
+  // mitgezählt — hier per Watchlist-Item-Dauer aufgelöst, damit das angezeigte Budget den echten
+  // Tages-Zeitbedarf widerspiegelt. planState.monthTasks deckt den Zieltag bereits ab (siehe
+  // loadMonthTasksAndRender/jumpCalendarToTargetDate), kein zusätzlicher Request nötig.
+  const committedMinutes = planState.monthTasks
+    .filter((t) => t.planned_date === planState.targetDate)
+    .reduce((sum, t) => {
+      if (t.effort != null) return sum + t.effort;
+      const item = t.watchlist_item_id ? planState.watchlistItemsById.get(t.watchlist_item_id) : null;
+      return item ? sum + getEffectiveDuration(item) : sum;
+    }, 0);
+  const suggestedMinutes = planState.selected.reduce((sum, t) => sum + (t.effort || 0), 0);
   document.getElementById("plan-budget").textContent =
-    `${usedMinutes} / ${budgetForDate(planState.targetDate)} Min`;
+    `${committedMinutes} Min. verplant + ${suggestedMinutes} Min. Vorschlag / ${budgetForDate(planState.targetDate)} Min`;
 
   list.innerHTML = "";
   if (planState.selected.length === 0) {
@@ -3875,7 +3926,7 @@ function renderWatchlistOverview() {
     for (const item of items) {
       const li = document.createElement("li");
       const avg = avgByItemId[item.id];
-      li.textContent = `${WATCHLIST_TYPE_LABEL[item.type]} · ${item.title}${avg == null ? "" : ` · Ø ${Math.round(avg * 100)}%`}`;
+      li.textContent = `${WATCHLIST_TYPE_LABEL[item.type]} · ${item.title}${avg == null ? "" : ` · Ø ${avg.toFixed(1)}`}`;
       li.addEventListener("click", () => openWatchlistDetail(item.id));
       list.appendChild(li);
     }
@@ -3973,11 +4024,11 @@ async function renderWatchlistDetailCard(itemId, close) {
   }
 
   const avg = computeAverageRating(log);
-  const avgLabel = avg == null ? "—" : `${Math.round(avg * 100)} % positiv`;
+  const avgLabel = avg == null ? "—" : `${avg.toFixed(1)} Ø`;
   const logHtml = log.length
     ? log
         .map((entry) => {
-          const ratingIcon = entry.rating === "up" ? "👍" : entry.rating === "down" ? "👎" : "übersprungen";
+          const ratingIcon = entry.rating != null ? `${entry.rating}/10` : "übersprungen";
           const epLabel = entry.season != null || entry.episode != null ? `S${entry.season ?? "?"}E${entry.episode ?? "?"} · ` : "";
           return `
           <li class="task-item">
@@ -4093,8 +4144,8 @@ async function renderWatchlistDetailCard(itemId, close) {
 
 // ----- Bewertungs-Popup beim Erledigen in der Heute-Ansicht -----
 
-// Öffnet direkt beim Abhaken einer Watchlist-Aufgabe ein kleines 👍/👎-Popup (plus "Überspringen").
-// Loggt die Sichtung immer (auch bei Überspringen, rating bleibt dann null) und rückt bei
+// Öffnet direkt beim Abhaken einer Watchlist-Aufgabe ein kleines 1-10-Bewertungs-Popup (plus
+// "Überspringen"). Loggt die Sichtung immer (auch bei Überspringen, rating bleibt dann null) und rückt bei
 // Serien/Anime current_episode automatisch eine Folge weiter — einfache v1-Warteschlangenlogik
 // ohne Staffel-Rollover, der bleibt manuell über next_season_release_date (siehe Plan). Gibt die
 // neue Log-Zeilen-ID zurück, damit showCompleteUndoToast sie bei Rückgängig mit entfernen kann.
@@ -4136,22 +4187,26 @@ async function promptWatchlistRating(task) {
       close(logRow.id);
     };
 
+    const ratingChipsHtml = Array.from(
+      { length: 10 },
+      (_, i) => `<button type="button" class="effort-chip" data-rating="${i + 1}">${i + 1}</button>`
+    ).join("");
+
     root.innerHTML = `
       <div class="modal-backdrop" id="rating-backdrop">
         <div class="modal-card" role="dialog" aria-modal="true" aria-label="Bewertung">
           <h2 class="modal-view-title">„${escapeHtml(item.title)}" geschaut — wie war's?</h2>
-          <div class="modal-actions">
-            <button class="btn" type="button" id="rating-up">👍</button>
-            <button class="btn" type="button" id="rating-down">👎</button>
-          </div>
+          <div class="effort-chips" id="rating-chips" role="group" aria-label="Bewertung 1-10">${ratingChipsHtml}</div>
           <button class="btn btn-secondary" type="button" id="rating-skip">Überspringen</button>
         </div>
       </div>`;
     document.getElementById("rating-backdrop").addEventListener("click", (e) => {
       if (e.target.id === "rating-backdrop") submit(null);
     });
-    document.getElementById("rating-up").addEventListener("click", () => submit("up"));
-    document.getElementById("rating-down").addEventListener("click", () => submit("down"));
+    document.getElementById("rating-chips").addEventListener("click", (e) => {
+      const chip = e.target.closest(".effort-chip");
+      if (chip) submit(Number(chip.dataset.rating));
+    });
     document.getElementById("rating-skip").addEventListener("click", () => submit(null));
   });
 }

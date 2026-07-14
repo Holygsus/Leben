@@ -210,7 +210,7 @@ create table if not exists watchlist_viewing_log (
   id uuid default gen_random_uuid() primary key,
   user_id uuid references auth.users not null,
   watchlist_item_id uuid references watchlist_items(id) on delete cascade not null,
-  rating text check (rating in ('up', 'down')),
+  rating integer check (rating between 1 and 10),
   season integer,
   episode integer,
   watched_at timestamptz default now(),

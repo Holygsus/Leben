@@ -135,10 +135,10 @@ function assertEqual(actual, expected, label) {
 {
   assertEqual(computeAverageRating([]), null, "computeAverageRating: keine Sichtungen ergibt null");
   assertEqual(computeAverageRating([{ rating: null }, { rating: null }]), null, "computeAverageRating: nur übersprungene Bewertungen ergibt null");
-  assertEqual(computeAverageRating([{ rating: "up" }, { rating: "up" }, { rating: "down" }]), 2 / 3, "computeAverageRating: Anteil positiver Bewertungen");
+  assertEqual(computeAverageRating([{ rating: 8 }, { rating: 10 }, { rating: 3 }]), 7, "computeAverageRating: arithmetisches Mittel (1-10-Skala)");
   assertEqual(
-    computeAverageRating([{ rating: "up" }, { rating: null }, { rating: "down" }]),
-    0.5,
+    computeAverageRating([{ rating: 6 }, { rating: null }, { rating: 4 }]),
+    5,
     "computeAverageRating: übersprungene Bewertung zählt nicht in den Schnitt mit rein"
   );
 }
@@ -153,9 +153,9 @@ function assertEqual(actual, expected, label) {
   assertEqual(filterWatchlistItems(items, { type: "serie" }).map((i) => i.id), ["a", "c"], "filterWatchlistItems: nach Typ");
   assertEqual(filterWatchlistItems(items, { genre: "comedy" }).map((i) => i.id), ["b", "c"], "filterWatchlistItems: nach Genre");
   assertEqual(
-    filterWatchlistItems(items, { minAvgRating: 0.5 }, { a: 0.8, b: 0.2 }).map((i) => i.id),
+    filterWatchlistItems(items, { minAvgRating: 7 }, { a: 8, b: 4 }).map((i) => i.id),
     ["a"],
-    "filterWatchlistItems: nach Mindestbewertung, unbewertete Items (c) fallen raus"
+    "filterWatchlistItems: nach Mindestbewertung (1-10-Skala), unbewertete Items (c) fallen raus"
   );
 }
 
@@ -190,6 +190,23 @@ function assertEqual(actual, expected, label) {
   );
   assertEqual(oneAlreadyScheduled.length, 1, "planMissingSlots: belegter Tag wird übersprungen");
   assertEqual(oneAlreadyScheduled[0], { date: "2026-07-14", item: items[1] }, "planMissingSlots: bereits verplantes Item (i1) wird nicht doppelt zugeteilt");
+}
+
+// ---------- Watchlist: planMissingSlots — zweiter Eintrag pro Tag (Kapazitätsprüfung) ----------
+{
+  const capacityItems = [
+    { id: "c1", status: "aktiv", sort_order: 0, created_at: "2026-01-01", type: "serie", duration_minutes: null }, // 45 Min Default
+    { id: "c2", status: "aktiv", sort_order: 1, created_at: "2026-01-02", type: "anime", duration_minutes: null }, // 20 Min Default
+  ];
+  const capacityDate = ["2026-07-20"]; // Montag -> budgetForDate = 120 Min
+  const alreadyScheduled = [{ watchlist_item_id: "c1", planned_date: "2026-07-20" }];
+
+  const tooTight = planMissingSlots(capacityItems, alreadyScheduled, capacityDate, { "2026-07-20": 60 });
+  assertEqual(tooTight.length, 0, "planMissingSlots: zweiter Eintrag wird bei zu wenig Kapazität nicht zugeteilt (60+45+20 > 120)");
+
+  const roomy = planMissingSlots(capacityItems, alreadyScheduled, capacityDate, { "2026-07-20": 0 });
+  assertEqual(roomy.length, 1, "planMissingSlots: zweiter Eintrag wird bei ausreichender Kapazität zugeteilt (0+45+20 <= 120)");
+  assertEqual(roomy[0], { date: "2026-07-20", item: capacityItems[1] }, "planMissingSlots: zweiter Eintrag ist der nächste Pool-Kandidat (c2)");
 }
 
 // ---------- Watchlist: buildSwapOperations ----------
