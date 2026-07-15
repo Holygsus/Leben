@@ -10,7 +10,7 @@ alter table watchlist_viewing_log drop constraint if exists watchlist_viewing_lo
 -- deterministische Rückwärtskonvertierung; bei Bedarf im Nachgang manuell im Sichtungs-Log
 -- korrigierbar, betrifft nur die bisher schon geloggten Sichtungen).
 alter table watchlist_viewing_log alter column rating type integer using (
-  case rating when 'up' then 10 when 'down' then 3 else null end
+  case rating::text when 'up' then 10 when 'down' then 3 else null end
 );
 
 alter table watchlist_viewing_log add constraint watchlist_viewing_log_rating_check

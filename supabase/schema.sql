@@ -232,6 +232,35 @@ create table if not exists habit_completions (
 
 create index if not exists habit_completions_task_id_idx on habit_completions (task_id);
 
+-- Geburtstage: eigener, simpler Datensatz statt Sonderfall von tasks/areas, da ein Geburtstag
+-- jedes Jahr wiederkehrt und selbst nie "geplant/erledigt" ist. year optional (nur Altersanzeige).
+create table if not exists birthdays (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users not null,
+  name text not null,
+  day int not null check (day between 1 and 31),
+  month int not null check (month between 1 and 12),
+  year int,
+  is_important boolean default false,
+  created_at timestamptz default now()
+);
+
+create index if not exists birthdays_user_id_idx on birthdays (user_id);
+
+-- Tagesreflexion: eigene Tabelle statt Aufgaben-Missbrauch. unique(user_id, date) macht "wurde für
+-- heute schon beantwortet?" zu einer einfachen Existenzprüfung und verhindert Duplikate.
+create table if not exists daily_reflections (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users not null,
+  date date not null,
+  mood int not null check (mood between 1 and 5),
+  note text,
+  created_at timestamptz default now(),
+  unique (user_id, date)
+);
+
+create index if not exists daily_reflections_user_date_idx on daily_reflections (user_id, date);
+
 -- Row Level Security
 alter table areas enable row level security;
 alter table tasks enable row level security;
@@ -248,6 +277,8 @@ alter table savings_pot_entries enable row level security;
 alter table watchlist_items enable row level security;
 alter table watchlist_viewing_log enable row level security;
 alter table habit_completions enable row level security;
+alter table birthdays enable row level security;
+alter table daily_reflections enable row level security;
 
 drop policy if exists "areas: own data" on areas;
 create policy "areas: own data" on areas for all using (auth.uid() = user_id);
@@ -293,6 +324,12 @@ create policy "watchlist_viewing_log: own data" on watchlist_viewing_log for all
 
 drop policy if exists "habit_completions: own data" on habit_completions;
 create policy "habit_completions: own data" on habit_completions for all using (auth.uid() = user_id);
+
+drop policy if exists "birthdays: own data" on birthdays;
+create policy "birthdays: own data" on birthdays for all using (auth.uid() = user_id);
+
+drop policy if exists "daily_reflections: own data" on daily_reflections;
+create policy "daily_reflections: own data" on daily_reflections for all using (auth.uid() = user_id);
 
 -- Auto-Timestamp für tasks.updated_at (und weitere Tabellen mit updated_at)
 create or replace function update_updated_at()

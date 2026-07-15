@@ -38,7 +38,15 @@ import {
   listSavingsPotEntries,
   filterBuyReady,
 } from "./wishlist.js";
-import { WEEKDAY_CODES, isHabitTask, autoplanDueHabits, weekdayCodeFromIso, RECURRENCE_LABEL } from "./habits.js";
+import {
+  WEEKDAY_CODES,
+  isHabitTask,
+  autoplanDueHabits,
+  weekdayCodeFromIso,
+  RECURRENCE_LABEL,
+  listAllHabitCompletions,
+  computeHabitStreak,
+} from "./habits.js";
 import {
   listWatchlistItems,
   createWatchlistItem,
@@ -56,6 +64,8 @@ import {
   autoplanWatchlistForDates,
   applyWatchlistSwap,
 } from "./watchlist.js";
+import { listBirthdays, createBirthday, deleteBirthday, daysUntilNextOccurrence, nextOccurrence } from "./birthdays.js";
+import { getReflectionForDate, createReflection } from "./reflections.js";
 
 const app = document.getElementById("app");
 
@@ -861,6 +871,7 @@ function renderShell() {
   });
   wireNavMoreMenu();
   routes[route]();
+  maybeShowReflectionPopup();
 }
 
 // "Mehr"-Menü: Klick auf den Button öffnet/schließt ein Dropdown mit den restlichen Routen, Klick
@@ -896,6 +907,114 @@ function wireNavMoreMenu() {
   menu.addEventListener("click", closeMenu);
 }
 
+// ----- Tagesreflexion-Popup (22–24 Uhr) -----
+// Client-seitige Zeitprüfung bei jedem renderShell()-Aufruf (App-Start/View-Wechsel), kein Cron
+// nötig — siehe wissensdatenbank/features/tagesreflexion.md. Snooze/Dismiss-Zustand liegt bewusst
+// in localStorage statt in der DB (reines UI-Verhalten für den aktuellen Abend, analog
+// QUICK_WIN_STORAGE_PREFIX), ob der Tag selbst schon beantwortet wurde, entscheidet dagegen immer
+// die DB (daily_reflections), nicht localStorage.
+const REFLECTION_DISMISSED_PREFIX = "leben-os:reflection-dismissed:";
+const REFLECTION_SNOOZE_PREFIX = "leben-os:reflection-snooze-until:";
+const REFLECTION_SNOOZED_ONCE_PREFIX = "leben-os:reflection-snoozed-once:";
+const REFLECTION_SNOOZE_MINUTES = 30;
+
+let reflectionPopupOpen = false;
+
+async function maybeShowReflectionPopup() {
+  const hour = new Date().getHours();
+  if (hour < 22 || hour >= 24) return;
+  if (reflectionPopupOpen) return;
+
+  const today = todayISO();
+  if (localStorage.getItem(REFLECTION_DISMISSED_PREFIX + today)) return;
+  const snoozeUntil = localStorage.getItem(REFLECTION_SNOOZE_PREFIX + today);
+  if (snoozeUntil && Date.now() < Number(snoozeUntil)) return;
+
+  const existing = await getReflectionForDate(today).catch(() => undefined);
+  if (existing) return;
+
+  openReflectionPopup(today);
+}
+
+function openReflectionPopup(date) {
+  reflectionPopupOpen = true;
+  const root = document.getElementById("modal-root");
+  document.body.style.overflow = "hidden";
+  const alreadySnoozed = Boolean(localStorage.getItem(REFLECTION_SNOOZED_ONCE_PREFIX + date));
+
+  const close = () => {
+    root.innerHTML = "";
+    document.body.style.overflow = "";
+    document.removeEventListener("keydown", onKeydown);
+    closeActiveModal = null;
+    reflectionPopupOpen = false;
+  };
+  const dismiss = () => {
+    localStorage.setItem(REFLECTION_DISMISSED_PREFIX + date, "1");
+    close();
+  };
+  const onKeydown = (e) => {
+    if (e.key === "Escape") dismiss();
+  };
+  document.addEventListener("keydown", onKeydown);
+  closeActiveModal = dismiss;
+
+  root.innerHTML = `
+    <div class="modal-backdrop" id="reflection-backdrop">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-label="Tagesreflexion">
+        <h2>Wie war dein Tag?</h2>
+        <div class="priority-chips" id="reflection-mood-chips" role="group" aria-label="Stimmung">
+          ${[1, 2, 3, 4, 5].map((m) => `<button type="button" class="priority-chip" data-mood="${m}">${m}</button>`).join("")}
+        </div>
+        <label class="modal-label">
+          Notiz (optional)
+          <textarea class="input" id="reflection-note" rows="2"></textarea>
+        </label>
+        <div class="modal-actions">
+          <button class="btn" type="button" id="reflection-submit">Absenden</button>
+          ${alreadySnoozed ? "" : `<button class="btn btn-secondary" type="button" id="reflection-snooze">In 30 Min. nochmal</button>`}
+          <button class="btn btn-secondary" type="button" id="reflection-dismiss">Nicht heute</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById("reflection-backdrop").addEventListener("click", (e) => {
+    if (e.target.id === "reflection-backdrop") dismiss();
+  });
+
+  let selectedMood = null;
+  const moodChips = document.getElementById("reflection-mood-chips");
+  moodChips.querySelectorAll(".priority-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      selectedMood = Number(chip.dataset.mood);
+      moodChips.querySelectorAll(".priority-chip").forEach((c) => (c.dataset.active = String(c.dataset.mood === String(selectedMood))));
+    });
+  });
+
+  document.getElementById("reflection-submit").addEventListener("click", async () => {
+    if (!selectedMood) {
+      showToast("Bitte eine Stimmung auswählen.", true);
+      return;
+    }
+    const note = document.getElementById("reflection-note").value.trim();
+    await withErrorToast(async () => {
+      await createReflection({ date, mood: selectedMood, note: note || null });
+      close();
+    });
+  });
+
+  const snoozeBtn = document.getElementById("reflection-snooze");
+  if (snoozeBtn) {
+    snoozeBtn.addEventListener("click", () => {
+      localStorage.setItem(REFLECTION_SNOOZE_PREFIX + date, String(Date.now() + REFLECTION_SNOOZE_MINUTES * 60000));
+      localStorage.setItem(REFLECTION_SNOOZED_ONCE_PREFIX + date, "1");
+      close();
+    });
+  }
+
+  document.getElementById("reflection-dismiss").addEventListener("click", dismiss);
+}
+
 // Prüft auf offene, unbestätigte Eingaben in der Übersicht (Inline-Anlegen-Formulare) —
 // Grundlage für die Nachfrage vorm Verlassen der Ansicht per Nav-Klick.
 function hasUnsavedOverviewInput() {
@@ -915,6 +1034,7 @@ function hasUnsavedOverviewInput() {
 const todayViewState = {
   allTasks: [],
   areaColorById: {},
+  birthdays: [],
 };
 
 async function renderTodayView() {
@@ -930,14 +1050,16 @@ async function renderTodayView() {
   // Mutteraufgaben-Gruppierung trivial, weil der volle Baum schon vorliegt).
   // Ungefiltert holen (nicht nur status:"active") — filterBuyReady() muss auch bereits manuell auf
   // "ready" gesetzte Wünsche sehen können, sonst fehlen die im Kaufbereit-Widget.
-  const [areas, allTasks, wishlistItems, potBalance, watchlistItems] = await Promise.all([
+  const [areas, allTasks, wishlistItems, potBalance, watchlistItems, birthdays] = await Promise.all([
     listAreas(),
     listTasks(),
     listWishlistItems(),
     getSavingsPotBalance(),
     listWatchlistItems(),
+    listBirthdays(),
   ]);
   todayViewState.areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
+  todayViewState.birthdays = birthdays;
   const today = todayISO();
 
   // Fällige Habits vor dem Rendern automatisch einplanen (planned_date/status setzen) — sonst
@@ -959,8 +1081,10 @@ async function renderTodayView() {
   renderGreeting();
   renderBuyReadyAlert(wishlistItems, potBalance);
   renderTodayTaskSection();
+  renderBirthdaysWidget(todayViewState.birthdays);
   renderQuickWin(todayViewState.allTasks, tasks, today);
   wireQuickCapture(areas, renderTodayView);
+  wireBirthdayQuickAddForm();
 }
 
 // Rendert nur den Aufgaben-Teil (Termine-Widget, Task-Liste inkl. Fortschrittsring) aus dem
@@ -1236,6 +1360,95 @@ function renderUpcomingEvents(allTasks, today) {
   } else {
     moreBtn.hidden = true;
   }
+}
+
+// ----- Geburtstage -----
+// Reine Erfassung + Anzeige (nächste zuerst). Die eigentliche "Arbeit" (Event/Geschenk-Aufgabe pro
+// anstehendem Geburtstag anlegen) übernimmt das Weekly/MSGA, nicht diese Ansicht — siehe
+// wissensdatenbank/features/geburtstage-kalender.md.
+function renderBirthdaysWidget(birthdays) {
+  const list = document.getElementById("birthdays-widget-list");
+  const moreBtn = document.getElementById("birthdays-widget-more");
+  if (!list || !moreBtn) return;
+
+  const sorted = [...birthdays].sort((a, b) => daysUntilNextOccurrence(a.day, a.month) - daysUntilNextOccurrence(b.day, b.month));
+
+  const renderItems = (items) => {
+    list.innerHTML = "";
+    for (const b of items) {
+      const li = document.createElement("li");
+      const dateLabel = `${b.day}.${b.month}.`;
+      const ageLabel = b.year ? ` (wird ${nextOccurrence(b.day, b.month).getFullYear() - b.year})` : "";
+      li.textContent = `${dateLabel} ${b.name}${ageLabel}`;
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "icon-btn icon-btn-danger";
+      deleteBtn.setAttribute("aria-label", "Geburtstag löschen");
+      deleteBtn.textContent = "×";
+      deleteBtn.addEventListener("click", async () => {
+        await withErrorToast(async () => {
+          await deleteBirthday(b.id);
+          todayViewState.birthdays = todayViewState.birthdays.filter((x) => x.id !== b.id);
+          renderBirthdaysWidget(todayViewState.birthdays);
+        });
+      });
+      li.appendChild(deleteBtn);
+      list.appendChild(li);
+    }
+  };
+  renderItems(sorted.slice(0, 3));
+
+  if (sorted.length > 3) {
+    moreBtn.hidden = false;
+    moreBtn.textContent = `+${sorted.length - 3} weitere`;
+    moreBtn.onclick = () => {
+      renderItems(sorted);
+      moreBtn.hidden = true;
+    };
+  } else {
+    moreBtn.hidden = true;
+  }
+}
+
+function wireBirthdayQuickAddForm() {
+  const toggleBtn = document.getElementById("birthday-quick-add-toggle");
+  const form = document.getElementById("birthday-quick-form");
+  const nameInput = document.getElementById("birthday-quick-name");
+  const dayInput = document.getElementById("birthday-quick-day");
+  const monthSelect = document.getElementById("birthday-quick-month");
+  const yearInput = document.getElementById("birthday-quick-year");
+  const importantInput = document.getElementById("birthday-quick-important");
+  const cancelBtn = document.getElementById("birthday-quick-cancel");
+
+  const closeForm = () => {
+    form.hidden = true;
+    form.reset();
+  };
+
+  toggleBtn.addEventListener("click", () => {
+    if (form.hidden) {
+      form.hidden = false;
+      nameInput.focus();
+    } else {
+      closeForm();
+    }
+  });
+  cancelBtn.addEventListener("click", closeForm);
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = nameInput.value.trim();
+    const day = Number(dayInput.value);
+    const month = Number(monthSelect.value);
+    if (!name || !day || !month) return;
+    await withErrorToast(async () => {
+      const year = yearInput.value ? Number(yearInput.value) : null;
+      const created = await createBirthday({ name, day, month, year, isImportant: importantInput.checked });
+      todayViewState.birthdays = [...todayViewState.birthdays, created];
+      closeForm();
+      renderBirthdaysWidget(todayViewState.birthdays);
+    });
+  });
 }
 
 // ----- Quick Win des Tages -----
@@ -2968,7 +3181,7 @@ const financeState = {
 
 /* ---------- Habits ---------- */
 
-const habitsViewState = { allTasks: [], areaColorById: {} };
+const habitsViewState = { allTasks: [], areaColorById: {}, completions: [] };
 
 async function renderHabitsView() {
   const myGeneration = renderGeneration;
@@ -2976,9 +3189,10 @@ async function renderHabitsView() {
   const res = await fetch("views/habits.html");
   if (myGeneration !== renderGeneration) return;
   container.innerHTML = await res.text();
-  const [tasks, areas] = await Promise.all([listTasks(), listAreas()]);
+  const [tasks, areas, completions] = await Promise.all([listTasks(), listAreas(), listAllHabitCompletions()]);
   habitsViewState.allTasks = tasks;
   habitsViewState.areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
+  habitsViewState.completions = completions;
   renderHabitList();
 }
 
@@ -3030,6 +3244,9 @@ function renderHabitList() {
     .map((t) => {
       const areaColor = habitsViewState.areaColorById[t.area_id];
       const freqLabel = `${t.habit_weekdays.length}× pro Woche`;
+      const streak = computeHabitStreak(t, habitsViewState.completions, todayISO());
+      const streakLabel =
+        streak.count === 0 ? "" : streak.type === "days" ? ` · 🔥 ${streak.count} Tage in Folge` : ` · ${streak.count}× erledigt`;
       return `
       <li class="task-item habit-item" data-habit-id="${t.id}" data-expanded="false" style="${
         areaColor ? `border-left-color:${areaColor};--task-area-color:${areaColor};` : ""
@@ -3037,7 +3254,7 @@ function renderHabitList() {
         <span class="task-area-dot" style="background:${areaColor || "var(--color-text-subtle)"}"></span>
         <div class="habit-body">
           <button type="button" class="habit-toggle" aria-expanded="false">
-            <span class="task-title">${escapeHtml(t.title)}<span class="habit-freq">${freqLabel}</span></span>
+            <span class="task-title">${escapeHtml(t.title)}<span class="habit-freq">${freqLabel}${streakLabel}</span></span>
             ${buildHabitDotRow(t, todayCode)}
           </button>
           <div class="habit-expanded" hidden>

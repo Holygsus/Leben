@@ -109,3 +109,58 @@ export async function autoplanDueHabits(allTasks, todayIso) {
 
   return targetIds;
 }
+
+// ---------- Streak-Anzeige ----------
+
+// Batch-Variante für die Habits-Übersicht: ein Request für alle Habits statt N+1 (analog
+// listAllViewingLogEntries in js/watchlist.js).
+export async function listAllHabitCompletions() {
+  const { data, error } = await supabase.from("habit_completions").select("*");
+  if (error) throw error;
+  return data;
+}
+
+// "Tage in Folge" ist nur für 'weekly' sauber aus habit_weekdays + habit_completions ableitbar:
+// pro Kalendertag rückwärts ab heute prüfen, ob der Tag laut habit_weekdays fällig war, und falls
+// ja, ob eine Completion existiert — die erste fällige Lücke beendet die Serie. Für
+// 'biweekly'/'monthly' würde dieselbe Tages-Logik falsche Lücken zwischen den Fällig-Terminen
+// sehen (der einzige Fälligkeits-Anker, habit_last_due_date, kennt nur den letzten Termin, keine
+// Historie) — dort zeigen wir stattdessen nur die Gesamtzahl an Erledigungen.
+const STREAK_MAX_LOOKBACK_DAYS = 366;
+
+export function computeHabitStreak(task, completions, todayIso = localTodayIso()) {
+  const taskCompletions = completions.filter((c) => c.task_id === task.id);
+  if ((task.habit_recurrence || "weekly") !== "weekly") {
+    return { type: "total", count: taskCompletions.length };
+  }
+  if (task.habit_weekdays.length === 0) return { type: "days", count: 0 };
+
+  const completedDates = new Set(taskCompletions.map((c) => c.date));
+  let count = 0;
+  const cursor = new Date(todayIso + "T00:00:00");
+  for (let i = 0; i < STREAK_MAX_LOOKBACK_DAYS; i++) {
+    const iso = toLocalIso(cursor);
+    if (task.habit_weekdays.includes(weekdayCodeFromDate(cursor))) {
+      if (!completedDates.has(iso)) {
+        // Heute selbst noch offen zählt nicht als gerissene Serie — der Tag ist ja noch nicht
+        // vorbei. Jeder frühere fällige, nicht erledigte Tag beendet die Serie wie erwartet.
+        if (i === 0) {
+          cursor.setDate(cursor.getDate() - 1);
+          continue;
+        }
+        break;
+      }
+      count++;
+    }
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return { type: "days", count };
+}
+
+function toLocalIso(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function localTodayIso() {
+  return toLocalIso(new Date());
+}
