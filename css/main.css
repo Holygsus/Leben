@@ -17,6 +17,39 @@ body {
   position: relative;
 }
 
+/* Optionales Hintergrundbild (Personalisierung, siehe wissensdatenbank/features/personalisierung.md)
+   — per JS als inline background-image gesetzt, sonst leer/transparent (kein optischer Unterschied
+   zum body-Grundzustand). z-index:-1 hält es hinter #app, aber vor dem body-Canvas-Hintergrund. */
+#app-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+#app-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: transparent;
+}
+
+@media (prefers-color-scheme: dark) {
+  #app-bg::after {
+    background: rgba(0, 0, 0, 0.45);
+  }
+}
+
+:root[data-theme="dark"] #app-bg::after {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme="light"] #app-bg::after {
+  background: transparent;
+}
+
 /* Systemweiter Ladeindikator — zeigt an, dass die App noch lebt/arbeitet (siehe supabase.js
    trackedFetch), auch wenn ein einzelner Button/Container keinen eigenen Lade-Hinweis hat. */
 

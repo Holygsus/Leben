@@ -33,6 +33,12 @@ export async function getCurrentUserId() {
   return session ? session.user.id : null;
 }
 
+export async function updateUsername(username) {
+  const { data, error } = await supabase.auth.updateUser({ data: { username } });
+  if (error) throw error;
+  return data.user;
+}
+
 export function onAuthStateChange(callback) {
   const { data } = supabase.auth.onAuthStateChange((event, session) => callback(session, event));
   return data.subscription;

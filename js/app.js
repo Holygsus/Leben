@@ -1,4 +1,4 @@
-import { getSession, onAuthStateChange, signInWithMagicLink, ensureAreasSeeded } from "./auth.js";
+import { getSession, onAuthStateChange, signInWithMagicLink, ensureAreasSeeded, updateUsername } from "./auth.js";
 import {
   listTasks,
   updateTask,
@@ -66,6 +66,25 @@ import {
 } from "./watchlist.js";
 import { listBirthdays, createBirthday, deleteBirthday, daysUntilNextOccurrence, nextOccurrence } from "./birthdays.js";
 import { getReflectionForDate, createReflection } from "./reflections.js";
+import {
+  getStoredTheme,
+  applyTheme,
+  getBackgroundImageBlob,
+  saveBackgroundImageBlob,
+  clearBackgroundImage,
+  resizeImageToBlob,
+} from "./personalization.js";
+
+// Muss vor dem ersten Render laufen, sonst blitzt beim Start kurz das System-Theme auf, bevor die
+// gespeicherte Wahl greift (siehe wissensdatenbank/features/personalisierung.md).
+const storedTheme = getStoredTheme();
+if (storedTheme) document.documentElement.dataset.theme = storedTheme;
+
+// Hintergrundbild ist rein lokal (IndexedDB) und unabhängig vom Login-Status gültig — direkt beim
+// Skriptstart anwenden, nicht erst nach erfolgreicher Anmeldung.
+getBackgroundImageBlob().then((blob) => {
+  if (blob) document.getElementById("app-bg").style.backgroundImage = `url(${URL.createObjectURL(blob)})`;
+});
 
 const app = document.getElementById("app");
 
@@ -690,6 +709,10 @@ function ensureAreasSeededOnce(userId) {
   return seedPromise;
 }
 
+// Aus session.user_metadata gecacht statt bei jedem renderGreeting()-Aufruf neu zu fetchen — kommt
+// bereits kostenlos mit jeder Session mit, siehe supabase.auth.getSession()/updateUser().
+let currentUsername = null;
+
 async function init() {
   let session;
   try {
@@ -701,6 +724,7 @@ async function init() {
   }
 
   if (session) {
+    currentUsername = session.user.user_metadata?.username || null;
     try {
       await ensureAreasSeededOnce(session.user.id);
       renderShell();
@@ -717,11 +741,13 @@ async function init() {
   onAuthStateChange((newSession, event) => {
     if (event !== "SIGNED_IN" && event !== "SIGNED_OUT") return;
     if (newSession) {
+      currentUsername = newSession.user.user_metadata?.username || null;
       ensureAreasSeededOnce(newSession.user.id)
         .then(renderShell)
         .catch((err) => showToast(friendlyErrorMessage(err), true));
     } else {
       seedPromise = null;
+      currentUsername = null;
       renderLogin();
     }
   });
@@ -1085,6 +1111,7 @@ async function renderTodayView() {
   renderQuickWin(todayViewState.allTasks, tasks, today);
   wireQuickCapture(areas, renderTodayView);
   wireBirthdayQuickAddForm();
+  wireSettingsPanel();
 }
 
 // Rendert nur den Aufgaben-Teil (Termine-Widget, Task-Liste inkl. Fortschrittsring) aus dem
@@ -1124,11 +1151,113 @@ function renderGreeting() {
   const now = new Date();
   const hour = now.getHours();
   const greeting = hour < 11 ? "Guten Morgen" : hour < 18 ? "Guten Tag" : "Guten Abend";
-  document.getElementById("greeting-text").textContent = greeting;
+  document.getElementById("greeting-text").textContent = currentUsername ? `${greeting}, ${currentUsername}` : greeting;
   document.getElementById("today-date").textContent = now.toLocaleDateString("de-DE", {
     weekday: "long",
     day: "numeric",
     month: "long",
+  });
+}
+
+// ----- Einstellungen (Zahnrad in der Heute-Ansicht) -----
+// Modal statt eigener Nav-Route — für Name + Darstellung + Hintergrundbild lohnt sich keine
+// eigenständige Ansicht, siehe wissensdatenbank/features/personalisierung.md.
+
+function wireSettingsPanel() {
+  document.getElementById("settings-open").addEventListener("click", openSettingsPanel);
+}
+
+async function openSettingsPanel() {
+  const root = document.getElementById("modal-root");
+  document.body.style.overflow = "hidden";
+  const currentBlob = await getBackgroundImageBlob();
+  let hasBg = Boolean(currentBlob);
+  const storedThemeChoice = getStoredTheme() || "";
+
+  const close = () => {
+    root.innerHTML = "";
+    document.body.style.overflow = "";
+    document.removeEventListener("keydown", onKeydown);
+    closeActiveModal = null;
+  };
+  const onKeydown = (e) => {
+    if (e.key === "Escape") close();
+  };
+  document.addEventListener("keydown", onKeydown);
+  closeActiveModal = close;
+
+  root.innerHTML = `
+    <div class="modal-backdrop" id="settings-backdrop">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-label="Einstellungen">
+        <h2>Einstellungen</h2>
+        <label class="modal-label">
+          Name
+          <input class="input" type="text" id="settings-username" value="${escapeHtml(currentUsername || "")}" placeholder="Dein Name" />
+        </label>
+        <label class="modal-label">
+          Darstellung
+          <div class="priority-chips" id="settings-theme-chips" role="group" aria-label="Darstellung">
+            <button type="button" class="priority-chip" data-theme-choice="" data-active="${storedThemeChoice === ""}">System</button>
+            <button type="button" class="priority-chip" data-theme-choice="light" data-active="${storedThemeChoice === "light"}">Hell</button>
+            <button type="button" class="priority-chip" data-theme-choice="dark" data-active="${storedThemeChoice === "dark"}">Dunkel</button>
+          </div>
+        </label>
+        <label class="modal-label">
+          Hintergrundbild
+          <input type="file" class="input" accept="image/*" id="settings-bg-file" />
+        </label>
+        <div class="modal-actions" id="settings-bg-remove-row" ${hasBg ? "" : "hidden"}>
+          <button class="btn btn-secondary" type="button" id="settings-bg-remove">Hintergrundbild entfernen</button>
+        </div>
+        <div class="modal-actions">
+          <button class="btn" type="button" id="settings-save">Speichern</button>
+          <button class="btn btn-secondary" type="button" id="settings-close">Schließen</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById("settings-backdrop").addEventListener("click", (e) => {
+    if (e.target.id === "settings-backdrop") close();
+  });
+  document.getElementById("settings-close").addEventListener("click", close);
+
+  const themeChips = document.getElementById("settings-theme-chips");
+  themeChips.querySelectorAll(".priority-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      applyTheme(chip.dataset.themeChoice || null);
+      themeChips.querySelectorAll(".priority-chip").forEach((c) => (c.dataset.active = String(c === chip)));
+    });
+  });
+
+  document.getElementById("settings-save").addEventListener("click", async () => {
+    const username = document.getElementById("settings-username").value.trim();
+    await withErrorToast(async () => {
+      await updateUsername(username || null);
+      currentUsername = username || null;
+      renderGreeting();
+      close();
+    });
+  });
+
+  document.getElementById("settings-bg-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    await withErrorToast(async () => {
+      const blob = await resizeImageToBlob(file);
+      await saveBackgroundImageBlob(blob);
+      document.getElementById("app-bg").style.backgroundImage = `url(${URL.createObjectURL(blob)})`;
+      hasBg = true;
+      document.getElementById("settings-bg-remove-row").hidden = false;
+    });
+  });
+
+  document.getElementById("settings-bg-remove").addEventListener("click", async () => {
+    await withErrorToast(async () => {
+      await clearBackgroundImage();
+      document.getElementById("app-bg").style.backgroundImage = "";
+      hasBg = false;
+      document.getElementById("settings-bg-remove-row").hidden = true;
+    });
   });
 }
 
