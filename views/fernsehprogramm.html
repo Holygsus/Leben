@@ -1,5 +1,8 @@
 <section class="view-header">
-  <h1>Fernsehprogramm</h1>
+  <div class="view-title-group">
+    <div class="view-icon-badge"><svg viewBox="0 0 24 24"><path d="M3 5h18v12H3z"/><path d="M8 21h8M12 17v4M8 2l3 3M16 2l-3 3"/></svg></div>
+    <h1>Fernsehprogramm</h1>
+  </div>
   <div class="view-header-actions">
     <button type="button" class="icon-btn" id="watchlist-quick-add-toggle" aria-label="Watchlist-Eintrag hinzufügen">+</button>
   </div>
@@ -21,9 +24,11 @@
 <section class="panel">
   <h2>Diese Woche</h2>
   <ul class="task-list" id="watchlist-week-list"></ul>
-  <p class="empty-state" id="watchlist-week-empty-state" hidden>
-    Noch nichts eingeplant — leg über "+" Einträge an und setze sie auf "aktiv".
-  </p>
+  <div class="empty-state-rich" id="watchlist-week-empty-state" hidden>
+    <svg viewBox="0 0 24 24"><path d="M3 5h18v12H3z"/><path d="M8 21h8M12 17v4M8 2l3 3M16 2l-3 3"/></svg>
+    <strong>Noch nichts eingeplant</strong>
+    <span>Leg über "+" Einträge an und setze sie auf "aktiv".</span>
+  </div>
 </section>
 
 <section class="panel">
@@ -49,6 +54,10 @@
     </section>
     <ul class="events-widget-list" id="watchlist-overview-list"></ul>
     <button type="button" class="events-widget-more" id="watchlist-overview-more" hidden></button>
-    <p class="empty-state" id="watchlist-overview-empty-state" hidden>Noch keine Watchlist-Einträge.</p>
+    <div class="empty-state-rich" id="watchlist-overview-empty-state" hidden>
+      <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      <strong>Watchlist ist leer</strong>
+      <span>Leg oben über "+" deinen ersten Eintrag an.</span>
+    </div>
   </div>
 </section>

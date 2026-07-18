@@ -104,6 +104,9 @@ const WEEKDAY_LABEL = { mon: "Mo", tue: "Di", wed: "Mi", thu: "Do", fri: "Fr", s
 const BADGE_ICON_HABIT = `<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5"/></svg>`;
 const BADGE_ICON_BRAINSTORM = `<svg viewBox="0 0 24 24"><path d="M9 18h6M10 22h4M12 2a6 6 0 0 0-3 11.2c.6.4 1 1.1 1 1.8v.5h4v-.5c0-.7.4-1.4 1-1.8A6 6 0 0 0 12 2Z"/></svg>`;
 const BADGE_ICON_OVERDUE = `<svg viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17h.01"/></svg>`;
+// SVG statt Emoji für die Streak-Anzeige (Konvention der App: konsistente Strich-Icons statt
+// Emoji, die je nach Betriebssystem unterschiedlich rendern).
+const STREAK_ICON_FLAME = `<svg viewBox="0 0 24 24"><path d="M12 2c1 3-3 4-3 8a3 3 0 0 0 6 0c1.5 1 2 3 2 4.5A5.5 5.5 0 0 1 6 14.5C6 9 12 7 12 2z"/></svg>`;
 
 const FILTER_STORAGE_KEY = "leben-os:overview-filters";
 
@@ -468,7 +471,7 @@ function shiftMonth(monthIso, delta) {
 }
 
 // [ersterIso, letzterIso] aller sichtbaren Grid-Zellen (inkl. Padding-Tage aus Nachbarmonaten) —
-// so ist data-has-tasks auch für ausgegraute Tage korrekt.
+// so ist die Auslastungs-Färbung (data-load) auch für ausgegraute Tage korrekt.
 function monthRange(monthIso) {
   const cells = buildMonthGrid(monthIso);
   return [cells[0].iso, cells[cells.length - 1].iso];
@@ -768,6 +771,11 @@ document.addEventListener("keydown", (e) => {
   const searchInput = document.getElementById("filter-search");
   if (!searchInput) return;
   e.preventDefault();
+  const filterBar = document.getElementById("filter-bar");
+  if (filterBar?.hidden) {
+    filterBar.hidden = false;
+    document.getElementById("filter-toggle")?.setAttribute("aria-expanded", "true");
+  }
   searchInput.focus();
 });
 
@@ -1885,32 +1893,63 @@ function filterTreeNodes(nodes, predicate) {
   return out;
 }
 
+// Zählt aktive Filter für den Badge am Filter-Toggle — Suchtext, Aufwand/Status-Auswahl und die
+// "Erledigte anzeigen"-Checkbox zählen je als ein aktiver Filter.
+function countActiveOverviewFilters() {
+  const { effort, status, search } = overviewState.filters;
+  return [effort, status, search].filter(Boolean).length + (overviewState.showDone ? 1 : 0);
+}
+
+function updateFilterCountBadge() {
+  const badge = document.getElementById("filter-count");
+  if (!badge) return;
+  const count = countActiveOverviewFilters();
+  badge.hidden = count === 0;
+  badge.textContent = String(count);
+}
+
+// Filterleiste bleibt standardmäßig eingeklappt (Muster wie die Schnellerfassung) — waren beim
+// letzten Besuch schon Filter aktiv, startet sie aber offen, damit die aktive Auswahl nicht
+// versteckt hinter dem Zähler-Badge verschwindet.
 function wireOverviewFilters() {
   const effortSelect = document.getElementById("filter-effort");
   const statusSelect = document.getElementById("filter-status");
   const searchInput = document.getElementById("filter-search");
   const showDoneCheckbox = document.getElementById("filter-show-done");
+  const toggleBtn = document.getElementById("filter-toggle");
+  const filterBar = document.getElementById("filter-bar");
 
   effortSelect.value = overviewState.filters.effort;
   statusSelect.value = overviewState.filters.status;
   searchInput.value = overviewState.filters.search;
   showDoneCheckbox.checked = overviewState.showDone;
+  updateFilterCountBadge();
+
+  const setExpanded = (expanded) => {
+    filterBar.hidden = !expanded;
+    toggleBtn.setAttribute("aria-expanded", String(expanded));
+  };
+  setExpanded(countActiveOverviewFilters() > 0);
+  toggleBtn.addEventListener("click", () => setExpanded(filterBar.hidden));
 
   effortSelect.addEventListener("change", () => {
     overviewState.filters.effort = effortSelect.value;
     saveStoredFilters();
+    updateFilterCountBadge();
     renderAreaTree();
     renderNoAreaSection();
   });
   statusSelect.addEventListener("change", () => {
     overviewState.filters.status = statusSelect.value;
     saveStoredFilters();
+    updateFilterCountBadge();
     renderAreaTree();
     renderNoAreaSection();
   });
   searchInput.addEventListener("input", () => {
     overviewState.filters.search = searchInput.value.trim().toLowerCase();
     saveStoredFilters();
+    updateFilterCountBadge();
     renderAreaTree();
     renderNoAreaSection();
   });
@@ -1924,6 +1963,7 @@ function wireOverviewFilters() {
   showDoneCheckbox.addEventListener("change", () => {
     overviewState.showDone = showDoneCheckbox.checked;
     saveStoredFilters();
+    updateFilterCountBadge();
     renderAreaTree();
     renderNoAreaSection();
   });
@@ -2841,7 +2881,7 @@ function renderMonthCalendar(monthTasks, dateInput) {
     btn.dataset.iso = cell.iso;
     btn.dataset.inMonth = String(cell.inMonth);
     btn.dataset.today = String(cell.iso === today);
-    btn.dataset.hasTasks = String(count > 0);
+    btn.dataset.load = count === 0 ? "0" : count <= 2 ? "1" : count <= 4 ? "2" : count <= 6 ? "3" : "heavy";
     btn.dataset.selected = String(cell.iso === planState.targetDate);
     btn.setAttribute("aria-label", localDate.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" }));
     btn.textContent = String(cd);
@@ -3375,7 +3415,11 @@ function renderHabitList() {
       const freqLabel = `${t.habit_weekdays.length}× pro Woche`;
       const streak = computeHabitStreak(t, habitsViewState.completions, todayISO());
       const streakLabel =
-        streak.count === 0 ? "" : streak.type === "days" ? ` · 🔥 ${streak.count} Tage in Folge` : ` · ${streak.count}× erledigt`;
+        streak.count === 0
+          ? ""
+          : streak.type === "days"
+            ? ` · <span class="streak-flame">${STREAK_ICON_FLAME}${streak.count} Tage in Folge</span>`
+            : ` · ${streak.count}× erledigt`;
       return `
       <li class="task-item habit-item" data-habit-id="${t.id}" data-expanded="false" style="${
         areaColor ? `border-left-color:${areaColor};--task-area-color:${areaColor};` : ""
@@ -3495,12 +3539,13 @@ async function reloadFinance() {
   renderWishlistCards();
 }
 
-function buildPotCard(label, color, amountText, pct) {
+function buildPotCard(label, color, amountText, pct, celebrateAtFull = false) {
   const card = document.createElement("div");
   card.className = "pot-card";
 
   const ring = document.createElement("div");
   ring.className = "pot-ring";
+  ring.classList.toggle("is-full", celebrateAtFull && pct >= 100);
   ring.style.setProperty("--pct", Math.max(0, Math.min(100, pct)));
   ring.style.setProperty("--ring-color", color);
 
@@ -3545,7 +3590,8 @@ function renderPotGrid() {
         POT_LABELS.sicherheit,
         POT_COLOR_VAR.sicherheit,
         `${formatEuro(notgroschenProgress)} / ${formatEuro(notgroschenTarget)}`,
-        notgroschenPct
+        notgroschenPct,
+        true
       )
     );
 
@@ -3969,6 +4015,24 @@ function buildWishlistCard(item) {
   tags.appendChild(statusTag);
 
   card.append(top, tags);
+
+  // Fortschritt bis zur Kaufbereitschaft direkt auf der Karte, statt erst sichtbar zu werden,
+  // sobald der Spartopf den Preis schon vollständig deckt (siehe filterBuyReady/renderBuyReadyAlert)
+  // — nur für Wünsche mit Preis, die noch nicht manuell auf "ready" gesetzt oder gekauft sind.
+  if (item.current_price > 0 && (item.status === "active" || item.status === "inactive")) {
+    const pct = Math.max(0, Math.min(100, Math.round((financeState.potBalance / item.current_price) * 100)));
+    const fundBar = document.createElement("div");
+    fundBar.className = "wish-fund-bar";
+    const fill = document.createElement("div");
+    fill.className = "wish-fund-fill";
+    fill.style.width = `${pct}%`;
+    fundBar.appendChild(fill);
+    const fundLabel = document.createElement("div");
+    fundLabel.className = "wish-fund-label";
+    fundLabel.textContent = `${pct} % aus dem Spartopf finanzierbar`;
+    card.append(fundBar, fundLabel);
+  }
+
   return card;
 }
 
@@ -4231,6 +4295,23 @@ function openWatchlistSwapPicker(taskId) {
   });
 }
 
+const RATING_STAR_PATH =
+  "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z";
+
+// Skala ist 1-10 (siehe computeAverageRating in js/watchlist.js) — hier auf 5 Sterne in
+// 0,5er-Schritten gerundet, damit "gut bewertet" beim Überfliegen mehrerer Einträge auf einen
+// Blick auffällt, statt jede Zahl einzeln lesen zu müssen. Die Ø-Zahl bleibt als Beleg daneben.
+function buildRatingStarsHtml(avg) {
+  if (avg == null) return `<span class="rating-num">—</span>`;
+  const star = (cls) => `<svg class="${cls}" viewBox="0 0 24 24"><path d="${RATING_STAR_PATH}"/></svg>`;
+  const scaled = Math.round((avg / 2) * 2) / 2;
+  const full = Math.floor(scaled);
+  const half = scaled - full === 0.5;
+  const empty = 5 - full - (half ? 1 : 0);
+  const starsHtml = star("filled").repeat(full) + (half ? star("half") : "") + star("empty").repeat(empty);
+  return `<span class="rating-stars">${starsHtml}</span><span class="rating-num">${avg.toFixed(1)}</span>`;
+}
+
 function computeAvgRatingByItemId() {
   const avgByItemId = {};
   for (const item of watchlistViewState.items) {
@@ -4271,8 +4352,9 @@ function renderWatchlistOverview() {
     list.innerHTML = "";
     for (const item of items) {
       const li = document.createElement("li");
+      li.className = "rating-row";
       const avg = avgByItemId[item.id];
-      li.textContent = `${WATCHLIST_TYPE_LABEL[item.type]} · ${item.title}${avg == null ? "" : ` · Ø ${avg.toFixed(1)}`}`;
+      li.innerHTML = `<span class="task-title">${WATCHLIST_TYPE_LABEL[item.type]} · ${escapeHtml(item.title)}</span>${buildRatingStarsHtml(avg)}`;
       li.addEventListener("click", () => openWatchlistDetail(item.id));
       list.appendChild(li);
     }
@@ -4370,7 +4452,6 @@ async function renderWatchlistDetailCard(itemId, close) {
   }
 
   const avg = computeAverageRating(log);
-  const avgLabel = avg == null ? "—" : `${avg.toFixed(1)} Ø`;
   const logHtml = log.length
     ? log
         .map((entry) => {
@@ -4383,11 +4464,11 @@ async function renderWatchlistDetailCard(itemId, close) {
           </li>`;
         })
         .join("")
-    : `<p class="empty-state">Noch keine Sichtung geloggt.</p>`;
+    : `<div class="empty-state-rich"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><strong>Noch keine Sichtung</strong><span>Logge unten die erste Folge oder Sitzung.</span></div>`;
 
   card.innerHTML = `
     <h2 class="modal-view-title">${escapeHtml(item.title)}</h2>
-    <p class="status-message">Ø Bewertung: ${avgLabel}</p>
+    <p class="status-message">Ø Bewertung: ${buildRatingStarsHtml(avg)}</p>
 
     <label class="modal-label">Titel
       <input type="text" class="input" id="wd-title" value="${escapeHtml(item.title)}" />

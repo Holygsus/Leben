@@ -1,5 +1,8 @@
 <section class="view-header">
-  <h1>Plan</h1>
+  <div class="view-title-group" style="--view-accent: var(--color-success);">
+    <div class="view-icon-badge"><svg viewBox="0 0 24 24"><path d="M7 3v3M17 3v3M4 9h16M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z"/></svg></div>
+    <h1>Plan</h1>
+  </div>
   <div class="plan-date-picker">
     <button type="button" class="chip-btn" id="plan-date-today">Heute</button>
     <button type="button" class="chip-btn" id="plan-date-tomorrow">Morgen</button>
@@ -12,7 +15,11 @@
   <h2>Vorschlag</h2>
   <p class="plan-budget" id="plan-budget"></p>
   <ul class="task-list" id="suggested-task-list"></ul>
-  <p class="empty-state" id="suggested-empty-state" hidden>Keine offenen Aufgaben für einen Vorschlag verfügbar.</p>
+  <div class="empty-state-rich" id="suggested-empty-state" hidden>
+  <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+  <strong>Kein Vorschlag verfügbar</strong>
+  <span>Es gibt aktuell keine offenen Aufgaben, aus denen sich ein Vorschlag bauen lässt.</span>
+</div>
   <button class="btn btn-secondary" type="button" id="refresh-suggestion">Neu vorschlagen</button>
 </section>
 

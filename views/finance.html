@@ -1,5 +1,8 @@
 <section class="view-header">
-  <h1>Finanzen</h1>
+  <div class="view-title-group" style="--view-accent: var(--color-accent-warm);">
+    <div class="view-icon-badge"><svg viewBox="0 0 24 24"><path d="M3 7h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1h13M16 13h2"/></svg></div>
+    <h1>Finanzen</h1>
+  </div>
   <div class="view-header-actions">
     <button type="button" class="icon-btn" id="tx-quick-toggle" aria-label="Transaktion erfassen">+</button>
   </div>
@@ -51,7 +54,11 @@
   </select>
 </section>
 <ul class="task-list" id="transaction-list"></ul>
-<p class="empty-state" id="transaction-empty-state" hidden>Noch keine Transaktionen erfasst.</p>
+<div class="empty-state-rich" id="transaction-empty-state" hidden>
+  <svg viewBox="0 0 24 24"><path d="M3 10h18M7 15h3M3 6h18v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6z"/></svg>
+  <strong>Noch keine Bewegung</strong>
+  <span>Erfasse deine erste Ausgabe oder Einnahme über das + oben.</span>
+</div>
 
 <section class="panel">
   <div class="panel-header">

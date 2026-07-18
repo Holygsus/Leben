@@ -337,6 +337,49 @@ body {
   font-size: var(--font-size-sm);
 }
 
+.rating-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+/* Sterne statt reiner Ø-Zahl — bei mehreren Einträgen untereinander fällt "gut bewertet" so sofort
+   auf, ohne jede Zahl einzeln lesen zu müssen. Die Zahl bleibt als Beleg daneben stehen. */
+.rating-stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.rating-stars svg {
+  width: 14px;
+  height: 14px;
+}
+
+.rating-stars svg.filled {
+  fill: var(--color-accent-warm);
+  stroke: var(--color-accent-warm);
+}
+
+.rating-stars svg.half {
+  fill: var(--color-accent-warm);
+  stroke: var(--color-accent-warm);
+  opacity: 0.5;
+}
+
+.rating-stars svg.empty {
+  fill: none;
+  stroke: var(--color-border);
+}
+
+.rating-num {
+  margin-left: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .events-widget-more {
   margin-top: var(--space-2);
   color: var(--color-accent);
@@ -392,7 +435,38 @@ body {
 }
 
 .progress-ring.is-complete {
+  position: relative;
+  overflow: hidden;
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-success) 25%, transparent);
+}
+
+/* Kurzer Lichtschweif bei echtem Tagesabschluss — macht "100%" von "95%" spürbar unterscheidbar,
+   statt nur denselben statischen Glow-Rand zu zeigen. */
+.progress-ring.is-complete::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    color-mix(in srgb, #fff 55%, transparent) 12deg,
+    transparent 24deg
+  );
+  animation: ring-sweep 2.6s linear infinite;
+}
+
+@keyframes ring-sweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-ring.is-complete::before,
+  .pot-ring.is-full::before {
+    animation: none;
+  }
 }
 
 .progress-ring-hole {
@@ -539,6 +613,13 @@ body {
   margin-top: var(--space-5);
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
+}
+
+/* Gleicher Stolperstein wie bei #toast oben: die eigene display:flex-Deklaration schlägt sonst das
+   [hidden]-Attribut, sobald dieser Baustein (wie hier neu bei mehreren Empty States) nicht nur
+   frisch erzeugt/angehängt, sondern per .hidden umgeschaltet wird. */
+.empty-state-rich[hidden] {
+  display: none;
 }
 
 .empty-state-rich svg {
@@ -717,6 +798,22 @@ body {
   margin-top: 2px;
 }
 
+.streak-flame {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--color-accent-warm);
+  font-weight: 600;
+}
+
+.streak-flame svg {
+  width: 13px;
+  height: 13px;
+  fill: var(--color-accent-warm);
+  stroke: none;
+  flex-shrink: 0;
+}
+
 .habit-dotrow {
   display: flex;
   gap: 6px;
@@ -824,6 +921,38 @@ body {
   flex-shrink: 0;
 }
 
+/* Verankert oben, wo man gerade ist — dieselbe Farbsprache wie die Nav unten, nur als kleines
+   Icon-Badge statt eines aktiven Nav-Zustands. Ohne das sehen Übersicht/Plan/Finanzen/Habits/
+   Fernsehprogramm auf einem Screenshot ohne Kontext alle identisch aus. */
+.view-title-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.view-icon-badge {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--view-accent, var(--color-accent)) 16%, var(--color-surface));
+  color: var(--view-accent, var(--color-accent));
+}
+
+.view-icon-badge svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .area-chips {
   display: flex;
   flex-wrap: wrap;
@@ -864,8 +993,73 @@ body {
   margin-bottom: var(--space-4);
 }
 
+/* Ohne diese Regel bliebe die eingeklappte Filterleiste trotz hidden-Attribut sichtbar — gleicher
+   Stolperstein wie bei #toast oben (display:flex schlägt [hidden]). */
+.filter-bar[hidden] {
+  display: none;
+}
+
 .filter-bar .input {
   flex: 1 1 180px;
+}
+
+/* Filter hinter einem Button verstecken statt dauerhaft als Formular offen zu stehen — gleiches
+   Aufklapp-Muster wie die Schnellerfassung (.quick-capture-panel). Der Zähler-Badge macht aktive
+   Filter auch im eingeklappten Zustand sichtbar. */
+.filter-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.filter-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.filter-toggle-btn svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.filter-toggle-btn[aria-expanded="true"] {
+  color: var(--color-accent);
+  border-color: currentColor;
+}
+
+.filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.filter-result-count {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-subtle);
 }
 
 .checkbox-label {
@@ -1001,6 +1195,28 @@ body {
   background: var(--color-surface);
 }
 
+/* Nur für Töpfe, bei denen 100% eine echte Errungenschaft ist (Notgroschen-Ziel erreicht) —
+   nicht für Fixkosten/Wachstum/Freiheit, die dauerhaft oder am Monatsanfang bei 100% stehen. */
+.pot-ring.is-full {
+  position: relative;
+  overflow: hidden;
+}
+
+.pot-ring.is-full::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  z-index: 1;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    color-mix(in srgb, #fff 55%, transparent) 16deg,
+    transparent 32deg
+  );
+  animation: ring-sweep 2.6s linear infinite;
+}
+
 .pot-card .p-label {
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
@@ -1050,6 +1266,29 @@ body {
   display: flex;
   gap: var(--space-1);
   margin-top: var(--space-2);
+}
+
+/* Zeigt den Finanzierungsfortschritt schon, bevor ein Wunsch komplett gedeckt ist — die
+   Berechnung (Spartopf-Stand vs. Preis) speist sonst nur das separate "Kaufbereit"-Widget. */
+.wish-fund-bar {
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-raised);
+  overflow: hidden;
+  margin-top: var(--space-3);
+}
+
+.wish-fund-fill {
+  height: 100%;
+  background: var(--color-accent-warm);
+  border-radius: var(--radius-full);
+  transition: width var(--transition-base);
+}
+
+.wish-fund-label {
+  margin-top: var(--space-1);
+  font-size: 0.72rem;
+  color: var(--color-text-subtle);
 }
 
 .wtag {
@@ -1247,14 +1486,23 @@ body {
   color: var(--color-accent);
 }
 
-.month-day[data-has-tasks="true"]::after {
-  content: "";
-  position: absolute;
-  bottom: 4px;
-  width: 5px;
-  height: 5px;
-  border-radius: var(--radius-full);
-  background: var(--color-accent);
+/* Auslastungs-Färbung statt einheitlichem Punkt — ein Tag mit einer Aufgabe sah bisher genauso aus
+   wie einer mit acht. Die Stufen sind bewusst grob (kein 1:1-Prozent-Mapping), damit die Zelle beim
+   überfliegen sofort "leer/wenig/viel/voll" statt einer genauen Zahl kommuniziert. */
+.month-day[data-load="1"] {
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-surface));
+}
+
+.month-day[data-load="2"] {
+  background: color-mix(in srgb, var(--color-accent) 22%, var(--color-surface));
+}
+
+.month-day[data-load="3"] {
+  background: color-mix(in srgb, var(--color-accent) 38%, var(--color-surface));
+}
+
+.month-day[data-load="heavy"] {
+  background: color-mix(in srgb, var(--color-accent-warm) 42%, var(--color-surface));
 }
 
 .month-day[data-selected="true"] {
