@@ -28,6 +28,7 @@ import {
   updateCommittedExpense,
   deleteCommittedExpense,
   getFinanceModuleSettings,
+  computeCategoryBreakdown,
 } from "./finance.js";
 import {
   listWishlistItems,
@@ -3284,6 +3285,29 @@ const POT_COLOR_VAR = {
   freiheit: "var(--color-accent-warm)",
 };
 const INTERVAL_LABELS = { monthly: "monatlich", quarterly: "quartalsweise", yearly: "jährlich" };
+
+// Feste Reihenfolge (nicht alphabetisch, nicht nach Betrag) — CVD-sichere Farbzuordnung aus dem
+// dataviz-Skill gilt pro fester Position, nicht neu gemischt je nach Datenlage. "uncategorized"
+// läuft separat (siehe buildCategoryDonut), nicht Teil dieser Liste.
+const TRANSACTION_CATEGORY_ORDER = ["essen", "wohnen", "transport", "freizeit", "gesundheit", "sonstiges"];
+const TRANSACTION_CATEGORY_LABELS = {
+  essen: "Essen",
+  wohnen: "Wohnen/Fixkosten",
+  transport: "Transport",
+  freizeit: "Freizeit",
+  gesundheit: "Gesundheit",
+  sonstiges: "Sonstiges",
+  uncategorized: "Nicht kategorisiert",
+};
+const TRANSACTION_CATEGORY_COLOR_VAR = {
+  essen: "var(--color-cat-essen)",
+  wohnen: "var(--color-cat-wohnen)",
+  transport: "var(--color-cat-transport)",
+  freizeit: "var(--color-cat-freizeit)",
+  gesundheit: "var(--color-cat-gesundheit)",
+  sonstiges: "var(--color-cat-sonstiges)",
+  uncategorized: "var(--color-border)",
+};
 const WISHLIST_STATUS_LABELS = { inactive: "Inaktiv", active: "Aktiv", ready: "Kaufbereit", bought: "Gekauft" };
 const WISHLIST_STATUS_CYCLE = ["inactive", "active", "ready", "bought"];
 const WISHLIST_CATEGORY_LABELS = { need: "Need", invest: "Invest", enjoy: "Enjoy" };
@@ -3508,6 +3532,7 @@ async function renderFinanceView() {
 
   await loadFinanceData();
   renderPotGrid();
+  renderCategoryDonut();
   renderBuyReadyAlert(financeState.wishlistItems, financeState.potBalance);
   renderCommittedPreview();
   renderTransactionList();
@@ -3541,6 +3566,7 @@ async function loadFinanceData() {
 async function reloadFinance() {
   await loadFinanceData();
   renderPotGrid();
+  renderCategoryDonut();
   renderBuyReadyAlert(financeState.wishlistItems, financeState.potBalance);
   renderCommittedPreview();
   renderTransactionList();
@@ -3570,6 +3596,89 @@ function buildPotCard(label, color, amountText, pct, celebrateAtFull = false) {
 
   card.append(ring, info);
   return card;
+}
+
+// SVG-Mehrsegment-Ring statt CSS-conic-gradient (wie .pot-ring), weil die Segmentzahl hier variabel
+// ist (0–7 je nach genutzten Kategorien) — stroke-dasharray/-dashoffset pro <circle>, kleine feste
+// Lücke zwischen Segmenten. Legende darunter ist zugleich die Tabellen-Ansicht (dataviz-Skill:
+// Pflicht ab ≥2 Segmenten) und die Textlabel-Absicherung für Farben mit Kontrast-Caveat.
+function buildCategoryDonut(breakdown) {
+  const panel = document.getElementById("category-donut-panel");
+  const wrap = document.getElementById("category-donut-row");
+  if (!panel || !wrap) return;
+
+  const keys = [...TRANSACTION_CATEGORY_ORDER, "uncategorized"].filter((k) => (breakdown[k] || 0) > 0);
+  const total = keys.reduce((sum, k) => sum + breakdown[k], 0);
+  wrap.innerHTML = "";
+  if (total <= 0) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+
+  const size = 120;
+  const strokeWidth = 18;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const gap = 3;
+  const svgNS = "http://www.w3.org/2000/svg";
+
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
+  svg.classList.add("category-donut-svg");
+
+  const legend = document.createElement("ul");
+  legend.className = "category-donut-legend";
+
+  let offset = 0;
+  for (const key of keys) {
+    const value = breakdown[key];
+    const fraction = value / total;
+    const pct = Math.round(fraction * 100);
+    const segmentLength = Math.max(0, fraction * circumference - gap);
+
+    const circle = document.createElementNS(svgNS, "circle");
+    circle.setAttribute("cx", String(size / 2));
+    circle.setAttribute("cy", String(size / 2));
+    circle.setAttribute("r", String(radius));
+    circle.setAttribute("fill", "none");
+    circle.setAttribute("stroke-width", String(strokeWidth));
+    circle.setAttribute("stroke-linecap", "butt");
+    circle.setAttribute("stroke-dasharray", `${segmentLength} ${circumference - segmentLength}`);
+    circle.setAttribute("stroke-dashoffset", String(-offset));
+    circle.setAttribute("transform", `rotate(-90 ${size / 2} ${size / 2})`);
+    circle.style.stroke = TRANSACTION_CATEGORY_COLOR_VAR[key];
+
+    const title = document.createElementNS(svgNS, "title");
+    title.textContent = `${TRANSACTION_CATEGORY_LABELS[key]}: ${formatEuro(value)} (${pct}%)`;
+    circle.appendChild(title);
+    svg.appendChild(circle);
+    offset += fraction * circumference;
+
+    const li = document.createElement("li");
+    const dot = document.createElement("span");
+    dot.className = "category-donut-dot";
+    dot.style.background = TRANSACTION_CATEGORY_COLOR_VAR[key];
+    li.append(dot, document.createTextNode(`${TRANSACTION_CATEGORY_LABELS[key]} — ${formatEuro(value)} (${pct}%)`));
+    legend.appendChild(li);
+  }
+
+  const chart = document.createElement("div");
+  chart.className = "category-donut-chart";
+  const center = document.createElement("div");
+  center.className = "category-donut-center";
+  center.textContent = formatEuro(total);
+  chart.append(svg, center);
+
+  wrap.append(chart, legend);
+}
+
+// Aktueller Kalendermonat, konsistent mit dem bestehenden spentThisMonth-Fenster weiter unten in
+// renderPotGrid() — nur Ausgaben zählen (computeCategoryBreakdown filtert direction bereits).
+function renderCategoryDonut() {
+  const monthStart = todayISO().slice(0, 7) + "-01";
+  const monthTransactions = financeState.transactions.filter((t) => t.occurred_at >= monthStart);
+  buildCategoryDonut(computeCategoryBreakdown(monthTransactions));
 }
 
 // Fixkosten zeigt immer die echte Summe — läuft unabhängig von der Finanzplan-Phase. Sicherheit/
@@ -4080,6 +4189,7 @@ function wireTransactionQuickCapture() {
   const amountInput = document.getElementById("tx-quick-amount");
   const directionGroup = document.getElementById("tx-quick-direction");
   const potGroup = document.getElementById("tx-quick-pot");
+  const categoryGroup = document.getElementById("tx-quick-category");
   const notgroschenToggle = document.getElementById("tx-quick-notgroschen-toggle");
   const notgroschenCheckbox = document.getElementById("tx-quick-notgroschen-checkbox");
   const noteInput = document.getElementById("tx-quick-note");
@@ -4093,8 +4203,22 @@ function wireTransactionQuickCapture() {
     });
   });
 
+  // Kategorien sind — anders als Topf/Direction — optional und abwählbar: ein Klick auf den
+  // bereits aktiven Chip setzt selectedCategory zurück auf null, statt dass immer genau ein Chip
+  // aktiv sein muss.
+  let selectedCategory = null;
+  categoryGroup.querySelectorAll(".pot-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      selectedCategory = selectedCategory === chip.dataset.category ? null : chip.dataset.category;
+      categoryGroup
+        .querySelectorAll(".pot-chip")
+        .forEach((c) => (c.dataset.active = String(c.dataset.category === selectedCategory)));
+    });
+  });
+
   // Töpfe ordnen Ausgaben einem Verwendungszweck zu — bei einer Einnahme ergibt das fachlich
-  // keinen Sinn, daher wird die Topf-Auswahl dafür ausgeblendet statt nur deaktiviert.
+  // keinen Sinn, daher wird die Topf-Auswahl dafür ausgeblendet statt nur deaktiviert. Die sechs
+  // Kategorien sind ebenfalls ausgabenspezifisch, gleiches Verstecken bei Einnahme.
   let selectedDirection = "expense";
   directionGroup.querySelectorAll(".priority-chip").forEach((chip) => {
     chip.addEventListener("click", () => {
@@ -4103,6 +4227,7 @@ function wireTransactionQuickCapture() {
         .querySelectorAll(".priority-chip")
         .forEach((c) => (c.dataset.active = String(c.dataset.direction === selectedDirection)));
       potGroup.hidden = selectedDirection === "income";
+      categoryGroup.hidden = selectedDirection === "income";
       notgroschenToggle.hidden = selectedDirection !== "income";
     });
   });
@@ -4112,11 +4237,14 @@ function wireTransactionQuickCapture() {
     form.reset();
     selectedPot = "freiheit";
     potGroup.querySelectorAll(".pot-chip").forEach((c) => (c.dataset.active = String(c.dataset.pot === "freiheit")));
+    selectedCategory = null;
+    categoryGroup.querySelectorAll(".pot-chip").forEach((c) => (c.dataset.active = "false"));
     selectedDirection = "expense";
     directionGroup
       .querySelectorAll(".priority-chip")
       .forEach((c) => (c.dataset.active = String(c.dataset.direction === "expense")));
     potGroup.hidden = false;
+    categoryGroup.hidden = false;
     notgroschenCheckbox.checked = false;
     notgroschenToggle.hidden = true;
   };
@@ -4143,6 +4271,7 @@ function wireTransactionQuickCapture() {
           amount,
           direction: selectedDirection,
           pot: selectedDirection === "income" ? (notgroschenCheckbox.checked ? "sicherheit" : null) : selectedPot,
+          category: selectedDirection === "income" ? null : selectedCategory,
           note: noteInput.value.trim() || null,
         });
         showToast(`${formatEuro(amount)} erfasst.`);

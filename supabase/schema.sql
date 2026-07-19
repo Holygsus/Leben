@@ -113,7 +113,7 @@ create table if not exists transactions (
   direction text not null check (direction in ('income', 'expense')),
   amount numeric(10,2) not null,
   pot text check (pot in ('fixkosten', 'sicherheit', 'wachstum', 'freiheit')),
-  category text,
+  category text check (category is null or category in ('essen', 'wohnen', 'transport', 'freizeit', 'gesundheit', 'sonstiges')),
   note text,
   source text not null default 'manual' check (source in ('manual', 'scan')),
   occurred_at date not null default current_date,

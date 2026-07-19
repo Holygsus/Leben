@@ -53,6 +53,15 @@
   --color-success: #1D9E75;
   --color-warning: #BA7517;
   --color-danger: #D85A30;
+
+  /* Kategorie-Kreisdiagramm (Finanzen) — feste Reihenfolge aus dem dataviz-Skill-Referenzpalette,
+     CVD-sicher validiert, nicht zyklisch neu gemischt. */
+  --color-cat-essen: #2a78d6;
+  --color-cat-wohnen: #1baf7a;
+  --color-cat-transport: #eda100;
+  --color-cat-freizeit: #008300;
+  --color-cat-gesundheit: #4a3aa7;
+  --color-cat-sonstiges: #e34948;
 }
 
 /* Dark mode — bewusst einen Tick wärmer als reines Invertieren des Lichtmodus */
@@ -71,6 +80,13 @@
     --color-success: #38B892;
     --color-warning: #D89234;
     --color-danger: #E67851;
+
+    --color-cat-essen: #3987e5;
+    --color-cat-wohnen: #199e70;
+    --color-cat-transport: #c98500;
+    --color-cat-freizeit: #008300;
+    --color-cat-gesundheit: #9085e9;
+    --color-cat-sonstiges: #e66767;
   }
 }
 
@@ -88,4 +104,11 @@
   --color-success: #38B892;
   --color-warning: #D89234;
   --color-danger: #E67851;
+
+  --color-cat-essen: #3987e5;
+  --color-cat-wohnen: #199e70;
+  --color-cat-transport: #c98500;
+  --color-cat-freizeit: #008300;
+  --color-cat-gesundheit: #9085e9;
+  --color-cat-sonstiges: #e66767;
 }

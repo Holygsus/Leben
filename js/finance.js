@@ -30,6 +30,19 @@ export async function createTransaction({
   return data;
 }
 
+// Kategorie-Verteilung fürs Kreisdiagramm im Finanzen-Tab — reine Funktion, kein DB-Zugriff.
+// "uncategorized" ist ein eigener, ehrlicher Eintrag statt eines versteckten Defaults (siehe
+// wissensdatenbank/finanzen-erweiterungen/finanzplan-erweiterungen-v2.md, Punkt 2).
+export function computeCategoryBreakdown(transactions) {
+  const totals = {};
+  for (const tx of transactions) {
+    if (tx.direction !== "expense") continue;
+    const key = tx.category || "uncategorized";
+    totals[key] = (totals[key] || 0) + Number(tx.amount);
+  }
+  return totals;
+}
+
 export async function updateTransaction(id, updates) {
   const { data, error } = await supabase.from("transactions").update(updates).eq("id", id).select().single();
   if (error) throw error;

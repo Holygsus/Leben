@@ -20,6 +20,14 @@
     <button type="button" class="pot-chip" data-pot="wachstum" style="--pot-color: var(--color-success)">Wachstum</button>
     <button type="button" class="pot-chip" data-pot="freiheit" data-active="true" style="--pot-color: var(--color-accent-warm)">Freiheit</button>
   </div>
+  <div class="pot-chips" id="tx-quick-category" role="group" aria-label="Kategorie (optional)">
+    <button type="button" class="pot-chip" data-category="essen" style="--pot-color: var(--color-cat-essen)">Essen</button>
+    <button type="button" class="pot-chip" data-category="wohnen" style="--pot-color: var(--color-cat-wohnen)">Wohnen/Fixkosten</button>
+    <button type="button" class="pot-chip" data-category="transport" style="--pot-color: var(--color-cat-transport)">Transport</button>
+    <button type="button" class="pot-chip" data-category="freizeit" style="--pot-color: var(--color-cat-freizeit)">Freizeit</button>
+    <button type="button" class="pot-chip" data-category="gesundheit" style="--pot-color: var(--color-cat-gesundheit)">Gesundheit</button>
+    <button type="button" class="pot-chip" data-category="sonstiges" style="--pot-color: var(--color-cat-sonstiges)">Sonstiges</button>
+  </div>
   <label class="checkbox-label" id="tx-quick-notgroschen-toggle" hidden>
     <input type="checkbox" id="tx-quick-notgroschen-checkbox" />
     Rückfluss aus dem Notgroschen
@@ -32,6 +40,11 @@
 </form>
 
 <div class="pot-grid" id="pot-grid"></div>
+
+<section class="panel" id="category-donut-panel" hidden>
+  <h2>Ausgaben nach Kategorie</h2>
+  <div class="category-donut-row" id="category-donut-row"></div>
+</section>
 
 <div class="events-widget" id="buyready-card" hidden>
   <div class="events-widget-header">
