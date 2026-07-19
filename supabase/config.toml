@@ -1,0 +1,4 @@
+project_id = "eimyiymmqciiyxaqluzc"
+
+[functions.wishlist-price-check]
+verify_jwt = false

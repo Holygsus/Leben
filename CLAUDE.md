@@ -68,3 +68,28 @@ Mails/Stunde) — im Dashboard unter Auth → Rate Limits hochsetzen oder 15–6
 
 Supabase Auth → URL Configuration: Redirect-URL von `localhost:8080` auf die finale Pages-URL
 (`https://holygsus.github.io/Leben/`) umstellen, sonst funktioniert der Magic Link live nicht.
+
+## Preisabfrage-Job (Wunschliste)
+
+`supabase/functions/wishlist-price-check/` ist eine Supabase Edge Function, die aktive
+Wunschlisten-Einträge periodisch auf den Marktpreis prüft (Keepa für Amazon, SerpAPI für alle
+anderen Shops) — Konzept siehe `../wissensdatenbank/wunschliste-sparplan.md`. Ausgelöst wird sie
+NICHT von Supabase pg_cron, sondern von `.github/workflows/wishlist-price-check.yml` (täglich, per
+HTTP-POST). Da GitHub Actions keinen Supabase-User-JWT hat, ist `verify_jwt = false` für diese
+Function in `supabase/config.toml` gesetzt — die eigentliche Absicherung ist der
+Shared-Secret-Header-Check (`x-cron-secret`) im Function-Code selbst, nicht `verify_jwt`.
+
+Secrets (Supabase-Projekt, nicht im Repo):
+- `KEEPA_API_KEY`, `SERPAPI_API_KEY` — externe API-Keys, fehlen beide → Function beendet sich früh
+  (grüner Job-Status, kein Fehler). `KEEPA_API_KEY` ist optional: ohne ihn fallen auch Amazon-Items
+  auf die SerpAPI-Titelsuche zurück (weniger präzise als Keepas ASIN-genaue Preishistorie, aber ein
+  alleiniger `SERPAPI_API_KEY` reicht für volle Abdeckung).
+- `CRON_SHARED_SECRET` — muss identisch als GitHub-Repo-Secret `WISHLIST_CRON_SECRET` hinterlegt
+  sein.
+- `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` sind in Edge Functions automatisch vorhanden, nicht
+  manuell setzen.
+
+Redeploy nach Code-Änderungen an der Function:
+```
+supabase functions deploy wishlist-price-check --project-ref eimyiymmqciiyxaqluzc
+```

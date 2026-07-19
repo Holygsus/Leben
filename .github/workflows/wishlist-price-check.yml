@@ -1,0 +1,19 @@
+name: Wishlist Price Check
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # täglich 06:00 UTC ≈ 07:00/08:00 CET/CEST
+  workflow_dispatch: {}
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call wishlist-price-check edge function
+        run: |
+          curl -sf -X POST \
+            "https://eimyiymmqciiyxaqluzc.functions.supabase.co/wishlist-price-check" \
+            -H "x-cron-secret: ${{ secrets.WISHLIST_CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -o response.json
+          cat response.json
