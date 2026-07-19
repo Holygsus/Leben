@@ -1509,6 +1509,12 @@ function renderBirthdaysWidget(birthdays) {
   if (!list || !moreBtn) return;
 
   const sorted = [...birthdays].sort((a, b) => daysUntilNextOccurrence(a.day, a.month) - daysUntilNextOccurrence(b.day, b.month));
+  // Nur Geburtstage innerhalb der nächsten 30 Tage direkt zeigen, statt immer die 3 nächsten
+  // unabhängig von ihrer Entfernung — sonst steht die Heute-Ansicht dauerhaft mit weit entfernten
+  // Geburtstagen voll (Nutzer-Feedback: Widget war "viel zu präsent"). Weiter entfernte bleiben
+  // über "X weitere" erreichbar, nicht komplett versteckt.
+  const BIRTHDAY_WINDOW_DAYS = 30;
+  const withinWindow = sorted.filter((b) => daysUntilNextOccurrence(b.day, b.month) <= BIRTHDAY_WINDOW_DAYS);
 
   const renderItems = (items) => {
     list.innerHTML = "";
@@ -1533,11 +1539,12 @@ function renderBirthdaysWidget(birthdays) {
       list.appendChild(li);
     }
   };
-  renderItems(sorted.slice(0, 3));
+  renderItems(withinWindow);
 
-  if (sorted.length > 3) {
+  const remaining = sorted.length - withinWindow.length;
+  if (remaining > 0) {
     moreBtn.hidden = false;
-    moreBtn.textContent = `+${sorted.length - 3} weitere`;
+    moreBtn.textContent = `+${remaining} weitere`;
     moreBtn.onclick = () => {
       renderItems(sorted);
       moreBtn.hidden = true;
@@ -1584,6 +1591,7 @@ function wireBirthdayQuickAddForm() {
       todayViewState.birthdays = [...todayViewState.birthdays, created];
       closeForm();
       renderBirthdaysWidget(todayViewState.birthdays);
+      showToast("Geburtstag gespeichert.");
     });
   });
 }
@@ -3412,7 +3420,9 @@ function renderHabitList() {
   list.innerHTML = habitTasks
     .map((t) => {
       const areaColor = habitsViewState.areaColorById[t.area_id];
-      const freqLabel = `${t.habit_weekdays.length}× pro Woche`;
+      const recurrence = t.habit_recurrence || "weekly";
+      const freqLabel =
+        recurrence === "weekly" ? `${t.habit_weekdays.length}× pro Woche` : `${t.habit_weekdays.length}× · ${RECURRENCE_LABEL[recurrence]}`;
       const streak = computeHabitStreak(t, habitsViewState.completions, todayISO());
       const streakLabel =
         streak.count === 0
@@ -4150,6 +4160,12 @@ function wireTransactionQuickCapture() {
 const watchlistViewState = { items: [], allTasks: [], logEntries: [] };
 
 const WATCHLIST_TYPE_LABEL = { serie: "Serie", anime: "Anime", film: "Film" };
+
+// " · S1E4" wenn Staffel/Folge gepflegt sind (nur bei serie/anime relevant), sonst "".
+function buildCurrentEpisodeLabel(item) {
+  if (!item || (item.current_season == null && item.current_episode == null)) return "";
+  return ` · S${item.current_season ?? "?"}E${item.current_episode ?? "?"}`;
+}
 const WATCHLIST_STATUS_LABEL = {
   aktiv: "Aktiv",
   geplant: "Geplant",
@@ -4211,7 +4227,7 @@ function renderWatchlistWeek() {
       const item = itemsById.get(task.watchlist_item_id);
       return `
         <li class="task-item">
-          <span class="task-title">${label} — ${escapeHtml(item ? item.title : task.title)}</span>
+          <span class="task-title">${label} — ${escapeHtml(item ? item.title : task.title)}${buildCurrentEpisodeLabel(item)}</span>
           <button type="button" class="icon-btn watchlist-swap-btn" data-task-id="${task.id}" aria-label="Tauschen">⇄</button>
         </li>`;
     })
@@ -4354,7 +4370,7 @@ function renderWatchlistOverview() {
       const li = document.createElement("li");
       li.className = "rating-row";
       const avg = avgByItemId[item.id];
-      li.innerHTML = `<span class="task-title">${WATCHLIST_TYPE_LABEL[item.type]} · ${escapeHtml(item.title)}</span>${buildRatingStarsHtml(avg)}`;
+      li.innerHTML = `<span class="task-title">${WATCHLIST_TYPE_LABEL[item.type]} · ${escapeHtml(item.title)}${buildCurrentEpisodeLabel(item)}</span>${buildRatingStarsHtml(avg)}`;
       li.addEventListener("click", () => openWatchlistDetail(item.id));
       list.appendChild(li);
     }
