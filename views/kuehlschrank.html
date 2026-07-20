@@ -1,0 +1,27 @@
+<section class="view-header">
+  <div class="view-title-group" style="--view-accent: var(--color-accent-warm);">
+    <div class="view-icon-badge"><svg viewBox="0 0 24 24"><path d="M5 2h14a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M4 9h16M8 2v4M8 13v4"/></svg></div>
+    <h1>Kühlschrank</h1>
+  </div>
+  <div class="view-header-actions">
+    <button type="button" class="icon-btn" id="pantry-quick-add-toggle" aria-label="Zutat hinzufügen">+</button>
+  </div>
+</section>
+
+<form class="quick-capture-panel" id="pantry-quick-form" hidden>
+  <input type="text" class="input" id="pantry-quick-name" placeholder="Was ist da?" autocomplete="off" required />
+  <input type="text" class="input" id="pantry-quick-amount" placeholder="Menge (optional, z.B. 500g)" autocomplete="off" />
+  <div class="quick-capture-actions">
+    <button class="btn" type="submit">Hinzufügen</button>
+    <button class="btn btn-secondary" type="button" id="pantry-quick-cancel">Abbrechen</button>
+  </div>
+</form>
+
+<section class="panel">
+  <ul class="task-list" id="pantry-list"></ul>
+  <div class="empty-state-rich" id="pantry-empty-state" hidden>
+    <svg viewBox="0 0 24 24"><path d="M5 2h14a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M4 9h16M8 2v4M8 13v4"/></svg>
+    <strong>Kühlschrank ist leer erfasst</strong>
+    <span>Leg über "+" die erste Zutat an.</span>
+  </div>
+</section>

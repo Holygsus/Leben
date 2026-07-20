@@ -72,8 +72,9 @@ import {
   autoplanWatchlistForDates,
   applyWatchlistSwap,
 } from "./watchlist.js";
-import { listBirthdays, createBirthday, deleteBirthday, daysUntilNextOccurrence, nextOccurrence } from "./birthdays.js";
+import { listBirthdays, createBirthday, updateBirthday, deleteBirthday, daysUntilNextOccurrence, nextOccurrence } from "./birthdays.js";
 import { listRecipes, createRecipe, updateRecipe, deleteRecipe, formatIngredientsForShoppingList } from "./recipes.js";
+import { listPantryItems, createPantryItem, updatePantryItem, deletePantryItem } from "./pantry.js";
 import { listComments, listAllCommentedTaskIds, createComment, deleteComment } from "./comments.js";
 import { getReflectionForDate, createReflection } from "./reflections.js";
 import {
@@ -109,6 +110,7 @@ const routes = {
   finance: renderFinanceView,
   fernsehprogramm: renderFernsehprogrammView,
   rezepte: renderRezepteView,
+  kuehlschrank: renderKuehlschrankView,
   fixkosten: renderFixkostenView,
   "verpflichtende-ausgaben": renderVerpflichtendeAusgabenView,
 };
@@ -874,6 +876,11 @@ const MORE_ROUTES = [
     label: "Rezepte",
     icon: `<path d="M4 4h6a2 2 0 0 1 2 2v14a2 2 0 0 0-2-2H4z"/><path d="M20 4h-6a2 2 0 0 0-2 2v14a2 2 0 0 1 2-2h6z"/>`,
   },
+  {
+    route: "kuehlschrank",
+    label: "Kühlschrank",
+    icon: `<path d="M5 2h14a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M4 9h16M8 2v4M8 13v4"/>`,
+  },
 ];
 
 // Erhöht sich bei jedem renderShell()-Aufruf. Die render*View()-Funktionen lesen ihren Stand direkt
@@ -1146,7 +1153,7 @@ async function renderTodayView() {
   renderBirthdaysWidget(todayViewState.birthdays);
   renderQuickWin(todayViewState.allTasks, tasks, today);
   wireQuickCapture(areas, renderTodayView);
-  wireBirthdayQuickAddForm();
+  wireBirthdaysManageButton();
   wireSettingsPanel();
 }
 
@@ -1554,26 +1561,20 @@ function renderBirthdaysWidget(birthdays) {
   const BIRTHDAY_WINDOW_DAYS = 30;
   const withinWindow = sorted.filter((b) => daysUntilNextOccurrence(b.day, b.month) <= BIRTHDAY_WINDOW_DAYS);
 
+  // Kurzzeile jetzt nur noch "Name (Alter)" statt Datum+Name+Alter (implementieren-jetzt.md,
+  // Triage 2026-07-20) — Bearbeiten/Löschen sitzt nicht mehr hier, sondern im Verwalten-Modal
+  // (openBirthdaysDetail), daher kein Löschen-Button mehr pro Zeile.
   const renderItems = (items) => {
     list.innerHTML = "";
     for (const b of items) {
       const li = document.createElement("li");
-      const dateLabel = `${b.day}.${b.month}.`;
-      const ageLabel = b.year ? ` (wird ${nextOccurrence(b.day, b.month).getFullYear() - b.year})` : "";
-      li.textContent = `${dateLabel} ${b.name}${ageLabel}`;
-      const deleteBtn = document.createElement("button");
-      deleteBtn.type = "button";
-      deleteBtn.className = "icon-btn icon-btn-danger";
-      deleteBtn.setAttribute("aria-label", "Geburtstag löschen");
-      deleteBtn.textContent = "×";
-      deleteBtn.addEventListener("click", async () => {
-        await withErrorToast(async () => {
-          await deleteBirthday(b.id);
-          todayViewState.birthdays = todayViewState.birthdays.filter((x) => x.id !== b.id);
-          renderBirthdaysWidget(todayViewState.birthdays);
-        });
-      });
-      li.appendChild(deleteBtn);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "task-title-btn";
+      const ageLabel = b.year ? ` (${nextOccurrence(b.day, b.month).getFullYear() - b.year})` : "";
+      btn.textContent = `${b.name}${ageLabel}`;
+      btn.addEventListener("click", () => openBirthdaysDetail());
+      li.appendChild(btn);
       list.appendChild(li);
     }
   };
@@ -1592,46 +1593,128 @@ function renderBirthdaysWidget(birthdays) {
   }
 }
 
-function wireBirthdayQuickAddForm() {
-  const toggleBtn = document.getElementById("birthday-quick-add-toggle");
-  const form = document.getElementById("birthday-quick-form");
-  const nameInput = document.getElementById("birthday-quick-name");
-  const dayInput = document.getElementById("birthday-quick-day");
-  const monthSelect = document.getElementById("birthday-quick-month");
-  const yearInput = document.getElementById("birthday-quick-year");
-  const importantInput = document.getElementById("birthday-quick-important");
-  const cancelBtn = document.getElementById("birthday-quick-cancel");
+function wireBirthdaysManageButton() {
+  document.getElementById("birthdays-manage-open").addEventListener("click", () => openBirthdaysDetail());
+}
 
-  const closeForm = () => {
-    form.hidden = true;
-    form.reset();
+const BIRTHDAY_MONTH_OPTIONS = [
+  [1, "Januar"], [2, "Februar"], [3, "März"], [4, "April"], [5, "Mai"], [6, "Juni"],
+  [7, "Juli"], [8, "August"], [9, "September"], [10, "Oktober"], [11, "November"], [12, "Dezember"],
+];
+
+// Verwalten-Modal (implementieren-jetzt.md, Triage 2026-07-20) — bündelt Bearbeiten/Löschen aller
+// Geburtstage sowie das Neuanlegen, das vorher ein eigener Toggle direkt im Widget war. JS-templated
+// Modal analog openRecipeDetail/promptWatchlistRating, kein statisches Formular mehr in today.html.
+function openBirthdaysDetail() {
+  const root = document.getElementById("modal-root");
+  document.body.style.overflow = "hidden";
+
+  const close = () => {
+    root.innerHTML = "";
+    document.body.style.overflow = "";
+    document.removeEventListener("keydown", onKeydown);
+    closeActiveModal = null;
+  };
+  const onKeydown = (e) => {
+    if (e.key === "Escape") close();
+  };
+  document.addEventListener("keydown", onKeydown);
+  closeActiveModal = close;
+
+  const monthOptionsHtml = (selected) =>
+    BIRTHDAY_MONTH_OPTIONS.map(([v, label]) => `<option value="${v}"${v === selected ? " selected" : ""}>${label}</option>`).join("");
+
+  const render = () => {
+    const sorted = [...todayViewState.birthdays].sort(
+      (a, b) => daysUntilNextOccurrence(a.day, a.month) - daysUntilNextOccurrence(b.day, b.month)
+    );
+    const rowsHtml = sorted
+      .map(
+        (b) => `
+      <li class="task-item" data-birthday-id="${b.id}">
+        <input type="text" class="input" data-field="name" value="${escapeHtml(b.name)}" aria-label="Name" />
+        <input type="number" class="input" data-field="day" value="${b.day}" min="1" max="31" style="max-width: 60px" aria-label="Tag" />
+        <select class="select" data-field="month" aria-label="Monat">${monthOptionsHtml(b.month)}</select>
+        <input type="number" class="input" data-field="year" value="${b.year ?? ""}" placeholder="Jahr" min="1900" max="2100" style="max-width: 90px" aria-label="Jahr" />
+        <label class="checkbox-label"><input type="checkbox" data-field="is_important" ${b.is_important ? "checked" : ""} /> Wichtig</label>
+        <button type="button" class="icon-btn icon-btn-danger" data-action="delete" aria-label="Geburtstag löschen">×</button>
+      </li>`
+      )
+      .join("");
+
+    root.innerHTML = `
+      <div class="modal-backdrop" id="birthdays-detail-backdrop">
+        <div class="modal-card" role="dialog" aria-modal="true" aria-label="Geburtstage verwalten">
+          <h2 class="modal-view-title">Geburtstage</h2>
+          <ul class="task-list" id="birthdays-detail-list">${rowsHtml}</ul>
+          <p class="empty-state" id="birthdays-detail-empty" ${sorted.length ? "hidden" : ""}>Noch keine Geburtstage erfasst.</p>
+          <form class="quick-capture-panel" id="birthday-add-form">
+            <input type="text" class="input" id="birthday-add-name" placeholder="Name" autocomplete="off" required />
+            <input type="number" class="input" id="birthday-add-day" placeholder="Tag" min="1" max="31" required />
+            <select class="select" id="birthday-add-month" aria-label="Monat">${monthOptionsHtml(1)}</select>
+            <input type="number" class="input" id="birthday-add-year" placeholder="Jahr (optional)" min="1900" max="2100" />
+            <label class="checkbox-label"><input type="checkbox" id="birthday-add-important" /> Wichtig</label>
+            <button class="btn" type="submit">Hinzufügen</button>
+          </form>
+          <button class="btn btn-secondary" type="button" id="birthdays-detail-close">Schließen</button>
+        </div>
+      </div>`;
+
+    document.getElementById("birthdays-detail-backdrop").addEventListener("click", (e) => {
+      if (e.target.id === "birthdays-detail-backdrop") close();
+    });
+    document.getElementById("birthdays-detail-close").addEventListener("click", close);
+
+    document.getElementById("birthdays-detail-list").querySelectorAll("li[data-birthday-id]").forEach((li) => {
+      const id = li.dataset.birthdayId;
+      const commit = async (updates) => {
+        await withErrorToast(async () => {
+          const updated = await updateBirthday(id, updates);
+          todayViewState.birthdays = todayViewState.birthdays.map((b) => (b.id === id ? updated : b));
+          renderBirthdaysWidget(todayViewState.birthdays);
+        });
+      };
+      li.querySelector('[data-field="name"]').addEventListener("blur", (e) => {
+        const value = e.target.value.trim();
+        if (value) commit({ name: value });
+      });
+      li.querySelector('[data-field="day"]').addEventListener("change", (e) => commit({ day: Number(e.target.value) }));
+      li.querySelector('[data-field="month"]').addEventListener("change", (e) => commit({ month: Number(e.target.value) }));
+      li.querySelector('[data-field="year"]').addEventListener("change", (e) => commit({ year: e.target.value ? Number(e.target.value) : null }));
+      li.querySelector('[data-field="is_important"]').addEventListener("change", (e) => commit({ is_important: e.target.checked }));
+      li.querySelector('[data-action="delete"]').addEventListener("click", async () => {
+        await withErrorToast(async () => {
+          await deleteBirthday(id);
+          todayViewState.birthdays = todayViewState.birthdays.filter((b) => b.id !== id);
+          renderBirthdaysWidget(todayViewState.birthdays);
+          render();
+        });
+      });
+    });
+
+    document.getElementById("birthday-add-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const nameInput = document.getElementById("birthday-add-name");
+      const dayInput = document.getElementById("birthday-add-day");
+      const monthSelect = document.getElementById("birthday-add-month");
+      const yearInput = document.getElementById("birthday-add-year");
+      const importantInput = document.getElementById("birthday-add-important");
+      const name = nameInput.value.trim();
+      const day = Number(dayInput.value);
+      const month = Number(monthSelect.value);
+      if (!name || !day || !month) return;
+      await withErrorToast(async () => {
+        const year = yearInput.value ? Number(yearInput.value) : null;
+        const created = await createBirthday({ name, day, month, year, isImportant: importantInput.checked });
+        todayViewState.birthdays = [...todayViewState.birthdays, created];
+        renderBirthdaysWidget(todayViewState.birthdays);
+        showToast("Geburtstag gespeichert.");
+        render();
+      });
+    });
   };
 
-  toggleBtn.addEventListener("click", () => {
-    if (form.hidden) {
-      form.hidden = false;
-      nameInput.focus();
-    } else {
-      closeForm();
-    }
-  });
-  cancelBtn.addEventListener("click", closeForm);
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const name = nameInput.value.trim();
-    const day = Number(dayInput.value);
-    const month = Number(monthSelect.value);
-    if (!name || !day || !month) return;
-    await withErrorToast(async () => {
-      const year = yearInput.value ? Number(yearInput.value) : null;
-      const created = await createBirthday({ name, day, month, year, isImportant: importantInput.checked });
-      todayViewState.birthdays = [...todayViewState.birthdays, created];
-      closeForm();
-      renderBirthdaysWidget(todayViewState.birthdays);
-      showToast("Geburtstag gespeichert.");
-    });
-  });
+  render();
 }
 
 // ----- Quick Win des Tages -----
@@ -3270,6 +3353,7 @@ async function renderPlanView() {
   });
 
   document.getElementById("walkthrough-next").addEventListener("click", advanceWalkthrough);
+  wirePlanQuickAdd();
 
   await loadPlanData(dateInput);
 
@@ -3383,6 +3467,46 @@ function buildPlanTaskItem(task, areaColorById) {
   li.appendChild(removeBtn);
 
   return li;
+}
+
+// Ad-hoc-Neuanlage direkt in der Plan-Ansicht (implementieren-jetzt.md, Triage 2026-07-20) — das
+// bestehende "Weitere Aufgabe hinzufügen"-Select deckt nur bereits existierende offene Aufgaben ab.
+// Bereich/Datum ergeben sich aus dem Plan-Kontext selbst (kein Bereich, planState.targetDate).
+function wirePlanQuickAdd() {
+  const form = document.getElementById("plan-quick-add-form");
+  const titleInput = document.getElementById("plan-quick-add-title");
+  const effortGroup = document.getElementById("plan-quick-add-effort");
+
+  let selectedEffort = null;
+  effortGroup.querySelectorAll(".effort-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const value = Number(chip.dataset.effort);
+      selectedEffort = selectedEffort === value ? null : value;
+      effortGroup.querySelectorAll(".effort-chip").forEach((c) => {
+        c.dataset.active = String(Number(c.dataset.effort) === selectedEffort);
+      });
+    });
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = titleInput.value.trim();
+    if (!title) return;
+    await withErrorToast(async () => {
+      const task = await createTask({
+        title,
+        effort: selectedEffort,
+        status: "planned",
+        plannedDate: planState.targetDate,
+      });
+      planState.selected.push(task);
+      form.reset();
+      selectedEffort = null;
+      effortGroup.querySelectorAll(".effort-chip").forEach((c) => (c.dataset.active = "false"));
+      renderPlanTaskList();
+      renderAddTaskSelect();
+    });
+  });
 }
 
 function renderAddTaskSelect() {
@@ -4108,6 +4232,35 @@ function buildTransactionItem(tx) {
   line2.append(sign, amountInput, deleteBtn);
 
   li.append(line1, line2);
+
+  // Kategorie nachträglich änderbar (implementieren-jetzt.md, Triage 2026-07-20) — dieselben Chips/
+  // Konstanten wie im Kategorie-Donut, nur pro bestehender Transaktion statt beim Neuanlegen.
+  // Ausgeblendet bei Einnahmen, die haben keine Kategorie (analog zur Topf-Auswahl im
+  // Neuanlage-Formular).
+  if (tx.direction === "expense") {
+    const categoryRow = document.createElement("div");
+    categoryRow.className = "pot-chips tx-line";
+    categoryRow.setAttribute("role", "group");
+    categoryRow.setAttribute("aria-label", "Kategorie");
+    for (const key of TRANSACTION_CATEGORY_ORDER) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "pot-chip";
+      chip.style.setProperty("--pot-color", TRANSACTION_CATEGORY_COLOR_VAR[key]);
+      chip.dataset.active = String(tx.category === key);
+      chip.textContent = TRANSACTION_CATEGORY_LABELS[key];
+      chip.addEventListener("click", async () => {
+        const nextCategory = tx.category === key ? null : key;
+        await withErrorToast(async () => {
+          await updateTransaction(tx.id, { category: nextCategory });
+          await reloadFinance();
+        });
+      });
+      categoryRow.appendChild(chip);
+    }
+    li.appendChild(categoryRow);
+  }
+
   return li;
 }
 
@@ -5039,6 +5192,20 @@ async function promptWatchlistRating(task) {
       close(logRow.id);
     };
 
+    // Eigener Pfad statt submit(null): loggt kind="skipped" (keine echte Sichtung) und lässt
+    // current_episode unangetastet — anders als "Überspringen" (Bewertung übersprungen, aber
+    // tatsächlich geschaut, kind bleibt "watched").
+    const submitNotWatched = async () => {
+      const logRow = await logViewing({
+        watchlistItemId: item.id,
+        rating: null,
+        season: item.current_season,
+        episode: item.current_episode,
+        kind: "skipped",
+      });
+      close(logRow.id);
+    };
+
     const ratingChipsHtml = Array.from(
       { length: 10 },
       (_, i) => `<button type="button" class="effort-chip" data-rating="${i + 1}">${i + 1}</button>`
@@ -5050,6 +5217,7 @@ async function promptWatchlistRating(task) {
           <h2 class="modal-view-title">„${escapeHtml(item.title)}" geschaut — wie war's?</h2>
           <div class="effort-chips" id="rating-chips" role="group" aria-label="Bewertung 1-10">${ratingChipsHtml}</div>
           <button class="btn btn-secondary" type="button" id="rating-skip">Überspringen</button>
+          <button class="btn btn-secondary" type="button" id="rating-not-watched">Nicht geschaut</button>
         </div>
       </div>`;
     document.getElementById("rating-backdrop").addEventListener("click", (e) => {
@@ -5060,6 +5228,7 @@ async function promptWatchlistRating(task) {
       if (chip) submit(Number(chip.dataset.rating));
     });
     document.getElementById("rating-skip").addEventListener("click", () => submit(null));
+    document.getElementById("rating-not-watched").addEventListener("click", () => submitNotWatched());
   });
 }
 
@@ -5272,6 +5441,115 @@ async function renderRecipeDetailCard(recipeId, close) {
       await deleteRecipe(recipe.id);
       close();
       await renderRecipeList();
+    });
+  });
+}
+
+/* ---------- Kühlschrank ---------- */
+// wissensdatenbank/features/kochen-rezepte-kuehlschrank.md, Punkt 2 — diese Runde deckt nur den
+// manuellen Bestand-Teil ab (Zu-/Abgangs-Werkzeug), keine automatische OCR-Befüllung.
+
+async function renderKuehlschrankView() {
+  const myGeneration = renderGeneration;
+  const container = document.getElementById("view-content");
+  const res = await fetch("views/kuehlschrank.html");
+  if (myGeneration !== renderGeneration) return;
+  container.innerHTML = await res.text();
+  await renderPantryList();
+  wirePantryQuickAddForm();
+}
+
+async function renderPantryList() {
+  const list = document.getElementById("pantry-list");
+  const emptyState = document.getElementById("pantry-empty-state");
+  const items = await listPantryItems();
+  list.innerHTML = "";
+  if (items.length === 0) {
+    emptyState.hidden = false;
+    return;
+  }
+  emptyState.hidden = true;
+  for (const item of items) {
+    list.appendChild(buildPantryItem(item));
+  }
+}
+
+// Menge direkt editierbar (Blur committet) — gleiches Muster wie buildTransactionItem's Notiz-Feld.
+// "Best effort"-Bestand (siehe kochen-rezepte-kuehlschrank.md): kein exaktes Inventar, daher reicht
+// ein Freitext-Feld statt einer Zahl+Einheit-Erfassung.
+function buildPantryItem(item) {
+  const li = document.createElement("li");
+  li.className = "task-item tx-item";
+
+  const nameSpan = document.createElement("span");
+  nameSpan.className = "task-title";
+  nameSpan.textContent = item.name;
+
+  const amountInput = document.createElement("input");
+  amountInput.type = "text";
+  amountInput.className = "input";
+  amountInput.style.maxWidth = "140px";
+  amountInput.value = item.amount || "";
+  amountInput.placeholder = "Menge";
+  amountInput.setAttribute("aria-label", "Menge");
+  amountInput.addEventListener("blur", async () => {
+    const value = amountInput.value.trim();
+    if (value === (item.amount || "")) return;
+    await withErrorToast(async () => {
+      await updatePantryItem(item.id, { amount: value || null });
+      await renderPantryList();
+    });
+  });
+  amountInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") amountInput.blur();
+  });
+
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.className = "icon-btn icon-btn-danger";
+  deleteBtn.textContent = "×";
+  deleteBtn.setAttribute("aria-label", "Aus dem Kühlschrank entfernen");
+  deleteBtn.addEventListener("click", async () => {
+    await withErrorToast(async () => {
+      await deletePantryItem(item.id);
+      await renderPantryList();
+    });
+  });
+
+  li.append(nameSpan, amountInput, deleteBtn);
+  return li;
+}
+
+function wirePantryQuickAddForm() {
+  const toggleBtn = document.getElementById("pantry-quick-add-toggle");
+  const form = document.getElementById("pantry-quick-form");
+  const nameInput = document.getElementById("pantry-quick-name");
+  const amountInput = document.getElementById("pantry-quick-amount");
+  const cancelBtn = document.getElementById("pantry-quick-cancel");
+
+  const closeForm = () => {
+    form.hidden = true;
+    form.reset();
+  };
+
+  toggleBtn.addEventListener("click", () => {
+    if (form.hidden) {
+      form.hidden = false;
+      nameInput.focus();
+    } else {
+      closeForm();
+    }
+  });
+  cancelBtn.addEventListener("click", closeForm);
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = nameInput.value.trim();
+    if (!name) return;
+    await withErrorToast(async () => {
+      await createPantryItem({ name, amount: amountInput.value.trim() || null });
+      closeForm();
+      await renderPantryList();
     });
   });
 }

@@ -233,7 +233,8 @@ create table if not exists savings_pot_entries (
 -- Watchlist: Sichtungs-Log — eine Zeile pro gesehener Episode/Film, Bewertung pro Sichtung statt
 -- pro Item (eine schlecht bewertete Folge soll weder Priorität noch Rotation der Serie
 -- beeinflussen). rating nullable — eine Sichtung wird immer geloggt, die Bewertung selbst kann
--- übersprungen werden.
+-- übersprungen werden. kind unterscheidet echtes Schauen von einem manuell als "nicht geschaut"
+-- markierten Abschluss (migration-017.sql).
 create table if not exists watchlist_viewing_log (
   id uuid default gen_random_uuid() primary key,
   user_id uuid references auth.users not null,
@@ -241,6 +242,7 @@ create table if not exists watchlist_viewing_log (
   rating integer check (rating between 1 and 10),
   season integer,
   episode integer,
+  kind text not null default 'watched' check (kind in ('watched', 'skipped')),
   watched_at timestamptz default now(),
   created_at timestamptz default now()
 );
@@ -274,6 +276,21 @@ create table if not exists birthdays (
 );
 
 create index if not exists birthdays_user_id_idx on birthdays (user_id);
+
+-- Digitaler Kühlschrank — manueller Bestand-Teil (migration-018.sql), automatische Befüllung aus
+-- Kassenbon-Einzelpositionen folgt erst mit der OCR-Erfassung. amount als Freitext, analog
+-- recipes.ingredients[].amount.
+create table if not exists pantry_items (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users not null,
+  name text not null,
+  amount text,
+  category text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create index if not exists pantry_items_user_id_idx on pantry_items (user_id);
 
 -- Tagesreflexion: eigene Tabelle statt Aufgaben-Missbrauch. unique(user_id, date) macht "wurde für
 -- heute schon beantwortet?" zu einer einfachen Existenzprüfung und verhindert Duplikate.
@@ -309,6 +326,7 @@ alter table watchlist_viewing_log enable row level security;
 alter table habit_completions enable row level security;
 alter table birthdays enable row level security;
 alter table daily_reflections enable row level security;
+alter table pantry_items enable row level security;
 
 drop policy if exists "areas: own data" on areas;
 create policy "areas: own data" on areas for all using (auth.uid() = user_id);
@@ -364,6 +382,9 @@ create policy "habit_completions: own data" on habit_completions for all using (
 drop policy if exists "birthdays: own data" on birthdays;
 create policy "birthdays: own data" on birthdays for all using (auth.uid() = user_id);
 
+drop policy if exists "pantry_items: own data" on pantry_items;
+create policy "pantry_items: own data" on pantry_items for all using (auth.uid() = user_id);
+
 drop policy if exists "daily_reflections: own data" on daily_reflections;
 create policy "daily_reflections: own data" on daily_reflections for all using (auth.uid() = user_id);
 
@@ -399,4 +420,9 @@ create trigger recipes_updated_at
 drop trigger if exists watchlist_items_updated_at on watchlist_items;
 create trigger watchlist_items_updated_at
   before update on watchlist_items
+  for each row execute function update_updated_at();
+
+drop trigger if exists pantry_items_updated_at on pantry_items;
+create trigger pantry_items_updated_at
+  before update on pantry_items
   for each row execute function update_updated_at();

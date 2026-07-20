@@ -58,11 +58,11 @@ export async function listAllViewingLogEntries() {
   return data;
 }
 
-export async function logViewing({ watchlistItemId, rating = null, season = null, episode = null }) {
+export async function logViewing({ watchlistItemId, rating = null, season = null, episode = null, kind = "watched" }) {
   const userId = await getCurrentUserId();
   const { data, error } = await supabase
     .from("watchlist_viewing_log")
-    .insert({ user_id: userId, watchlist_item_id: watchlistItemId, rating, season, episode })
+    .insert({ user_id: userId, watchlist_item_id: watchlistItemId, rating, season, episode, kind })
     .select()
     .single();
   if (error) throw error;

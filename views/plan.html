@@ -38,6 +38,16 @@
   <select id="add-task-select" class="select">
     <option value="">Aufgabe wählen…</option>
   </select>
+  <form class="inline-add-form" id="plan-quick-add-form">
+    <input type="text" class="input" id="plan-quick-add-title" placeholder="Neue Aufgabe für heute…" autocomplete="off" required />
+    <div class="effort-chips" id="plan-quick-add-effort" role="group" aria-label="Aufwand">
+      <button type="button" class="effort-chip" data-effort="5">5</button>
+      <button type="button" class="effort-chip" data-effort="10">10</button>
+      <button type="button" class="effort-chip" data-effort="30">30</button>
+      <button type="button" class="effort-chip" data-effort="60">60</button>
+    </div>
+    <button class="btn" type="submit">Anlegen</button>
+  </form>
 </section>
 
 <section class="panel">

@@ -18,6 +18,12 @@ export async function createBirthday({ name, day, month, year = null, isImportan
   return data;
 }
 
+export async function updateBirthday(id, updates) {
+  const { data, error } = await supabase.from("birthdays").update(updates).eq("id", id).select().single();
+  if (error) throw error;
+  return data;
+}
+
 export async function deleteBirthday(id) {
   const { error } = await supabase.from("birthdays").delete().eq("id", id);
   if (error) throw error;
