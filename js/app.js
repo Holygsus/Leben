@@ -29,6 +29,7 @@ import {
   deleteCommittedExpense,
   getFinanceModuleSettings,
   computeCategoryBreakdown,
+  computeBudgetTrend,
 } from "./finance.js";
 import {
   listWishlistItems,
@@ -3532,6 +3533,7 @@ async function renderFinanceView() {
 
   await loadFinanceData();
   renderPotGrid();
+  renderBudgetTrend();
   renderCategoryDonut();
   renderBuyReadyAlert(financeState.wishlistItems, financeState.potBalance);
   renderCommittedPreview();
@@ -3566,6 +3568,7 @@ async function loadFinanceData() {
 async function reloadFinance() {
   await loadFinanceData();
   renderPotGrid();
+  renderBudgetTrend();
   renderCategoryDonut();
   renderBuyReadyAlert(financeState.wishlistItems, financeState.potBalance);
   renderCommittedPreview();
@@ -3743,6 +3746,60 @@ function renderPotGrid() {
 
   grid.innerHTML = "";
   cards.forEach((c) => grid.appendChild(c));
+}
+
+// Ruhige Trend-Anzeige für den Freiheit-Topf (wissensdatenbank/finanzen-erweiterungen/
+// finanzplan-erweiterungen-v2.md, Punkt 3) — bewusst kein Ampel-/Rot-Grün-Ton, nur Text + Pfeil.
+// Gleiches Phase-1-Gate wie renderPotGrid(): ohne pots.freiheit gibt es keinen sinnvollen
+// Tagesrichtwert, statt eines leeren Widgets erscheint derselbe "Sammle Daten"-Platzhaltertext.
+function renderBudgetTrend() {
+  const textEl = document.getElementById("budget-trend-text");
+  if (!textEl) return;
+  const settings = financeState.settings.settings || {};
+  const phase = settings.phase || 1;
+  const freiheitBudget = settings.pots?.freiheit;
+
+  if (phase < 2 || !freiheitBudget) {
+    const weeks = weeksSinceFirstTransaction(financeState.transactions);
+    textEl.textContent = `Sammle Daten — Woche ${Math.min(weeks, 4)} von 4`;
+    return;
+  }
+
+  const openReservationsMonthly = financeState.committedExpenses.reduce(
+    (sum, exp) => sum + exp.amount / monthsUntil(exp.due_date),
+    0
+  );
+
+  const today = new Date();
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const daysRemainingInMonth = daysInMonth - today.getDate() + 1;
+
+  // windowDays orientiert sich an der Historie der freiheit-Ausgaben selbst (nicht an allen
+  // Transaktionen) — "avg() über weniger Tage" statt eines Sonderfalls, siehe Vault-Notiz.
+  const freiheitExpenses = financeState.transactions.filter((t) => t.pot === "freiheit" && t.direction === "expense");
+  const earliestFreiheitIso = freiheitExpenses.reduce((min, t) => (t.occurred_at < min ? t.occurred_at : min), todayISO());
+  const daysSinceEarliest = Math.floor((new Date(todayISO()) - new Date(earliestFreiheitIso)) / 86400000) + 1;
+  const windowDays = Math.min(7, Math.max(1, daysSinceEarliest));
+
+  const windowStart = new Date(today);
+  windowStart.setDate(today.getDate() - (windowDays - 1));
+  const windowStartOffset = windowStart.getTimezoneOffset();
+  const windowStartIso = new Date(windowStart.getTime() - windowStartOffset * 60000).toISOString().slice(0, 10);
+
+  const recentSpend = freiheitExpenses
+    .filter((t) => t.occurred_at >= windowStartIso)
+    .reduce((sum, t) => sum + Number(t.amount), 0);
+
+  const { dailyBudget, avgRecent } = computeBudgetTrend({
+    freiheitBudget,
+    openReservationsMonthly,
+    daysRemainingInMonth,
+    recentSpend,
+    windowDays,
+  });
+
+  const arrow = avgRecent <= dailyBudget ? "↓" : "↑";
+  textEl.textContent = `Tagesbudget: ${formatEuro(dailyBudget)} · Schnitt letzte 7 Tage: ${formatEuro(avgRecent)} ${arrow}`;
 }
 
 // Kurze Vorschau der nächsten fälligen verpflichtenden Ausgaben, direkt unter dem Kaufbereit-Widget

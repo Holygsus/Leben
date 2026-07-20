@@ -43,6 +43,15 @@ export function computeCategoryBreakdown(transactions) {
   return totals;
 }
 
+// Tagesbudget-Trend fürs Finanzen-Tab (wissensdatenbank/finanzen-erweiterungen/
+// finanzplan-erweiterungen-v2.md, Punkt 3) — reine Berechnung, kein DB-Zugriff. Nimmt bereits
+// aufgelöste Zahlen entgegen (keine Date-Objekte), Kalenderarithmetik bleibt beim Aufrufer.
+export function computeBudgetTrend({ freiheitBudget, openReservationsMonthly, daysRemainingInMonth, recentSpend, windowDays }) {
+  const dailyBudget = (freiheitBudget - openReservationsMonthly) / daysRemainingInMonth;
+  const avgRecent = recentSpend / windowDays;
+  return { dailyBudget, avgRecent };
+}
+
 export async function updateTransaction(id, updates) {
   const { data, error } = await supabase.from("transactions").update(updates).eq("id", id).select().single();
   if (error) throw error;

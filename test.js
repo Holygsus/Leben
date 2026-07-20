@@ -11,6 +11,7 @@ import {
   buildSwapOperations,
 } from "./js/watchlist.js";
 import { findHabitsDueToday } from "./js/habits.js";
+import { computeBudgetTrend } from "./js/finance.js";
 
 const results = document.getElementById("results");
 let passCount = 0;
@@ -259,6 +260,37 @@ function assertEqual(actual, expected, label) {
     0,
     "findHabitsDueToday: erneuter Aufruf am selben Tag zieht KEIN weiteres Kind nach (Reload-Guard)"
   );
+}
+
+// ---------- Finanzen: computeBudgetTrend ----------
+{
+  const normal = computeBudgetTrend({
+    freiheitBudget: 300,
+    openReservationsMonthly: 50,
+    daysRemainingInMonth: 25,
+    recentSpend: 140,
+    windowDays: 7,
+  });
+  assertEqual(normal.dailyBudget, 10, "computeBudgetTrend: (300-50)/25 = 10€ Tagesbudget");
+  assertEqual(normal.avgRecent, 20, "computeBudgetTrend: 140/7 = 20€ Schnitt letzte 7 Tage");
+
+  const noReservations = computeBudgetTrend({
+    freiheitBudget: 300,
+    openReservationsMonthly: 0,
+    daysRemainingInMonth: 30,
+    recentSpend: 0,
+    windowDays: 7,
+  });
+  assertEqual(noReservations.dailyBudget, 10, "computeBudgetTrend: ohne offene Reservierungen bleibt das volle Budget");
+
+  const shortWindow = computeBudgetTrend({
+    freiheitBudget: 300,
+    openReservationsMonthly: 0,
+    daysRemainingInMonth: 30,
+    recentSpend: 30,
+    windowDays: 3,
+  });
+  assertEqual(shortWindow.avgRecent, 10, "computeBudgetTrend: kürzeres Fenster (noch keine 7 Tage Historie) rechnet über windowDays statt fix 7");
 }
 
 const summary = document.getElementById("summary");
