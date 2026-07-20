@@ -13,7 +13,13 @@ import {
   cascadeAreaChange,
 } from "./tasks.js";
 import { listAreas, createArea, updateArea, deleteArea, swapAreaOrder } from "./areas.js";
-import { suggestTasksForPlan, formatTasksForExport, savePlanForDate, budgetForDate } from "./planner.js";
+import {
+  suggestTasksForPlan,
+  formatTasksForExport,
+  savePlanForDate,
+  budgetForDate,
+  buildAreaCandidatePools,
+} from "./planner.js";
 import {
   listTransactions,
   createTransaction,
@@ -85,7 +91,10 @@ if (storedTheme) document.documentElement.dataset.theme = storedTheme;
 // Hintergrundbild ist rein lokal (IndexedDB) und unabhängig vom Login-Status gültig — direkt beim
 // Skriptstart anwenden, nicht erst nach erfolgreicher Anmeldung.
 getBackgroundImageBlob().then((blob) => {
-  if (blob) document.getElementById("app-bg").style.backgroundImage = `url(${URL.createObjectURL(blob)})`;
+  if (blob) {
+    document.getElementById("app-bg").style.backgroundImage = `url(${URL.createObjectURL(blob)})`;
+    document.body.classList.add("has-bg-image");
+  }
 });
 
 const app = document.getElementById("app");
@@ -167,6 +176,8 @@ const planState = {
   calendarMonth: null, // "YYYY-MM-01" — erster Tag des aktuell angezeigten Kalendermonats
   monthTasks: [], // nicht erledigte Aufgaben mit Plandatum im sichtbaren Kalendermonat, siehe loadMonthTasksAndRender()
   watchlistItemsById: new Map(), // für die Budget-Anzeige: Dauer bereits verplanter Watchlist-Aufgaben auflösen (effort bleibt bei denen NULL)
+  areaPools: [], // { areaId, minimum, additionalCandidates }[] für den sequenziellen Bereichs-Durchgang, siehe buildAreaCandidatePools
+  walkthroughIndex: 0,
 };
 
 let toastTimeout = null;
@@ -1256,6 +1267,7 @@ async function openSettingsPanel() {
       const blob = await resizeImageToBlob(file);
       await saveBackgroundImageBlob(blob);
       document.getElementById("app-bg").style.backgroundImage = `url(${URL.createObjectURL(blob)})`;
+      document.body.classList.add("has-bg-image");
       hasBg = true;
       document.getElementById("settings-bg-remove-row").hidden = false;
     });
@@ -1265,6 +1277,7 @@ async function openSettingsPanel() {
     await withErrorToast(async () => {
       await clearBackgroundImage();
       document.getElementById("app-bg").style.backgroundImage = "";
+      document.body.classList.remove("has-bg-image");
       hasBg = false;
       document.getElementById("settings-bg-remove-row").hidden = true;
     });
@@ -3050,11 +3063,15 @@ async function loadPlanData(dateInput) {
     planState.areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
     planState.pool = pool;
     planState.watchlistItemsById = new Map(watchlistItems.map((i) => [i.id, i]));
-    planState.selected = suggestTasksForPlan(pool, planState.targetDate);
+    // Startauswahl ist nur noch das garantierte Minimum je Bereich (Vault: "nicht vorausgewählt") —
+    // die volle Automatik von suggestTasksForPlan bleibt exklusiv dem "Neu vorschlagen"-Button
+    // vorbehalten, siehe wireRefreshSuggestion weiter unten.
+    planState.areaPools = buildAreaCandidatePools(pool, planState.targetDate);
+    planState.selected = planState.areaPools.map((p) => p.minimum);
+    planState.walkthroughIndex = 0;
 
     await loadMonthTasksAndRender(dateInput);
-    renderPlanTaskList();
-    renderAddTaskSelect();
+    startAreaWalkthrough();
   } catch (err) {
     renderPlanLoadError(friendlyErrorMessage(err), dateInput);
   }
@@ -3151,6 +3168,8 @@ async function renderPlanView() {
       await loadMonthTasksAndRender(dateInput);
     });
   });
+
+  document.getElementById("walkthrough-next").addEventListener("click", advanceWalkthrough);
 
   await loadPlanData(dateInput);
 
@@ -3274,6 +3293,80 @@ function renderAddTaskSelect() {
   select.innerHTML =
     `<option value="">Aufgabe wählen…</option>` +
     available.map((t) => `<option value="${t.id}">${escapeHtml(t.title)}</option>`).join("");
+}
+
+// ----- Sequenzieller Bereichs-Durchgang -----
+// wissensdatenbank/features/tagesplan-algorithmus-v2.md, "Sequenzieller Bereichs-Durchgang statt
+// Ein-Klick-Bestätigung" — erzwungener Standard-Ablauf statt der früheren Auf-einen-Blick-Liste,
+// damit der Plan nicht mehr reflexhaft ungesehen bestätigt wird. planState.selected startet bereits
+// mit allen Bereichs-Minimums (siehe loadPlanData); hier kommen nur die angetippten
+// Zusatz-Kandidaten dazu, die finale Gesamt-Übersicht (renderPlanTaskList etc.) bleibt unverändert
+// die Korrekturmöglichkeit danach.
+function startAreaWalkthrough() {
+  if (planState.areaPools.length === 0) {
+    finishWalkthrough();
+    return;
+  }
+  document.getElementById("area-walkthrough-panel").hidden = false;
+  document.getElementById("post-walkthrough-panels").hidden = true;
+  renderAreaWalkthroughStep();
+}
+
+function renderAreaWalkthroughStep() {
+  const { areaId, minimum, additionalCandidates } = planState.areaPools[planState.walkthroughIndex];
+  const area = planState.areas.find((a) => a.id === areaId);
+  const areaName = area ? area.name : "Ohne Bereich";
+  const areaColor = area ? area.color : null;
+
+  document.getElementById("walkthrough-progress").textContent =
+    `Bereich ${planState.walkthroughIndex + 1} von ${planState.areaPools.length}`;
+  document.getElementById("walkthrough-area-name").textContent = areaName;
+
+  const minimumList = document.getElementById("walkthrough-minimum");
+  minimumList.innerHTML = "";
+  minimumList.appendChild(
+    buildPlanRowBase(minimum, planState.areaColorById, minimum.title + (minimum.effort ? ` · ${minimum.effort} min` : ""))
+  );
+
+  const candidatesWrap = document.getElementById("walkthrough-candidates");
+  const emptyState = document.getElementById("walkthrough-no-candidates");
+  candidatesWrap.innerHTML = "";
+  emptyState.hidden = additionalCandidates.length > 0;
+  for (const task of additionalCandidates) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "pot-chip";
+    if (areaColor) chip.style.setProperty("--pot-color", areaColor);
+    chip.dataset.active = String(planState.selected.some((t) => t.id === task.id));
+    chip.textContent = task.title + (task.effort ? ` · ${task.effort} min` : "");
+    chip.addEventListener("click", () => {
+      const wasActive = chip.dataset.active === "true";
+      planState.selected = wasActive
+        ? planState.selected.filter((t) => t.id !== task.id)
+        : [...planState.selected, task];
+      chip.dataset.active = String(!wasActive);
+    });
+    candidatesWrap.appendChild(chip);
+  }
+
+  document.getElementById("walkthrough-next").textContent =
+    planState.walkthroughIndex === planState.areaPools.length - 1 ? "Fertig" : "Weiter";
+}
+
+function advanceWalkthrough() {
+  if (planState.walkthroughIndex < planState.areaPools.length - 1) {
+    planState.walkthroughIndex++;
+    renderAreaWalkthroughStep();
+  } else {
+    finishWalkthrough();
+  }
+}
+
+function finishWalkthrough() {
+  document.getElementById("area-walkthrough-panel").hidden = true;
+  document.getElementById("post-walkthrough-panels").hidden = false;
+  renderPlanTaskList();
+  renderAddTaskSelect();
 }
 
 /* ---------- Finanzen ---------- */

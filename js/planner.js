@@ -85,6 +85,42 @@ export function suggestTasksForPlan(openTasks, targetDateIso) {
   return selected;
 }
 
+// Bereichsweise Aufschlüsselung für den sequenziellen Plan-Durchgang (wissensdatenbank/features/
+// tagesplan-algorithmus-v2.md, "Sequenzieller Bereichs-Durchgang") — pro Bereich das garantierte
+// Minimum (Phase 1, identisch zu suggestTasksForPlan) getrennt von den übrigen Kandidaten, die noch
+// unter den Bereichs-Cap passen. Reiner Bereichsbezug ohne Cross-Area-Budgetprüfung — die liefert
+// weiterhin nur suggestTasksForPlan für die finale Gesamt-Übersicht.
+export function buildAreaCandidatePools(openTasks, targetDateIso) {
+  const pool = openTasks.filter(
+    (t) => t.status === "open" && !t.parent_task_id && t.habit_weekdays == null && t.effort != null
+  );
+
+  const totalBudget = budgetForDate(targetDateIso);
+
+  const byArea = new Map();
+  for (const task of pool) {
+    if (!byArea.has(task.area_id)) byArea.set(task.area_id, []);
+    byArea.get(task.area_id).push(task);
+  }
+  for (const list of byArea.values()) {
+    list.sort(byPriorityThenAge);
+  }
+
+  const areaCap = byArea.size > 0 ? totalBudget / byArea.size : 0;
+
+  return [...byArea.entries()].map(([areaId, list]) => {
+    const minimum = list[0];
+    const additionalCandidates = [];
+    let usedInArea = minimum.effort;
+    for (const task of list.slice(1)) {
+      if (usedInArea + task.effort > areaCap) continue;
+      additionalCandidates.push(task);
+      usedInArea += task.effort;
+    }
+    return { areaId, minimum, additionalCandidates };
+  });
+}
+
 export function formatTasksForExport(tasks, areaNameById) {
   if (tasks.length === 0) return "Keine offenen Aufgaben.";
   return tasks

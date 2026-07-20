@@ -1,5 +1,5 @@
 import { buildTaskTree, collectDescendantIds, countDescendantsRecursive } from "./js/tasks.js";
-import { suggestTasksForPlan, formatTasksForExport } from "./js/planner.js";
+import { suggestTasksForPlan, formatTasksForExport, buildAreaCandidatePools } from "./js/planner.js";
 import {
   DEFAULT_DURATION_MIN,
   isWatchlistTask,
@@ -107,6 +107,36 @@ function assertEqual(actual, expected, label) {
     1,
     "suggestTasksForPlan: Bereichs-Cap begrenzt einen gierigen Bereich auf seinen fairen Anteil"
   );
+}
+
+// ---------- buildAreaCandidatePools (sequenzieller Bereichs-Durchgang) ----------
+// 3 Buckets (a1, a2, area_id=null) → areaCap = 120/3 = 40 Min.
+{
+  const WEEKDAY = "2026-07-14";
+  const base = { status: "open", priority: "medium" };
+  const tasks = [
+    { ...base, id: "a1-min", area_id: "a1", effort: 10, created_at: "2026-01-01" },
+    { ...base, id: "a1-fits", area_id: "a1", effort: 20, created_at: "2026-01-02" },
+    { ...base, id: "a1-toobig", area_id: "a1", effort: 15, created_at: "2026-01-03" },
+    { ...base, id: "a2-min", area_id: "a2", effort: 15, created_at: "2026-01-01" },
+    { ...base, id: "none-min", area_id: null, effort: 5, created_at: "2026-01-01" },
+  ];
+  const pools = buildAreaCandidatePools(tasks, WEEKDAY);
+
+  const poolA1 = pools.find((p) => p.areaId === "a1");
+  assertEqual(poolA1.minimum.id, "a1-min", "buildAreaCandidatePools: Minimum ist dieselbe älteste Aufgabe wie Phase 1 von suggestTasksForPlan");
+  assertEqual(
+    poolA1.additionalCandidates.map((t) => t.id),
+    ["a1-fits"],
+    "buildAreaCandidatePools: Zusatz-Kandidat unter Cap aufgenommen, Cap-Überschreitung (a1-toobig, 10+20+15=45>40) ausgeschlossen"
+  );
+
+  const poolA2 = pools.find((p) => p.areaId === "a2");
+  assertEqual(poolA2.minimum.id, "a2-min", "buildAreaCandidatePools: Bereich ohne weitere offene Aufgaben liefert nur das Minimum");
+  assertEqual(poolA2.additionalCandidates.length, 0, "buildAreaCandidatePools: leere additionalCandidates-Liste ohne weitere offene Aufgaben");
+
+  const poolNone = pools.find((p) => p.areaId === null);
+  assertEqual(poolNone.minimum.id, "none-min", "buildAreaCandidatePools: area_id null (Ohne Bereich) ist ein regulärer Bucket");
 }
 
 // ---------- formatTasksForExport ----------

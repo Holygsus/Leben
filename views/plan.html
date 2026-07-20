@@ -11,6 +11,16 @@
   <p class="plan-date" id="plan-date"></p>
 </section>
 
+<section class="panel" id="area-walkthrough-panel" hidden>
+  <p class="status-message" id="walkthrough-progress"></p>
+  <h2 id="walkthrough-area-name"></h2>
+  <ul class="task-list" id="walkthrough-minimum"></ul>
+  <div class="pot-chips" id="walkthrough-candidates"></div>
+  <p class="empty-state" id="walkthrough-no-candidates" hidden>Keine weiteren offenen Aufgaben in diesem Bereich.</p>
+  <button class="btn" type="button" id="walkthrough-next">Weiter</button>
+</section>
+
+<div id="post-walkthrough-panels" hidden>
 <section class="panel">
   <h2>Vorschlag</h2>
   <p class="plan-budget" id="plan-budget"></p>
@@ -22,6 +32,19 @@
 </div>
   <button class="btn btn-secondary" type="button" id="refresh-suggestion">Neu vorschlagen</button>
 </section>
+
+<section class="panel">
+  <h2>Weitere Aufgabe hinzufügen</h2>
+  <select id="add-task-select" class="select">
+    <option value="">Aufgabe wählen…</option>
+  </select>
+</section>
+
+<section class="panel">
+  <button class="btn" type="button" id="confirm-plan">Plan bestätigen</button>
+  <p class="status-message" id="plan-status"></p>
+</section>
+</div>
 
 <section class="panel">
   <div class="month-grid-header">
@@ -38,18 +61,6 @@
     <ul class="task-list" id="week-day-panel-list"></ul>
     <p class="empty-state" id="week-day-panel-empty" hidden>Für diesen Tag ist noch nichts eingeplant.</p>
   </div>
-</section>
-
-<section class="panel">
-  <h2>Weitere Aufgabe hinzufügen</h2>
-  <select id="add-task-select" class="select">
-    <option value="">Aufgabe wählen…</option>
-  </select>
-</section>
-
-<section class="panel">
-  <button class="btn" type="button" id="confirm-plan">Plan bestätigen</button>
-  <p class="status-message" id="plan-status"></p>
 </section>
 
 <section class="panel">
