@@ -25,7 +25,7 @@ create table if not exists watchlist_items (
   id uuid default gen_random_uuid() primary key,
   user_id uuid references auth.users not null,
   title text not null,
-  type text not null default 'serie' check (type in ('serie', 'anime', 'film')),
+  type text not null default 'serie' check (type in ('serie', 'anime', 'film', 'doku', 'youtube')),
   genres text[] default '{}',
   -- 'geplant' als konservativer Default (analog wishlist_items.status='inactive'): ein frisch
   -- angelegter Eintrag nimmt erst an der wöchentlichen Rotation teil, wenn er explizit auf 'aktiv'

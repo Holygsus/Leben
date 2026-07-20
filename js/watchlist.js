@@ -3,7 +3,7 @@ import { getCurrentUserId } from "./auth.js";
 import { WEEKDAY_CODES, weekdayCodeFromIso } from "./habits.js";
 import { budgetForDate } from "./planner.js";
 
-export const DEFAULT_DURATION_MIN = { serie: 45, anime: 20, film: 90 };
+export const DEFAULT_DURATION_MIN = { serie: 45, anime: 20, film: 90, doku: 45, youtube: 15 };
 
 // ---------- CRUD: Katalog ----------
 

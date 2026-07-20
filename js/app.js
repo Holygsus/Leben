@@ -4288,7 +4288,7 @@ function wireTransactionQuickCapture() {
 
 const watchlistViewState = { items: [], allTasks: [], logEntries: [] };
 
-const WATCHLIST_TYPE_LABEL = { serie: "Serie", anime: "Anime", film: "Film" };
+const WATCHLIST_TYPE_LABEL = { serie: "Serie", anime: "Anime", film: "Film", doku: "Doku", youtube: "YouTube" };
 
 // " · S1E4" wenn Staffel/Folge gepflegt sind (nur bei serie/anime relevant), sonst "".
 function buildCurrentEpisodeLabel(item) {
@@ -4753,7 +4753,7 @@ async function promptWatchlistRating(task) {
       // Neu angelegte Items starten mit current_episode=null (kein Default beim Anlegen) — die
       // erste Sichtung soll den Auto-Fortschritt trotzdem anstoßen statt still zu bleiben, bis der
       // Nutzer manuell eine Startfolge im Bearbeiten-Modal einträgt.
-      if (item.type !== "film") {
+      if (!["film", "doku", "youtube"].includes(item.type)) {
         await updateWatchlistItem(item.id, { current_episode: (item.current_episode ?? 0) + 1 });
       }
       close(logRow.id);

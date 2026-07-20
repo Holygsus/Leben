@@ -128,6 +128,8 @@ function assertEqual(actual, expected, label) {
   assertEqual(getEffectiveDuration({ type: "serie", duration_minutes: null }), DEFAULT_DURATION_MIN.serie, "getEffectiveDuration: Serie-Standard 45 Min.");
   assertEqual(getEffectiveDuration({ type: "anime", duration_minutes: null }), DEFAULT_DURATION_MIN.anime, "getEffectiveDuration: Anime-Standard 20 Min.");
   assertEqual(getEffectiveDuration({ type: "film", duration_minutes: null }), DEFAULT_DURATION_MIN.film, "getEffectiveDuration: Film-Standard 90 Min.");
+  assertEqual(getEffectiveDuration({ type: "doku", duration_minutes: null }), DEFAULT_DURATION_MIN.doku, "getEffectiveDuration: Doku-Standard 45 Min.");
+  assertEqual(getEffectiveDuration({ type: "youtube", duration_minutes: null }), DEFAULT_DURATION_MIN.youtube, "getEffectiveDuration: YouTube-Standard 15 Min.");
   assertEqual(getEffectiveDuration({ type: "serie", duration_minutes: 25 }), 25, "getEffectiveDuration: manueller Override schlägt Typ-Standard");
 }
 
