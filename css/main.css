@@ -86,6 +86,11 @@ body {
 
 /* Toast */
 
+@keyframes toast-in {
+  from { transform: translateX(-50%) translateY(8px); opacity: 0; }
+  to { transform: translateX(-50%) translateY(0); opacity: 1; }
+}
+
 #toast {
   position: fixed;
   left: 50%;
@@ -106,6 +111,7 @@ body {
   justify-content: center;
   gap: var(--space-3);
   cursor: pointer;
+  animation: toast-in var(--transition-base) ease;
 }
 
 /* Ohne diese Regel gewinnt die #toast-Deklaration von oben (ID-Spezifität schlägt die
@@ -268,6 +274,15 @@ body {
   font-size: var(--font-size-base);
 }
 
+/* Bespoke Fokus-Stil statt des generischen eckigen System-Rings aus reset.css — passender zum
+   abgerundeten Look, bleibt aber als sichtbarer Fokus-Indikator erhalten. */
+.input:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
 .btn {
   min-height: var(--touch-target);
   padding: 0 var(--space-5);
@@ -306,6 +321,16 @@ body {
 .today-greeting h1 {
   font-size: var(--font-size-2xl);
   margin-bottom: var(--space-1);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.greeting-icon svg {
+  width: 24px;
+  height: 24px;
+  stroke: var(--color-accent-warm);
+  vertical-align: middle;
 }
 
 .today-greeting .today-date {
@@ -464,7 +489,10 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .progress-ring.is-complete::before,
-  .pot-ring.is-full::before {
+  .pot-ring.is-full::before,
+  .modal-backdrop,
+  .modal-card,
+  #toast {
     animation: none;
   }
 }
@@ -520,6 +548,13 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
+/* Bei aktivem Hintergrundbild (Personalisierung) werden Karten leicht durchscheinend statt
+   blickdicht, sonst ist das Bild praktisch nur in den Lücken zwischen Karten sichtbar. */
+body.has-bg-image .task-item {
+  background: color-mix(in srgb, var(--task-area-color, var(--color-surface)) 7%, color-mix(in srgb, var(--color-surface) 78%, transparent));
+  backdrop-filter: blur(10px);
+}
+
 .task-checkbox {
   width: 24px;
   height: 24px;
@@ -540,6 +575,14 @@ body {
 .task-item.is-done .task-title {
   color: var(--color-text-subtle);
   text-decoration: line-through;
+}
+
+.task-item.is-due-soon {
+  border-color: var(--color-warning);
+}
+
+.task-item.is-due-soon .task-title {
+  color: var(--color-warning);
 }
 
 .task-item.is-overdue {
@@ -741,6 +784,27 @@ body {
   background: var(--color-accent);
   color: var(--color-accent-contrast);
   border-color: var(--color-accent);
+}
+
+/* Eigene Farbe je Stufe für die Prioritäts-Auswahl (Schnellerfassung), passend zur bereits
+   bestehenden .badge-priority-* Palette der Detail-Ansicht — sonst sehen Niedrig/Mittel/Hoch im
+   gewählten Zustand alle gleich blau aus. */
+.priority-chip[data-priority="low"][data-active="true"] {
+  background: var(--color-success);
+  color: #fff;
+  border-color: var(--color-success);
+}
+
+.priority-chip[data-priority="medium"][data-active="true"] {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+.priority-chip[data-priority="high"][data-active="true"] {
+  background: var(--color-danger);
+  color: #fff;
+  border-color: var(--color-danger);
 }
 
 .pot-chips {
@@ -1100,6 +1164,30 @@ body {
   background: var(--color-surface);
   color: var(--color-text);
   font-size: var(--font-size-base);
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: calc(var(--space-3) + 22px);
+  background-repeat: no-repeat;
+  background-position: right var(--space-3) center;
+  background-size: 14px 14px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236B6660' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+}
+
+/* Eigener Pfeil statt Browser-/OS-Standard — Farbe dupliziert als Hex-Literal je Theme, weil
+   var() innerhalb einer data-URI im background-image nicht aufgelöst wird (gleiches Muster wie
+   die Theme-Blöcke in variables.css). */
+@media (prefers-color-scheme: dark) {
+  .select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23B3ADA3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  }
+}
+
+:root[data-theme="dark"] .select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23B3ADA3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+}
+
+:root[data-theme="light"] .select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236B6660' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
 }
 
 .task-item.is-stale {
@@ -1108,6 +1196,18 @@ body {
 
 .task-item.is-stale .task-title {
   color: var(--color-warning);
+}
+
+/* Explizite Vorrang-Regel statt sich auf die Deklarationsreihenfolge zu verlassen: eine Aufgabe,
+   die zugleich "angestaubt" (14 Tage alt) und überfällig ist, muss klar als überfällig (rot)
+   erkennbar bleiben, nicht nur als "angestaubt" (Amber). 3-Klassen-Selektor gewinnt unabhängig von
+   der Reihenfolge der beiden Einzel-Regeln oben. */
+.task-item.is-stale.is-overdue {
+  border-color: var(--color-danger);
+}
+
+.task-item.is-stale.is-overdue .task-title {
+  color: var(--color-danger);
 }
 
 .panel {
@@ -1164,6 +1264,17 @@ body {
 
 .tx-line-amount .icon-btn-danger {
   margin-left: auto;
+}
+
+/* Einnahmen farblich hervorheben statt gleich aussehender Beträge — Ausgaben bleiben bewusst
+   neutral, damit --color-danger für "überfällig" reserviert bleibt und nicht mit "jede Ausgabe"
+   überladen wird. */
+.tx-amount-income {
+  color: var(--color-success);
+}
+
+.tx-amount-income.input {
+  font-weight: 600;
 }
 
 .pot-grid {
@@ -1276,6 +1387,12 @@ body {
   min-width: 160px;
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
+}
+
+.category-donut-legend li {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .category-donut-dot {
@@ -1549,6 +1666,7 @@ body {
 
 .month-day[data-today="true"] {
   color: var(--color-accent);
+  box-shadow: inset 0 0 0 2px var(--color-accent);
 }
 
 /* Auslastungs-Färbung statt einheitlichem Punkt — ein Tag mit einer Aufgabe sah bisher genauso aus
@@ -1840,6 +1958,10 @@ body {
   font-weight: 500;
 }
 
+.tree-node-header.is-due-soon .tree-node-name {
+  color: var(--color-warning);
+}
+
 .tree-node-header.is-overdue .tree-node-name {
   color: var(--color-danger);
 }
@@ -1874,6 +1996,16 @@ body {
 
 /* Aufgaben-Detail (Modal) */
 
+@keyframes modal-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-card-in {
+  from { transform: translateY(16px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -1883,6 +2015,7 @@ body {
   justify-content: center;
   background: rgba(0, 0, 0, 0.45);
   padding: var(--space-4);
+  animation: modal-backdrop-in var(--transition-base) ease;
 }
 
 .modal-card {
@@ -1899,6 +2032,7 @@ body {
   border: 1px solid var(--color-border);
   box-shadow: var(--shadow-lg);
   margin-bottom: env(safe-area-inset-bottom);
+  animation: modal-card-in var(--transition-base) ease;
 }
 
 .modal-card h2 {
@@ -2040,5 +2174,10 @@ body {
 
   .project-item-clickable:hover {
     border-color: var(--color-text-subtle);
+  }
+
+  .category-donut-legend li:hover {
+    background: var(--color-surface-raised);
+    color: var(--color-text);
   }
 }

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Leben OS — Visuelle Vorschau</title>
+<link rel="stylesheet" href="css/reset.css" />
+<link rel="stylesheet" href="css/variables.css" />
+<link rel="stylesheet" href="css/main.css" />
+<style>
+  body {
+    padding: var(--space-6) var(--space-4) var(--space-7);
+    max-width: 640px;
+    margin: 0 auto;
+    text-align: center;
+  }
+  .demo-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: var(--space-6);
+    text-align: left;
+  }
+  .demo-topbar h1 { font-size: var(--font-size-lg); }
+  .demo-toggle {
+    min-height: 40px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-full);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+  }
+  .demo-empty {
+    padding: var(--space-7) var(--space-4);
+  }
+  .demo-empty svg {
+    width: 32px;
+    height: 32px;
+    stroke: var(--color-success);
+    fill: none;
+    stroke-width: 1.8;
+    margin-bottom: var(--space-3);
+  }
+  .demo-empty p {
+    color: var(--color-text-muted);
+    font-size: var(--font-size-sm);
+    max-width: 480px;
+    margin: var(--space-2) auto 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="demo-topbar">
+  <h1>Leben OS — Visuelle Vorschau</h1>
+  <button class="demo-toggle" id="theme-toggle" type="button">🌙 Dark Mode</button>
+</div>
+
+<div class="demo-empty">
+  <svg viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></svg>
+  <strong>Alle bisher gesammelten Punkte sind umgesetzt.</strong>
+  <p>Diese Seite sammelt zukünftige Vorher/Nachher-Beispiele für neue visuelle Verbesserungstipps —
+     bei der nächsten Runde kommen hier wieder Sektionen dazu.</p>
+</div>
+
+<script>
+  const toggle = document.getElementById("theme-toggle");
+  toggle.addEventListener("click", () => {
+    const root = document.documentElement;
+    const isDark = root.dataset.theme === "dark";
+    root.dataset.theme = isDark ? "light" : "dark";
+    toggle.textContent = isDark ? "🌙 Dark Mode" : "☀️ Light Mode";
+  });
+</script>
+
+</body>
+</html>
