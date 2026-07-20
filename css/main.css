@@ -836,6 +836,13 @@ body.has-bg-image .task-item {
   gap: var(--space-1);
 }
 
+.habit-weekday-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
 /* Habit-Zeile: startet im Kompakt-Zustand (Titel + Punktreihe in einer Zeile), die vollen
    Mo-So-Chips sind ein eigener Block darunter und per [hidden] versteckt, bis .habit-toggle
    sie aufklappt. Dadurch stehen die 7 antippbaren 40px-Chips nicht dauerhaft im Weg — das war

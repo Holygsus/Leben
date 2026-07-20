@@ -117,6 +117,11 @@ export function buildAreaCandidatePools(openTasks, targetDateIso) {
       additionalCandidates.push(task);
       usedInArea += task.effort;
     }
+    // Anzeige-Reihenfolge im Bereichs-Durchgang: größter Aufwand zuerst, damit große Brocken nicht
+    // erst spät entdeckt werden, wenn schon wenig Tagesbudget übrig ist (tagesplan-algorithmus-v2.md).
+    // Die Auswahl selbst (welche Kandidaten unter den Cap passen) bleibt oben unverändert
+    // byPriorityThenAge.
+    additionalCandidates.sort((a, b) => b.effort - a.effort);
     return { areaId, minimum, additionalCandidates };
   });
 }

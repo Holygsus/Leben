@@ -140,6 +140,28 @@ function assertEqual(actual, expected, label) {
   assertEqual(poolNone.minimum.id, "none-min", "buildAreaCandidatePools: area_id null (Ohne Bereich) ist ein regulärer Bucket");
 }
 
+// additionalCandidates: Anzeige-Reihenfolge nach Aufwand absteigend (tagesplan-algorithmus-v2.md,
+// "Künftige Verfeinerung — Aufwand-Reihenfolge"), unabhängig von der Priority/Age-Auswahlreihenfolge.
+{
+  const WEEKDAY = "2026-07-14";
+  const base = { status: "open", priority: "medium" };
+  const tasks = [
+    { ...base, id: "b1-min", area_id: "b1", effort: 5, priority: "high", created_at: "2026-01-01" },
+    { ...base, id: "b1-small", area_id: "b1", effort: 10, priority: "medium", created_at: "2026-01-02" },
+    { ...base, id: "b1-big", area_id: "b1", effort: 20, priority: "low", created_at: "2026-01-03" },
+  ];
+  // b1-min hat die höchste Priorität und wird dadurch garantiert das Minimum (Phase 1). Ohne die neue
+  // Sortierung stünde b1-small (höhere Priorität) vor b1-big (mehr Aufwand) in additionalCandidates —
+  // areaCap = 120/1 = 120, beide Zusatz-Kandidaten passen locker unter den Cap.
+  const pools = buildAreaCandidatePools(tasks, WEEKDAY);
+  const poolB1 = pools.find((p) => p.areaId === "b1");
+  assertEqual(
+    poolB1.additionalCandidates.map((t) => t.id),
+    ["b1-big", "b1-small"],
+    "buildAreaCandidatePools: additionalCandidates nach Aufwand absteigend sortiert, nicht nach Priorität"
+  );
+}
+
 // ---------- formatTasksForExport ----------
 {
   assertEqual(formatTasksForExport([], {}), "Keine offenen Aufgaben.", "formatTasksForExport: leere Liste");

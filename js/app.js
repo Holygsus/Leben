@@ -3743,6 +3743,19 @@ function buildRecurrenceOptions(task) {
     .join("");
 }
 
+// Konsolidierte DOM-Aktualisierung nach einer habit_weekdays-Änderung (Einzel-Chip-Toggle oder
+// Mo-Fr/Wochenende/Täglich-Preset) — rendert die Chip-Gruppe komplett neu statt nur ein Dataset zu
+// togglen, damit ein Preset alle sieben Chips auf einmal aktualisieren kann.
+function updateHabitWeekdayChips(li, task, todayCode) {
+  li.querySelector(".weekday-chips").innerHTML = buildHabitChips(task, todayCode);
+  const recurrence = task.habit_recurrence || "weekly";
+  li.querySelector(".habit-freq").textContent =
+    recurrence === "weekly"
+      ? `${task.habit_weekdays.length}× pro Woche`
+      : `${task.habit_weekdays.length}× · ${RECURRENCE_LABEL[recurrence]}`;
+  li.querySelector(".habit-dotrow").outerHTML = buildHabitDotRow(task, todayCode);
+}
+
 // Rendert die Liste der Habit-Aufgaben. Jede Zeile startet im Kompakt-Zustand (Punktreihe) und
 // klappt per Tap auf die editierbaren Mo-So-Chips auf — analog td-subtask-list im Detail-Modal
 // nutzt auch das hier nur einen delegierten Klick-Handler auf #habit-list statt pro Zeile.
@@ -3783,6 +3796,11 @@ function renderHabitList() {
             ${buildHabitDotRow(t, todayCode)}
           </button>
           <div class="habit-expanded" hidden>
+            <div class="habit-weekday-presets" role="group" aria-label="Wochentage-Voreinstellungen">
+              <button type="button" class="chip-btn habit-preset-btn" data-preset="workdays">Mo–Fr</button>
+              <button type="button" class="chip-btn habit-preset-btn" data-preset="weekend">Wochenende</button>
+              <button type="button" class="chip-btn habit-preset-btn" data-preset="daily">Täglich</button>
+            </div>
             <div class="weekday-chips" role="group" aria-label="Wochentage">
               ${buildHabitChips(t, todayCode)}
             </div>
@@ -3808,9 +3826,25 @@ function renderHabitList() {
       await withErrorToast(async () => {
         await updateTask(task.id, { habit_weekdays: nextDays });
         task.habit_weekdays = nextDays;
-        chip.dataset.active = String(nextDays.includes(day));
-        li.querySelector(".habit-freq").textContent = `${nextDays.length}× pro Woche`;
-        li.querySelector(".habit-dotrow").outerHTML = buildHabitDotRow(task, todayCode);
+        updateHabitWeekdayChips(li, task, todayCode);
+      });
+      return;
+    }
+
+    const presetBtn = e.target.closest(".habit-preset-btn");
+    if (presetBtn) {
+      const li = presetBtn.closest("[data-habit-id]");
+      const task = habitsViewState.allTasks.find((t) => t.id === li.dataset.habitId);
+      const PRESET_WEEKDAYS = {
+        workdays: ["mon", "tue", "wed", "thu", "fri"],
+        weekend: ["sat", "sun"],
+        daily: WEEKDAY_CODES,
+      };
+      const nextDays = PRESET_WEEKDAYS[presetBtn.dataset.preset];
+      await withErrorToast(async () => {
+        await updateTask(task.id, { habit_weekdays: nextDays });
+        task.habit_weekdays = nextDays;
+        updateHabitWeekdayChips(li, task, todayCode);
       });
       return;
     }
