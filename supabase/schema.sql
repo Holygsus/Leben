@@ -46,6 +46,22 @@ create table if not exists watchlist_items (
 
 create index if not exists watchlist_items_user_status_idx on watchlist_items (user_id, status);
 
+-- Rezepte speichern (siehe wissensdatenbank/features/kochen-rezepte-kuehlschrank.md, Punkt 1) —
+-- Grundlage für den später geplanten digitalen Kühlschrank/Kochen-fördern. Zutaten als jsonb-Array
+-- [{ name, amount }] auf der Recipe-Zeile selbst, kein eigenes Join. name ist Pflicht (Basis fürs
+-- künftige Kühlschrank-Matching), amount ein freies, unvalidiertes Textfeld.
+create table if not exists recipes (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users not null,
+  title text not null,
+  ingredients jsonb not null default '[]',
+  instructions text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create index if not exists recipes_user_id_idx on recipes (user_id);
+
 -- Aufgaben (frei verschachtelbar über parent_task_id; is_pinned markiert schnell auffindbare
 -- Aufgaben in der Übersicht)
 create table if not exists tasks (
@@ -274,6 +290,7 @@ alter table committed_expenses enable row level security;
 alter table portfolio_positions enable row level security;
 alter table wishlist_items enable row level security;
 alter table savings_pot_entries enable row level security;
+alter table recipes enable row level security;
 alter table watchlist_items enable row level security;
 alter table watchlist_viewing_log enable row level security;
 alter table habit_completions enable row level security;
@@ -316,6 +333,9 @@ create policy "wishlist_items: own data" on wishlist_items for all using (auth.u
 drop policy if exists "savings_pot_entries: own data" on savings_pot_entries;
 create policy "savings_pot_entries: own data" on savings_pot_entries for all using (auth.uid() = user_id);
 
+drop policy if exists "recipes: own data" on recipes;
+create policy "recipes: own data" on recipes for all using (auth.uid() = user_id);
+
 drop policy if exists "watchlist_items: own data" on watchlist_items;
 create policy "watchlist_items: own data" on watchlist_items for all using (auth.uid() = user_id);
 
@@ -353,6 +373,11 @@ create trigger fixed_costs_updated_at
 drop trigger if exists wishlist_items_updated_at on wishlist_items;
 create trigger wishlist_items_updated_at
   before update on wishlist_items
+  for each row execute function update_updated_at();
+
+drop trigger if exists recipes_updated_at on recipes;
+create trigger recipes_updated_at
+  before update on recipes
   for each row execute function update_updated_at();
 
 drop trigger if exists watchlist_items_updated_at on watchlist_items;

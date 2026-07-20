@@ -73,6 +73,7 @@ import {
   applyWatchlistSwap,
 } from "./watchlist.js";
 import { listBirthdays, createBirthday, deleteBirthday, daysUntilNextOccurrence, nextOccurrence } from "./birthdays.js";
+import { listRecipes, createRecipe, updateRecipe, deleteRecipe, formatIngredientsForShoppingList } from "./recipes.js";
 import { getReflectionForDate, createReflection } from "./reflections.js";
 import {
   getStoredTheme,
@@ -106,6 +107,7 @@ const routes = {
   habits: renderHabitsView,
   finance: renderFinanceView,
   fernsehprogramm: renderFernsehprogrammView,
+  rezepte: renderRezepteView,
 };
 
 const WEEKDAY_LABEL = { mon: "Mo", tue: "Di", wed: "Mi", thu: "Do", fri: "Fr", sat: "Sa", sun: "So" };
@@ -859,6 +861,11 @@ const MORE_ROUTES = [
     label: "Fernsehprogramm",
     icon: `<path d="M3 5h18v12H3z"/><path d="M8 21h8M12 17v4M8 2l3 3M16 2l-3 3"/>`,
   },
+  {
+    route: "rezepte",
+    label: "Rezepte",
+    icon: `<path d="M4 4h6a2 2 0 0 1 2 2v14a2 2 0 0 0-2-2H4z"/><path d="M20 4h-6a2 2 0 0 0-2 2v14a2 2 0 0 1 2-2h6z"/>`,
+  },
 ];
 
 // Erhöht sich bei jedem renderShell()-Aufruf. Die render*View()-Funktionen lesen ihren Stand direkt
@@ -1406,8 +1413,10 @@ function buildTaskItem(task, areaColorById, allTasks, onChange) {
 function appendTaskRowContent(el, task, areaColorById, allTasks, onChange) {
   const isStale = isTaskStale(task);
   const isOverdue = isTaskOverdue(task);
+  const isDueSoon = isTaskDueSoon(task);
   el.classList.toggle("is-done", task.status === "done");
   el.classList.toggle("is-stale", isStale);
+  el.classList.toggle("is-due-soon", isDueSoon);
   el.classList.toggle("is-overdue", isOverdue);
   // Bereichsfarbe als Akzent am linken Rand + leichter Hintergrund-Tint (main.css .task-item) —
   // außer bei "überfällig", das hat Vorrang (rot).
@@ -1695,6 +1704,15 @@ function renderQuickWin(allTasks, tasks, today) {
 // Status noch "open" oder schon "planned" ist (beides ist über das Detail-Modal frei kombinierbar).
 function isTaskOverdue(task) {
   return task.status !== "done" && !!task.planned_date && task.planned_date < todayISO();
+}
+
+// Vorwarnstufe zwischen "normal" und "überfällig" — heute/morgen fällig, aber noch nicht in der
+// Vergangenheit. Mit isTaskOverdue() zusammen deckt das lückenlos alle geplanten, offenen Aufgaben
+// ab (kein Datum kann gleichzeitig beides sein).
+function isTaskDueSoon(task) {
+  if (task.status === "done" || !task.planned_date) return false;
+  const today = todayISO();
+  return task.planned_date === today || task.planned_date === tomorrowISO();
 }
 
 // Sortiert nach Dringlichkeit: überfällige/nahe Plandaten zuerst (aufsteigend), undatierte
@@ -2154,7 +2172,8 @@ function buildTaskNodeEl(node, area, depth) {
   const collapsed = overviewState.collapsedNodes.has(node.id) && !hasSearch;
 
   const header = document.createElement("div");
-  header.className = "tree-node-header" + (isTaskOverdue(node) ? " is-overdue" : "");
+  header.className =
+    "tree-node-header" + (isTaskOverdue(node) ? " is-overdue" : isTaskDueSoon(node) ? " is-due-soon" : "");
 
   const toggle = document.createElement("button");
   toggle.type = "button";
@@ -4930,6 +4949,219 @@ async function promptWatchlistRating(task) {
       if (chip) submit(Number(chip.dataset.rating));
     });
     document.getElementById("rating-skip").addEventListener("click", () => submit(null));
+  });
+}
+
+/* ---------- Rezepte ---------- */
+// wissensdatenbank/features/kochen-rezepte-kuehlschrank.md, Punkt 1 — Grundlage für den später
+// geplanten digitalen Kühlschrank/Kochen-fördern.
+
+async function renderRezepteView() {
+  const myGeneration = renderGeneration;
+  const container = document.getElementById("view-content");
+  const res = await fetch("views/rezepte.html");
+  if (myGeneration !== renderGeneration) return;
+  container.innerHTML = await res.text();
+  await renderRecipeList();
+  wireRecipeQuickAddForm();
+}
+
+async function renderRecipeList() {
+  const list = document.getElementById("recipe-list");
+  const emptyState = document.getElementById("recipe-empty-state");
+  const recipes = await listRecipes();
+  list.innerHTML = "";
+  if (recipes.length === 0) {
+    emptyState.hidden = false;
+    return;
+  }
+  emptyState.hidden = true;
+  for (const recipe of recipes) {
+    const li = document.createElement("li");
+    li.className = "task-item";
+    const title = document.createElement("button");
+    title.type = "button";
+    title.className = "task-title task-title-btn";
+    title.textContent = recipe.title;
+    title.addEventListener("click", () => openRecipeDetail(recipe.id));
+    li.appendChild(title);
+    list.appendChild(li);
+  }
+}
+
+function wireRecipeQuickAddForm() {
+  const toggleBtn = document.getElementById("recipe-quick-add-toggle");
+  const form = document.getElementById("recipe-quick-form");
+  const titleInput = document.getElementById("recipe-quick-title");
+  const cancelBtn = document.getElementById("recipe-quick-cancel");
+
+  const closeForm = () => {
+    form.hidden = true;
+    form.reset();
+  };
+
+  toggleBtn.addEventListener("click", () => {
+    if (form.hidden) {
+      form.hidden = false;
+      titleInput.focus();
+    } else {
+      closeForm();
+    }
+  });
+  cancelBtn.addEventListener("click", closeForm);
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = titleInput.value.trim();
+    if (!title) return;
+    await withErrorToast(async () => {
+      const recipe = await createRecipe({ title });
+      closeForm();
+      await renderRecipeList();
+      // Ein frisch angelegtes Rezept ohne Zutaten ist wenig nützlich — direkt ins Detail-Modal
+      // zum Ausfüllen, statt einen zusätzlichen Klick auf den Listeneintrag zu verlangen.
+      await openRecipeDetail(recipe.id);
+    });
+  });
+}
+
+// ----- Rezept-Detail (Modal) -----
+
+async function openRecipeDetail(recipeId) {
+  const root = document.getElementById("modal-root");
+  document.body.style.overflow = "hidden";
+
+  const close = () => {
+    root.innerHTML = "";
+    document.body.style.overflow = "";
+    document.removeEventListener("keydown", onKeydown);
+    closeActiveModal = null;
+  };
+  const onKeydown = (e) => {
+    if (e.key === "Escape") close();
+  };
+  document.addEventListener("keydown", onKeydown);
+  closeActiveModal = close;
+
+  root.innerHTML = `
+    <div class="modal-backdrop" id="recipe-detail-backdrop">
+      <div class="modal-card" id="recipe-detail-card" role="dialog" aria-modal="true" aria-label="Rezept"></div>
+    </div>`;
+  document.getElementById("recipe-detail-backdrop").addEventListener("click", (e) => {
+    if (e.target.id === "recipe-detail-backdrop") close();
+  });
+
+  await renderRecipeDetailCard(recipeId, close);
+}
+
+function buildIngredientRow(ingredient = { name: "", amount: "" }) {
+  const row = document.createElement("div");
+  row.className = "new-task-form";
+  row.innerHTML = `
+    <input type="text" class="input ingredient-name" placeholder="Zutat" value="${escapeHtml(ingredient.name || "")}" />
+    <input type="text" class="input ingredient-amount" placeholder="Menge (optional)" value="${escapeHtml(ingredient.amount || "")}" />
+    <button type="button" class="icon-btn icon-btn-danger" aria-label="Zutat entfernen">×</button>
+  `;
+  row.querySelector("button").addEventListener("click", () => row.remove());
+  return row;
+}
+
+async function renderRecipeDetailCard(recipeId, close) {
+  const recipes = await listRecipes();
+  const recipe = recipes.find((r) => r.id === recipeId);
+  const card = document.getElementById("recipe-detail-card");
+  if (!recipe || !card) {
+    close();
+    return;
+  }
+
+  card.innerHTML = `
+    <h2 class="modal-view-title">${escapeHtml(recipe.title)}</h2>
+
+    <label class="modal-label">Titel
+      <input type="text" class="input" id="rd-title" value="${escapeHtml(recipe.title)}" />
+    </label>
+
+    <h3>Zutaten</h3>
+    <div id="rd-ingredients-list"></div>
+    <button class="btn btn-secondary" type="button" id="rd-add-ingredient">+ Zutat</button>
+
+    <label class="modal-label">Zubereitung
+      <textarea class="input" id="rd-instructions" rows="6">${escapeHtml(recipe.instructions || "")}</textarea>
+    </label>
+
+    <div class="modal-actions">
+      <button class="btn" type="button" id="rd-save">Speichern</button>
+      <button class="btn btn-secondary" type="button" id="rd-shopping-list">Einkaufsliste kopieren</button>
+      <button class="btn btn-secondary" type="button" id="rd-close">Schließen</button>
+    </div>
+    <p class="status-message" id="rd-status"></p>
+
+    <button class="btn" type="button" id="rd-delete" style="background:var(--color-danger)">Rezept löschen</button>
+  `;
+
+  const ingredientsList = document.getElementById("rd-ingredients-list");
+  const ingredients = recipe.ingredients?.length ? recipe.ingredients : [{ name: "", amount: "" }];
+  for (const ingredient of ingredients) {
+    ingredientsList.appendChild(buildIngredientRow(ingredient));
+  }
+
+  document.getElementById("rd-add-ingredient").addEventListener("click", () => {
+    ingredientsList.appendChild(buildIngredientRow());
+  });
+
+  document.getElementById("rd-close").addEventListener("click", close);
+
+  document.getElementById("rd-save").addEventListener("click", async () => {
+    const status = document.getElementById("rd-status");
+    const title = document.getElementById("rd-title").value.trim();
+    if (!title) {
+      status.textContent = "Titel darf nicht leer sein.";
+      return;
+    }
+    const collectedIngredients = [...ingredientsList.querySelectorAll(".new-task-form")]
+      .map((row) => ({
+        name: row.querySelector(".ingredient-name").value.trim(),
+        amount: row.querySelector(".ingredient-amount").value.trim() || null,
+      }))
+      .filter((i) => i.name);
+    const instructions = document.getElementById("rd-instructions").value.trim() || null;
+
+    status.textContent = "Speichere…";
+    try {
+      await updateRecipe(recipeId, { title, ingredients: collectedIngredients, instructions });
+      status.textContent = "Gespeichert.";
+      await renderRecipeList();
+    } catch (err) {
+      status.textContent = friendlyErrorMessage(err);
+    }
+  });
+
+  document.getElementById("rd-shopping-list").addEventListener("click", async () => {
+    const status = document.getElementById("rd-status");
+    const collectedIngredients = [...ingredientsList.querySelectorAll(".new-task-form")]
+      .map((row) => ({
+        name: row.querySelector(".ingredient-name").value.trim(),
+        amount: row.querySelector(".ingredient-amount").value.trim() || null,
+      }))
+      .filter((i) => i.name);
+    const text = formatIngredientsForShoppingList(collectedIngredients);
+    try {
+      await navigator.clipboard.writeText(text);
+      status.textContent = "In die Zwischenablage kopiert.";
+    } catch {
+      status.textContent = text;
+    }
+  });
+
+  document.getElementById("rd-delete").addEventListener("click", async () => {
+    const ok = await showConfirm(`„${recipe.title}" wirklich löschen?`, { confirmLabel: "Löschen", danger: true });
+    if (!ok) return;
+    await withErrorToast(async () => {
+      await deleteRecipe(recipe.id);
+      close();
+      await renderRecipeList();
+    });
   });
 }
 

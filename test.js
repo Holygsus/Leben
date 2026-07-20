@@ -12,6 +12,7 @@ import {
 } from "./js/watchlist.js";
 import { findHabitsDueToday } from "./js/habits.js";
 import { computeBudgetTrend } from "./js/finance.js";
+import { formatIngredientsForShoppingList } from "./js/recipes.js";
 
 const results = document.getElementById("results");
 let passCount = 0;
@@ -321,6 +322,21 @@ function assertEqual(actual, expected, label) {
     windowDays: 3,
   });
   assertEqual(shortWindow.avgRecent, 10, "computeBudgetTrend: kürzeres Fenster (noch keine 7 Tage Historie) rechnet über windowDays statt fix 7");
+}
+
+// ---------- Rezepte: formatIngredientsForShoppingList ----------
+{
+  assertEqual(formatIngredientsForShoppingList([]), "Keine Zutaten hinterlegt.", "formatIngredientsForShoppingList: leere Liste");
+  assertEqual(
+    formatIngredientsForShoppingList([{ name: "Mehl", amount: "200g" }, { name: "Salz", amount: "1 Prise" }]),
+    "- 200g Mehl\n- 1 Prise Salz",
+    "formatIngredientsForShoppingList: Menge vor Namen, eine Zeile pro Zutat"
+  );
+  assertEqual(
+    formatIngredientsForShoppingList([{ name: "Salz", amount: null }]),
+    "- Salz",
+    "formatIngredientsForShoppingList: ohne Menge nur der Name"
+  );
 }
 
 const summary = document.getElementById("summary");

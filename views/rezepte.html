@@ -1,0 +1,26 @@
+<section class="view-header">
+  <div class="view-title-group" style="--view-accent: var(--color-accent-warm);">
+    <div class="view-icon-badge"><svg viewBox="0 0 24 24"><path d="M4 4h6a2 2 0 0 1 2 2v14a2 2 0 0 0-2-2H4z"/><path d="M20 4h-6a2 2 0 0 0-2 2v14a2 2 0 0 1 2-2h6z"/></svg></div>
+    <h1>Rezepte</h1>
+  </div>
+  <div class="view-header-actions">
+    <button type="button" class="icon-btn" id="recipe-quick-add-toggle" aria-label="Rezept hinzufügen">+</button>
+  </div>
+</section>
+
+<form class="quick-capture-panel" id="recipe-quick-form" hidden>
+  <input type="text" class="input" id="recipe-quick-title" placeholder="Rezeptname" autocomplete="off" required />
+  <div class="quick-capture-actions">
+    <button class="btn" type="submit">Hinzufügen</button>
+    <button class="btn btn-secondary" type="button" id="recipe-quick-cancel">Abbrechen</button>
+  </div>
+</form>
+
+<section class="panel">
+  <ul class="task-list" id="recipe-list"></ul>
+  <div class="empty-state-rich" id="recipe-empty-state" hidden>
+    <svg viewBox="0 0 24 24"><path d="M4 4h6a2 2 0 0 1 2 2v14a2 2 0 0 0-2-2H4z"/><path d="M20 4h-6a2 2 0 0 0-2 2v14a2 2 0 0 1 2-2h6z"/></svg>
+    <strong>Noch keine Rezepte</strong>
+    <span>Leg über "+" dein erstes Rezept an.</span>
+  </div>
+</section>
