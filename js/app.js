@@ -74,6 +74,7 @@ import {
 } from "./watchlist.js";
 import { listBirthdays, createBirthday, deleteBirthday, daysUntilNextOccurrence, nextOccurrence } from "./birthdays.js";
 import { listRecipes, createRecipe, updateRecipe, deleteRecipe, formatIngredientsForShoppingList } from "./recipes.js";
+import { listComments, listAllCommentedTaskIds, createComment, deleteComment } from "./comments.js";
 import { getReflectionForDate, createReflection } from "./reflections.js";
 import {
   getStoredTheme,
@@ -108,6 +109,8 @@ const routes = {
   finance: renderFinanceView,
   fernsehprogramm: renderFernsehprogrammView,
   rezepte: renderRezepteView,
+  fixkosten: renderFixkostenView,
+  "verpflichtende-ausgaben": renderVerpflichtendeAusgabenView,
 };
 
 const WEEKDAY_LABEL = { mon: "Mo", tue: "Di", wed: "Mi", thu: "Do", fri: "Fr", sat: "Sa", sun: "So" };
@@ -159,6 +162,7 @@ const overviewState = {
   showDone: storedFilters?.showDone || false,
   collapsedAreas: new Set(),
   collapsedNodes: new Set(),
+  commentedTaskIds: new Set(), // siehe loadOverviewData() — für den dezenten Notizen-Indikator in buildTaskNameEl
   addFormTarget: null, // { areaId, parentTaskId: null } | null — offenes "Aufgabe anlegen"-Formular auf Bereichs-Ebene
   addFormJustOpened: false, // true nur für den einen Render direkt nach dem Öffnen — steuert das Autofokus
   selectedBrainstormIds: new Set(), // Mehrfachauswahl in der "Ohne Bereich"-Liste für Sammel-Aktionen
@@ -680,10 +684,14 @@ function buildDragHandleIcon() {
 }
 
 // Baut einen einladenderen Leerzustand (Icon + Titel + Untertext) statt eines reinen Textsatzes.
-function buildEmptyState(title, subtitle) {
+// iconPath ist austauschbar (Default: Plus, "leg das erste an") — z.B. für "Keine Treffer" bei der
+// Suche ist "hinzufügen" nicht die passende Handlung, dort übergibt der Aufrufer ein Lupen-Icon.
+const EMPTY_STATE_ADD_ICON = `<path d="M12 5v14M5 12h14"/>`;
+const EMPTY_STATE_SEARCH_ICON = `<circle cx="10" cy="10" r="6"/><path d="M21 21l-4.35-4.35"/>`;
+function buildEmptyState(title, subtitle, iconPath = EMPTY_STATE_ADD_ICON) {
   const wrap = document.createElement("div");
   wrap.className = "empty-state-rich";
-  wrap.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><strong></strong><span></span>`;
+  wrap.innerHTML = `<svg viewBox="0 0 24 24">${iconPath}</svg><strong></strong><span></span>`;
   wrap.querySelector("strong").textContent = title;
   wrap.querySelector("span").textContent = subtitle;
   return wrap;
@@ -1175,11 +1183,17 @@ async function refreshTodayTaskList() {
   renderTodayTaskSection();
 }
 
+const GREETING_SUN_ICON = `<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>`;
+const GREETING_MOON_ICON = `<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>`;
+
 function renderGreeting() {
   const now = new Date();
   const hour = now.getHours();
   const greeting = hour < 11 ? "Guten Morgen" : hour < 18 ? "Guten Tag" : "Guten Abend";
-  document.getElementById("greeting-text").textContent = currentUsername ? `${greeting}, ${currentUsername}` : greeting;
+  const text = currentUsername ? `${greeting}, ${currentUsername}` : greeting;
+  const icon = hour < 18 ? GREETING_SUN_ICON : GREETING_MOON_ICON;
+  document.getElementById("greeting-text").innerHTML =
+    `<span class="inline-icon greeting-icon"><svg viewBox="0 0 24 24">${icon}</svg></span>${escapeHtml(text)}`;
   document.getElementById("today-date").textContent = now.toLocaleDateString("de-DE", {
     weekday: "long",
     day: "numeric",
@@ -1865,9 +1879,10 @@ async function renderOverviewView() {
 }
 
 async function loadOverviewData() {
-  const [areas, tasks] = await Promise.all([listAreas(), listTasks()]);
+  const [areas, tasks, commentedTaskIds] = await Promise.all([listAreas(), listTasks(), listAllCommentedTaskIds()]);
   overviewState.areas = areas;
   overviewState.tasks = tasks;
+  overviewState.commentedTaskIds = commentedTaskIds;
 }
 
 // Aktualisiert alle gerade sichtbaren Ansichten nach einer Aufgaben-Änderung im Detail-Modal — das
@@ -2067,7 +2082,13 @@ function renderAreaTree() {
   }
   if (rendered === 0 && overviewState.filters.search) {
     root.innerHTML = "";
-    root.appendChild(buildEmptyState("Keine Treffer", `Nichts gefunden für „${overviewState.filters.search}".`));
+    root.appendChild(
+      buildEmptyState(
+        "Keine Treffer",
+        `Nichts gefunden für „${overviewState.filters.search}".`,
+        EMPTY_STATE_SEARCH_ICON
+      )
+    );
   }
 }
 
@@ -2251,6 +2272,13 @@ function buildTaskNameEl(node) {
   name.className = "tree-node-name task-title-btn";
   if (node.is_pinned) name.append(buildPinIcon(), " ");
   name.append(node.title);
+  if (overviewState.commentedTaskIds.has(node.id)) {
+    const dot = document.createElement("span");
+    dot.className = "comment-indicator";
+    dot.setAttribute("aria-label", "Hat Notizen");
+    dot.title = "Hat Notizen";
+    name.appendChild(dot);
+  }
   name.addEventListener("click", () => openTaskDetail(node));
   return name;
 }
@@ -2572,7 +2600,10 @@ function subtaskListHtml(children) {
 }
 
 async function renderTaskDetailCard(taskId, close, editMode = false) {
-  const allTasks = await listTasks();
+  // Kommentare nur für den View-Modus relevant (siehe renderTaskDetailView) — trotzdem hier schon
+  // parallel mitgeladen, damit ein Wechsel zwischen Ansicht/Bearbeiten keinen zusätzlichen Request
+  // braucht.
+  const [allTasks, comments] = await Promise.all([listTasks(), listComments(taskId)]);
   const task = allTasks.find((t) => t.id === taskId);
   const card = document.getElementById("modal-card");
   if (!task || !card) {
@@ -2587,13 +2618,32 @@ async function renderTaskDetailCard(taskId, close, editMode = false) {
     : "";
 
   if (editMode) renderTaskDetailEdit(card, task, allTasks, parentTask, children, backButtonHtml, close);
-  else renderTaskDetailView(card, task, allTasks, children, backButtonHtml, close);
+  else renderTaskDetailView(card, task, allTasks, children, comments, backButtonHtml, close);
   // Rückgabe erlaubt refreshOpenViewsAfterTaskChange(), den bereits geladenen Stand für Heute
   // wiederzuverwenden statt ihn direkt danach nochmal per listTasks() zu holen.
   return allTasks;
 }
 
-function renderTaskDetailView(card, task, allTasks, children, backButtonHtml, close) {
+// Baut die Notizen/Kommentare-Liste (wissensdatenbank/features/task-comments.md, Variante B) —
+// direktes Löschen ohne Bestätigungsdialog, gleiche Konvention wie der Sichtungs-Log im
+// Watchlist-Detail (watchlist-log-delete).
+function commentListHtml(comments) {
+  if (comments.length === 0) {
+    return `<p class="empty-state">Noch keine Notizen.</p>`;
+  }
+  return `<ul class="task-list" id="td-comments-list">${comments
+    .map(
+      (c) => `
+        <li class="task-item">
+          <span class="task-title">${escapeHtml(c.body)}</span>
+          <span class="count">${formatShortDate(c.created_at.slice(0, 10))}</span>
+          <button type="button" class="icon-btn icon-btn-danger td-comment-delete" data-comment-id="${c.id}" aria-label="Notiz löschen">×</button>
+        </li>`
+    )
+    .join("")}</ul>`;
+}
+
+function renderTaskDetailView(card, task, allTasks, children, comments, backButtonHtml, close) {
   const areaName = task.area_id ? overviewState.areas.find((a) => a.id === task.area_id)?.name : null;
   const doneChildren = children.filter((t) => t.status === "done").length;
 
@@ -2631,6 +2681,15 @@ function renderTaskDetailView(card, task, allTasks, children, backButtonHtml, cl
       </form>
     </div>
 
+    <div class="modal-comments">
+      <div class="tree-subheading">Notizen</div>
+      ${commentListHtml(comments)}
+      <form class="inline-add-form" id="td-comment-form">
+        <input class="input" id="td-comment-text" placeholder="Notiz hinzufügen" autocomplete="off" required />
+        <button class="icon-btn" type="submit" aria-label="Hinzufügen">+</button>
+      </form>
+    </div>
+
     <div class="modal-actions">
       <button class="btn btn-secondary" id="td-cancel" type="button">Schließen</button>
     </div>`;
@@ -2638,6 +2697,28 @@ function renderTaskDetailView(card, task, allTasks, children, backButtonHtml, cl
   document.getElementById("td-pin").appendChild(buildPinIcon());
   document.getElementById("td-edit").appendChild(buildEditIcon());
   document.getElementById("td-cancel").addEventListener("click", close);
+
+  document.getElementById("td-comment-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = document.getElementById("td-comment-text");
+    const body = input.value.trim();
+    if (!body) return;
+    await withErrorToast(async () => {
+      await createComment({ taskId: task.id, body });
+      const refreshedTasks = await renderTaskDetailCard(task.id, close, false);
+      refreshOpenViewsAfterTaskChange(refreshedTasks);
+    });
+  });
+
+  card.querySelectorAll(".td-comment-delete").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      await withErrorToast(async () => {
+        await deleteComment(btn.dataset.commentId);
+        const refreshedTasks = await renderTaskDetailCard(task.id, close, false);
+        refreshOpenViewsAfterTaskChange(refreshedTasks);
+      });
+    });
+  });
 
   if (backButtonHtml) {
     document
@@ -3650,12 +3731,8 @@ async function renderFinanceView() {
   renderBuyReadyAlert(financeState.wishlistItems, financeState.potBalance);
   renderCommittedPreview();
   renderTransactionList();
-  renderFixedCostsList();
-  renderCommittedManageList();
   renderWishlistCards();
   wireFinanceFilters();
-  wireFixedCostsPanel();
-  wireCommittedPanel();
   wireWishlistForm();
   wireTransactionQuickCapture();
 }
@@ -3685,8 +3762,6 @@ async function reloadFinance() {
   renderBuyReadyAlert(financeState.wishlistItems, financeState.potBalance);
   renderCommittedPreview();
   renderTransactionList();
-  renderFixedCostsList();
-  renderCommittedManageList();
   renderWishlistCards();
 }
 
@@ -3973,14 +4048,14 @@ function buildTransactionItem(tx) {
   });
 
   const sign = document.createElement("span");
-  sign.className = "count";
+  sign.className = "count" + (tx.direction === "income" ? " tx-amount-income" : "");
   sign.textContent = tx.direction === "income" ? "+" : "−";
 
   const amountInput = document.createElement("input");
   amountInput.type = "number";
   amountInput.step = "0.01";
   amountInput.min = "0";
-  amountInput.className = "input";
+  amountInput.className = "input" + (tx.direction === "income" ? " tx-amount-income" : "");
   amountInput.style.maxWidth = "90px";
   amountInput.value = tx.amount;
   amountInput.setAttribute("aria-label", "Betrag");
@@ -4060,6 +4135,39 @@ function wireFinanceFilters() {
   });
 }
 
+/* ---------- Fixkosten (eigene Unterseite) ---------- */
+// wissensdatenbank/finanzen-erweiterungen/finanzplan-erweiterungen-v2.md, Punkt 1 — vorher
+// Ausklapp-Panel in finance.html, jetzt eigene Seite mit mehr Platz. Eigener kleiner State statt
+// financeState, da financeState.fixedCosts weiterhin für renderPotGrid() im Finanzen-Tab gebraucht
+// wird (siehe dortiger Kommentar) und hier unabhängig neu geladen werden muss.
+
+const fixkostenState = { costs: [] };
+
+async function renderFixkostenView() {
+  const myGeneration = renderGeneration;
+  const container = document.getElementById("view-content");
+  const res = await fetch("views/fixkosten.html");
+  if (myGeneration !== renderGeneration) return;
+  container.innerHTML = await res.text();
+  await reloadFixkostenList();
+  wireFixkostenForm();
+}
+
+async function reloadFixkostenList() {
+  fixkostenState.costs = await listFixedCosts();
+  renderFixkostenList();
+}
+
+function renderFixkostenList() {
+  const list = document.getElementById("fixed-costs-list");
+  list.innerHTML = "";
+  if (fixkostenState.costs.length === 0) {
+    list.appendChild(buildEmptyState("Noch keine Fixkosten", "Leg unten die erste feste Ausgabe an."));
+    return;
+  }
+  fixkostenState.costs.forEach((cost) => list.appendChild(buildFixedCostItem(cost)));
+}
+
 function buildFixedCostItem(cost) {
   const li = document.createElement("li");
   li.className = "task-item";
@@ -4079,7 +4187,7 @@ function buildFixedCostItem(cost) {
     }
     await withErrorToast(async () => {
       await updateFixedCost(cost.id, { name: value });
-      await reloadFinance();
+      await reloadFixkostenList();
     });
   });
   title.addEventListener("keydown", (e) => {
@@ -4102,7 +4210,7 @@ function buildFixedCostItem(cost) {
     }
     await withErrorToast(async () => {
       await updateFixedCost(cost.id, { amount: value });
-      await reloadFinance();
+      await reloadFixkostenList();
     });
   });
 
@@ -4118,7 +4226,7 @@ function buildFixedCostItem(cost) {
   deleteBtn.addEventListener("click", async () => {
     await withErrorToast(async () => {
       await deleteFixedCost(cost.id);
-      await reloadFinance();
+      await reloadFixkostenList();
     });
   });
 
@@ -4126,21 +4234,7 @@ function buildFixedCostItem(cost) {
   return li;
 }
 
-function renderFixedCostsList() {
-  const list = document.getElementById("fixed-costs-list");
-  list.innerHTML = "";
-  if (financeState.fixedCosts.length === 0) {
-    list.appendChild(buildEmptyState("Noch keine Fixkosten", "Leg unten die erste feste Ausgabe an."));
-    return;
-  }
-  financeState.fixedCosts.forEach((cost) => list.appendChild(buildFixedCostItem(cost)));
-}
-
-function wireFixedCostsPanel() {
-  const panel = document.getElementById("fixed-costs-panel");
-  document.getElementById("fixed-costs-toggle").addEventListener("click", () => {
-    panel.hidden = !panel.hidden;
-  });
+function wireFixkostenForm() {
   const fixedCostForm = document.getElementById("new-fixed-cost-form");
   const fixedCostSubmitBtn = fixedCostForm.querySelector('button[type="submit"]');
   fixedCostForm.addEventListener("submit", async (e) => {
@@ -4159,12 +4253,43 @@ function wireFixedCostsPanel() {
         nameInput.value = "";
         amountInput.value = "";
         intervalSelect.value = "monthly";
-        await reloadFinance();
+        await reloadFixkostenList();
       });
     } finally {
       fixedCostSubmitBtn.disabled = false;
     }
   });
+}
+
+/* ---------- Verpflichtende Ausgaben (eigene Unterseite) ---------- */
+// Gleiche Umstellung wie Fixkosten oben — eigener State statt financeState (das bleibt für
+// renderBudgetTrend()/renderCommittedPreview() im Finanzen-Tab zuständig).
+
+const committedManageState = { expenses: [] };
+
+async function renderVerpflichtendeAusgabenView() {
+  const myGeneration = renderGeneration;
+  const container = document.getElementById("view-content");
+  const res = await fetch("views/verpflichtende-ausgaben.html");
+  if (myGeneration !== renderGeneration) return;
+  container.innerHTML = await res.text();
+  await reloadCommittedManageList();
+  wireCommittedManageForm();
+}
+
+async function reloadCommittedManageList() {
+  committedManageState.expenses = await listCommittedExpenses({ statusNot: "settled" });
+  renderCommittedManageList();
+}
+
+function renderCommittedManageList() {
+  const list = document.getElementById("committed-manage-list");
+  list.innerHTML = "";
+  if (committedManageState.expenses.length === 0) {
+    list.appendChild(buildEmptyState("Noch keine verpflichtenden Ausgaben", "Leg unten die erste an."));
+    return;
+  }
+  committedManageState.expenses.forEach((exp) => list.appendChild(buildCommittedItem(exp)));
 }
 
 function buildCommittedItem(exp) {
@@ -4187,7 +4312,7 @@ function buildCommittedItem(exp) {
   settleBtn.addEventListener("click", async () => {
     await withErrorToast(async () => {
       await updateCommittedExpense(exp.id, { status: "settled" });
-      await reloadFinance();
+      await reloadCommittedManageList();
     });
   });
 
@@ -4199,7 +4324,7 @@ function buildCommittedItem(exp) {
   deleteBtn.addEventListener("click", async () => {
     await withErrorToast(async () => {
       await deleteCommittedExpense(exp.id);
-      await reloadFinance();
+      await reloadCommittedManageList();
     });
   });
 
@@ -4207,21 +4332,7 @@ function buildCommittedItem(exp) {
   return li;
 }
 
-function renderCommittedManageList() {
-  const list = document.getElementById("committed-manage-list");
-  list.innerHTML = "";
-  if (financeState.committedExpenses.length === 0) {
-    list.appendChild(buildEmptyState("Noch keine verpflichtenden Ausgaben", "Leg unten die erste an."));
-    return;
-  }
-  financeState.committedExpenses.forEach((exp) => list.appendChild(buildCommittedItem(exp)));
-}
-
-function wireCommittedPanel() {
-  const panel = document.getElementById("committed-manage-panel");
-  document.getElementById("committed-manage-toggle").addEventListener("click", () => {
-    panel.hidden = !panel.hidden;
-  });
+function wireCommittedManageForm() {
   const dateChips = wireDateChipGroup(document.getElementById("new-committed-date-chips"));
   const committedForm = document.getElementById("new-committed-form");
   const committedSubmitBtn = committedForm.querySelector('button[type="submit"]');
@@ -4247,7 +4358,7 @@ function wireCommittedPanel() {
         nameInput.value = "";
         amountInput.value = "";
         dateChips.reset();
-        await reloadFinance();
+        await reloadCommittedManageList();
       });
     } finally {
       committedSubmitBtn.disabled = false;
@@ -4498,7 +4609,7 @@ async function renderFernsehprogrammView() {
 
 // Watchlist-Übersicht ist standardmäßig eingeklappt — beim Öffnen des Tabs soll nur "Diese Woche"
 // (das eigentliche Fernsehprogramm) direkt sichtbar sein, die volle Watchlist bleibt über den
-// Toggle erreichbar (gleiches Muster wie #fixed-costs-toggle in Finanzen).
+// Toggle erreichbar.
 function wireWatchlistPanelToggle() {
   const panel = document.getElementById("watchlist-panel");
   document.getElementById("watchlist-toggle").addEventListener("click", () => {

@@ -575,6 +575,18 @@ body {
   flex-shrink: 0;
 }
 
+/* Dezenter Indikator für Aufgaben mit Notizen (wissensdatenbank/features/task-comments.md,
+   Variante B) — bewusst kleiner Punkt statt Icon+Zahl, um die Zeile nicht zu überladen. */
+.comment-indicator {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-text-subtle);
+  margin-left: var(--space-1);
+  vertical-align: middle;
+}
+
 .count {
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);

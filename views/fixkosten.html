@@ -1,0 +1,21 @@
+<section class="view-header">
+  <div class="view-title-group" style="--view-accent: var(--color-accent-warm);">
+    <div class="view-icon-badge"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div>
+    <h1>Fixkosten</h1>
+  </div>
+  <a href="#/finance" class="chip-btn">← Finanzen</a>
+</section>
+
+<section class="panel">
+  <ul class="task-list" id="fixed-costs-list"></ul>
+  <form id="new-fixed-cost-form" class="new-task-form">
+    <input class="input" type="text" id="new-fixed-cost-name" placeholder="Name" required autocomplete="off" />
+    <input class="input" type="number" id="new-fixed-cost-amount" placeholder="Betrag (€)" step="0.01" min="0" inputmode="decimal" required />
+    <select class="select" id="new-fixed-cost-interval" aria-label="Intervall">
+      <option value="monthly">Monatlich</option>
+      <option value="quarterly">Quartal</option>
+      <option value="yearly">Jährlich</option>
+    </select>
+    <button class="btn" type="submit">Anlegen</button>
+  </form>
+</section>

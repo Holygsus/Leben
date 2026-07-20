@@ -81,42 +81,14 @@
 <section class="panel">
   <div class="panel-header">
     <h2>Fixkosten</h2>
-    <button type="button" class="icon-btn" id="fixed-costs-toggle" aria-label="Fixkosten verwalten">⚙</button>
-  </div>
-  <div id="fixed-costs-panel" hidden>
-    <ul class="task-list" id="fixed-costs-list"></ul>
-    <form id="new-fixed-cost-form" class="new-task-form">
-      <input class="input" type="text" id="new-fixed-cost-name" placeholder="Name" required autocomplete="off" />
-      <input class="input" type="number" id="new-fixed-cost-amount" placeholder="Betrag (€)" step="0.01" min="0" inputmode="decimal" required />
-      <select class="select" id="new-fixed-cost-interval" aria-label="Intervall">
-        <option value="monthly">Monatlich</option>
-        <option value="quarterly">Quartal</option>
-        <option value="yearly">Jährlich</option>
-      </select>
-      <button class="btn" type="submit">Anlegen</button>
-    </form>
+    <a href="#/fixkosten" class="icon-btn" aria-label="Fixkosten verwalten"><span class="inline-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span></a>
   </div>
 </section>
 
 <section class="panel">
   <div class="panel-header">
     <h2>Verpflichtende Ausgaben</h2>
-    <button type="button" class="icon-btn" id="committed-manage-toggle" aria-label="Verpflichtende Ausgaben verwalten">⚙</button>
-  </div>
-  <div id="committed-manage-panel" hidden>
-    <ul class="task-list" id="committed-manage-list"></ul>
-    <form id="new-committed-form" class="new-task-form">
-      <input class="input" type="text" id="new-committed-name" placeholder="Name" required autocomplete="off" />
-      <input class="input" type="number" id="new-committed-amount" placeholder="Betrag (€)" step="0.01" min="0" inputmode="decimal" required />
-      <div class="date-chips" id="new-committed-date-chips" role="group" aria-label="Fälligkeitsdatum">
-        <button type="button" class="date-chip" data-date="today">Heute</button>
-        <button type="button" class="date-chip" data-date="tomorrow">Morgen</button>
-        <button type="button" class="date-chip" data-date="" data-active="true">Kein Datum</button>
-        <button type="button" class="date-chip" data-date="custom">Datum…</button>
-        <input type="date" class="input date-chip-custom-input" aria-label="Eigenes Datum" hidden />
-      </div>
-      <button class="btn" type="submit">Anlegen</button>
-    </form>
+    <a href="#/verpflichtende-ausgaben" class="icon-btn" aria-label="Verpflichtende Ausgaben verwalten"><span class="inline-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span></a>
   </div>
 </section>
 
