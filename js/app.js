@@ -18,7 +18,8 @@ import {
   formatTasksForExport,
   savePlanForDate,
   budgetForDate,
-  buildAreaCandidatePools,
+  buildEffortClassSlots,
+  buildAreaRotationQueue,
 } from "./planner.js";
 import {
   listTransactions,
@@ -184,8 +185,12 @@ const planState = {
   calendarMonth: null, // "YYYY-MM-01" — erster Tag des aktuell angezeigten Kalendermonats
   monthTasks: [], // nicht erledigte Aufgaben mit Plandatum im sichtbaren Kalendermonat, siehe loadMonthTasksAndRender()
   watchlistItemsById: new Map(), // für die Budget-Anzeige: Dauer bereits verplanter Watchlist-Aufgaben auflösen (effort bleibt bei denen NULL)
-  areaPools: [], // { areaId, minimum, additionalCandidates }[] für den sequenziellen Bereichs-Durchgang, siehe buildAreaCandidatePools
-  walkthroughIndex: 0,
+  slotSequence: [], // Aufwandsklassen-Sequenz für den aktuellen Zieltag, siehe buildEffortClassSlots
+  slotIndex: -1,
+  currentQueue: [], // { areaId, candidate }[] für den aktuellen Slot, siehe buildAreaRotationQueue
+  currentQueueIndex: 0,
+  servedAreaIds: new Set(), // Bereiche mit echter Auswahl in dieser Sitzung — last_served_at-Update bei finishWalkthrough
+  restrundeCandidates: [], // älteste offene Aufgaben für die abschließende Pflicht-Restrunde
 };
 
 let toastTimeout = null;
@@ -3246,15 +3251,17 @@ async function loadPlanData(dateInput) {
     planState.areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
     planState.pool = pool;
     planState.watchlistItemsById = new Map(watchlistItems.map((i) => [i.id, i]));
-    // Startauswahl ist nur noch das garantierte Minimum je Bereich (Vault: "nicht vorausgewählt") —
-    // die volle Automatik von suggestTasksForPlan bleibt exklusiv dem "Neu vorschlagen"-Button
-    // vorbehalten, siehe wireRefreshSuggestion weiter unten.
-    planState.areaPools = buildAreaCandidatePools(pool, planState.targetDate);
-    planState.selected = planState.areaPools.map((p) => p.minimum);
-    planState.walkthroughIndex = 0;
+    // Startauswahl ist jetzt leer (kein Bereichs-Minimum mehr) — die abschließende Restrunde
+    // übernimmt die alte "garantiert"-Funktion, siehe startRestrunde(). Die volle Automatik von
+    // suggestTasksForPlan bleibt exklusiv dem "Neu vorschlagen"-Button vorbehalten.
+    planState.selected = [];
+    planState.slotSequence = buildEffortClassSlots(planState.targetDate);
+    planState.slotIndex = -1;
+    planState.servedAreaIds = new Set();
+    planState.restrundeCandidates = [];
 
     await loadMonthTasksAndRender(dateInput);
-    startAreaWalkthrough();
+    startEffortWalkthrough();
   } catch (err) {
     renderPlanLoadError(friendlyErrorMessage(err), dateInput);
   }
@@ -3352,7 +3359,10 @@ async function renderPlanView() {
     });
   });
 
-  document.getElementById("walkthrough-next").addEventListener("click", advanceWalkthrough);
+  document.getElementById("effort-accept").addEventListener("click", acceptEffortCandidate);
+  document.getElementById("effort-skip-area").addEventListener("click", skipEffortArea);
+  document.getElementById("effort-skip-class").addEventListener("click", skipEffortClass);
+  document.getElementById("restrunde-next").addEventListener("click", finishWalkthrough);
   wirePlanQuickAdd();
 
   await loadPlanData(dateInput);
@@ -3519,48 +3529,108 @@ function renderAddTaskSelect() {
     available.map((t) => `<option value="${t.id}">${escapeHtml(t.title)}</option>`).join("");
 }
 
-// ----- Sequenzieller Bereichs-Durchgang -----
-// wissensdatenbank/features/tagesplan-algorithmus-v2.md, "Sequenzieller Bereichs-Durchgang statt
-// Ein-Klick-Bestätigung" — erzwungener Standard-Ablauf statt der früheren Auf-einen-Blick-Liste,
-// damit der Plan nicht mehr reflexhaft ungesehen bestätigt wird. planState.selected startet bereits
-// mit allen Bereichs-Minimums (siehe loadPlanData); hier kommen nur die angetippten
-// Zusatz-Kandidaten dazu, die finale Gesamt-Übersicht (renderPlanTaskList etc.) bleibt unverändert
-// die Korrekturmöglichkeit danach.
-function startAreaWalkthrough() {
-  if (planState.areaPools.length === 0) {
+// ----- Aufwandsklassen-geführter Durchgang -----
+// wissensdatenbank/features/tagesplan-algorithmus-v2.md, "Entschiedenes Zielbild (V2)" (War Room
+// 2026-07-21) — ersetzt den früheren Bereichs-first-Durchgang. Aufwandsklasse ist die Primärachse
+// (60 → 30 → 10 → 5 Min., planState.slotSequence via buildEffortClassSlots), Bereichs-Rotation
+// (least-recently-served, hochpriorisierte Bereiche springen vor) läuft nur innerhalb einer Klasse
+// (planState.currentQueue via buildAreaRotationQueue). Eine echte Auswahl (Übernehmen) springt sofort
+// zur nächsten Klasse; Ablehnen zeigt den nächsten Bereich derselben Klasse.
+function startEffortWalkthrough() {
+  document.getElementById("effort-walkthrough-panel").hidden = false;
+  document.getElementById("restrunde-panel").hidden = true;
+  document.getElementById("post-walkthrough-panels").hidden = true;
+  advanceToNextSlot();
+}
+
+function advanceToNextSlot() {
+  planState.slotIndex++;
+  if (planState.slotIndex >= planState.slotSequence.length) {
+    startRestrunde();
+    return;
+  }
+  const effortValue = planState.slotSequence[planState.slotIndex];
+  const selectedIds = new Set(planState.selected.map((t) => t.id));
+  planState.currentQueue = buildAreaRotationQueue(planState.pool, planState.areas, effortValue, selectedIds);
+  planState.currentQueueIndex = 0;
+  if (planState.currentQueue.length === 0) {
+    advanceToNextSlot(); // stiller Skip, "kein Gate" — keine offenen Aufgaben dieser Klasse übrig
+    return;
+  }
+  renderEffortSlotStep();
+}
+
+function renderEffortSlotStep() {
+  const effortValue = planState.slotSequence[planState.slotIndex];
+  const { areaId, candidate } = planState.currentQueue[planState.currentQueueIndex];
+  const area = planState.areas.find((a) => a.id === areaId);
+  const areaName = area ? area.name : "Ohne Bereich";
+
+  document.getElementById("effort-progress").textContent =
+    `${effortValue} Min. · Bereich ${planState.currentQueueIndex + 1} von ${planState.currentQueue.length}`;
+  document.getElementById("effort-area-name").textContent = areaName;
+
+  const row = document.getElementById("effort-candidate-row");
+  row.innerHTML = "";
+  row.appendChild(
+    buildPlanRowBase(candidate, planState.areaColorById, candidate.title + (candidate.effort ? ` · ${candidate.effort} min` : ""))
+  );
+}
+
+function acceptEffortCandidate() {
+  const { areaId, candidate } = planState.currentQueue[planState.currentQueueIndex];
+  planState.selected.push(candidate);
+  if (areaId !== null) planState.servedAreaIds.add(areaId);
+  advanceToNextSlot();
+}
+
+function skipEffortArea() {
+  planState.currentQueueIndex++;
+  if (planState.currentQueueIndex >= planState.currentQueue.length) {
+    advanceToNextSlot(); // Klasse durchprobiert, kein Kandidat gewählt
+  } else {
+    renderEffortSlotStep();
+  }
+}
+
+function skipEffortClass() {
+  advanceToNextSlot();
+}
+
+// Abschließende Pflicht-Runde: garantiert, dass liegen gebliebene Aufgaben nicht dauerhaft im
+// aufwandsklassen-geführten Durchgang untergehen (Ersatz für das frühere "Minimum pro Bereich") —
+// nur wenn nach dem Durchgang noch Budget übrig UND noch wählbare Aufgaben vorhanden sind.
+function startRestrunde() {
+  document.getElementById("effort-walkthrough-panel").hidden = true;
+  const usedMinutes = planState.selected.reduce((sum, t) => sum + (t.effort || 0), 0);
+  const remainingBudget = budgetForDate(planState.targetDate) - usedMinutes;
+  const selectedIds = new Set(planState.selected.map((t) => t.id));
+  const eligible = planState.pool
+    .filter(
+      (t) =>
+        t.status === "open" && !t.parent_task_id && t.habit_weekdays == null && t.effort != null && !selectedIds.has(t.id)
+    )
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+  if (remainingBudget <= 0 || eligible.length === 0) {
     finishWalkthrough();
     return;
   }
-  document.getElementById("area-walkthrough-panel").hidden = false;
-  document.getElementById("post-walkthrough-panels").hidden = true;
-  renderAreaWalkthroughStep();
+
+  planState.restrundeCandidates = eligible.slice(0, 5);
+  document.getElementById("restrunde-panel").hidden = false;
+  renderRestrundeCandidates();
 }
 
-function renderAreaWalkthroughStep() {
-  const { areaId, minimum, additionalCandidates } = planState.areaPools[planState.walkthroughIndex];
-  const area = planState.areas.find((a) => a.id === areaId);
-  const areaName = area ? area.name : "Ohne Bereich";
-  const areaColor = area ? area.color : null;
-
-  document.getElementById("walkthrough-progress").textContent =
-    `Bereich ${planState.walkthroughIndex + 1} von ${planState.areaPools.length}`;
-  document.getElementById("walkthrough-area-name").textContent = areaName;
-
-  const minimumList = document.getElementById("walkthrough-minimum");
-  minimumList.innerHTML = "";
-  minimumList.appendChild(
-    buildPlanRowBase(minimum, planState.areaColorById, minimum.title + (minimum.effort ? ` · ${minimum.effort} min` : ""))
-  );
-
-  const candidatesWrap = document.getElementById("walkthrough-candidates");
-  const emptyState = document.getElementById("walkthrough-no-candidates");
-  candidatesWrap.innerHTML = "";
-  emptyState.hidden = additionalCandidates.length > 0;
-  for (const task of additionalCandidates) {
+function renderRestrundeCandidates() {
+  const wrap = document.getElementById("restrunde-candidates");
+  const nextBtn = document.getElementById("restrunde-next");
+  wrap.innerHTML = "";
+  for (const task of planState.restrundeCandidates) {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "pot-chip";
-    if (areaColor) chip.style.setProperty("--pot-color", areaColor);
+    if (planState.areaColorById[task.area_id]) chip.style.setProperty("--pot-color", planState.areaColorById[task.area_id]);
     chip.dataset.active = String(planState.selected.some((t) => t.id === task.id));
     chip.textContent = task.title + (task.effort ? ` · ${task.effort} min` : "");
     chip.addEventListener("click", () => {
@@ -3569,28 +3639,25 @@ function renderAreaWalkthroughStep() {
         ? planState.selected.filter((t) => t.id !== task.id)
         : [...planState.selected, task];
       chip.dataset.active = String(!wasActive);
+      nextBtn.disabled = !planState.restrundeCandidates.some((t) => planState.selected.some((s) => s.id === t.id));
     });
-    candidatesWrap.appendChild(chip);
+    wrap.appendChild(chip);
   }
-
-  document.getElementById("walkthrough-next").textContent =
-    planState.walkthroughIndex === planState.areaPools.length - 1 ? "Fertig" : "Weiter";
+  nextBtn.disabled = true;
 }
 
-function advanceWalkthrough() {
-  if (planState.walkthroughIndex < planState.areaPools.length - 1) {
-    planState.walkthroughIndex++;
-    renderAreaWalkthroughStep();
-  } else {
-    finishWalkthrough();
-  }
-}
-
-function finishWalkthrough() {
-  document.getElementById("area-walkthrough-panel").hidden = true;
+async function finishWalkthrough() {
+  document.getElementById("effort-walkthrough-panel").hidden = true;
+  document.getElementById("restrunde-panel").hidden = true;
   document.getElementById("post-walkthrough-panels").hidden = false;
   renderPlanTaskList();
   renderAddTaskSelect();
+
+  if (planState.servedAreaIds.size === 0) return;
+  const now = new Date().toISOString();
+  await withErrorToast(async () => {
+    await Promise.all([...planState.servedAreaIds].map((areaId) => updateArea(areaId, { last_served_at: now })));
+  });
 }
 
 /* ---------- Finanzen ---------- */

@@ -1,5 +1,5 @@
 import { buildTaskTree, collectDescendantIds, countDescendantsRecursive } from "./js/tasks.js";
-import { suggestTasksForPlan, formatTasksForExport, buildAreaCandidatePools } from "./js/planner.js";
+import { suggestTasksForPlan, formatTasksForExport, buildEffortClassSlots, buildAreaRotationQueue } from "./js/planner.js";
 import {
   DEFAULT_DURATION_MIN,
   isWatchlistTask,
@@ -62,7 +62,8 @@ function assertEqual(actual, expected, label) {
 }
 
 // ---------- suggestTasksForPlan (V2: Minutenbudget mit Bereichs-Fairness) ----------
-// 2026-07-14 ist ein Dienstag (Werktag, Budget 120 Min, siehe BUDGET_MINUTES/isWeekendIso).
+// 2026-07-14 ist ein Dienstag (Werktag, Budget 180 Min seit dem War Room vom 2026-07-21, siehe
+// BUDGET_MINUTES/isWeekendIso).
 {
   const WEEKDAY = "2026-07-14";
   const base = { status: "open", effort: 10 };
@@ -77,25 +78,25 @@ function assertEqual(actual, expected, label) {
   assertEqual(selected.some((t) => t.id === "done"), false, "suggestTasksForPlan: erledigte Aufgaben werden ignoriert");
   assertEqual(selected.some((t) => t.id === "sub"), false, "suggestTasksForPlan: Unteraufgaben werden ignoriert (laufen kaskadiert mit)");
 
-  // Regressionstest für die round5-Rundung des Bereichs-Caps: 10 Bereiche à 2 Aufgaben (6+6 Min).
-  // Bug-Variante: areaCap = round5(120/10) = round5(12) = 10 → die zweite 6-Min-Aufgabe passt in
-  // keinem Bereich mehr rein (6+6=12 > 10), nur die 10 ersten (Phase 1) werden gewählt, 60 von 120
-  // Minuten bleiben ungenutzt. Fix: areaCap = 120/10 = 12 (ungerundet) → 6+6=12 passt exakt, alle
-  // 20 Aufgaben werden gewählt, das Budget wird vollständig ausgeschöpft.
+  // Regressionstest für die round5-Rundung des Bereichs-Caps: 10 Bereiche à 2 Aufgaben (9+9 Min).
+  // Bug-Variante: eine gerundete Cap-Schwelle verschenkt Budget systematisch. Fix: areaCap =
+  // 180/10 = 18 (ungerundet) → 9+9=18 passt exakt, alle 20 Aufgaben werden gewählt, das Budget wird
+  // vollständig ausgeschöpft.
   const evenAreas = Array.from({ length: 10 }, (_, i) => [
-    { ...base, id: `e${i}a`, area_id: `area${i}`, priority: "medium", effort: 6, created_at: "2026-01-01" },
-    { ...base, id: `e${i}b`, area_id: `area${i}`, priority: "medium", effort: 6, created_at: "2026-01-02" },
+    { ...base, id: `e${i}a`, area_id: `area${i}`, priority: "medium", effort: 9, created_at: "2026-01-01" },
+    { ...base, id: `e${i}b`, area_id: `area${i}`, priority: "medium", effort: 9, created_at: "2026-01-02" },
   ]).flat();
   const evenSelection = suggestTasksForPlan(evenAreas, WEEKDAY);
   assertEqual(evenSelection.length, 20, "suggestTasksForPlan: areaCap-Rundung verschenkt kein Budget mehr (alle 20 Aufgaben passen)");
   assertEqual(
     evenSelection.reduce((sum, t) => sum + t.effort, 0),
-    120,
+    180,
     "suggestTasksForPlan: Tagesbudget wird bei exakt passenden Aufgaben voll ausgeschöpft"
   );
 
   // Bereichs-Fairness bleibt erhalten: ein einzelner gieriger Bereich darf sich nicht mehr als
-  // seinen fairen Anteil (hier 120/2=60 Min) nehmen, auch wenn er genug eigene Aufgaben hätte.
+  // seinen fairen Anteil (hier 180/2=90 Min) nehmen, auch wenn er genug eigene Aufgaben hätte —
+  // von den drei 40-Min.-Aufgaben passen noch 2 (40+40=80≤90), die dritte (120>90) nicht mehr.
   const twoAreasHungry = [
     { ...base, id: "g1", area_id: "hungry", priority: "medium", effort: 40, created_at: "2026-01-01" },
     { ...base, id: "g2", area_id: "hungry", priority: "medium", effort: 40, created_at: "2026-01-02" },
@@ -105,60 +106,66 @@ function assertEqual(actual, expected, label) {
   const fairSelection = suggestTasksForPlan(twoAreasHungry, WEEKDAY);
   assertEqual(
     fairSelection.filter((t) => t.area_id === "hungry").length,
-    1,
+    2,
     "suggestTasksForPlan: Bereichs-Cap begrenzt einen gierigen Bereich auf seinen fairen Anteil"
   );
 }
 
-// ---------- buildAreaCandidatePools (sequenzieller Bereichs-Durchgang) ----------
-// 3 Buckets (a1, a2, area_id=null) → areaCap = 120/3 = 40 Min.
+// ---------- buildEffortClassSlots (Aufwandsklassen-geführter Durchgang) ----------
+// 2026-07-14 ist ein Dienstag, 2026-07-18 ein Samstag (beide Tage in derselben Woche).
 {
   const WEEKDAY = "2026-07-14";
-  const base = { status: "open", priority: "medium" };
-  const tasks = [
-    { ...base, id: "a1-min", area_id: "a1", effort: 10, created_at: "2026-01-01" },
-    { ...base, id: "a1-fits", area_id: "a1", effort: 20, created_at: "2026-01-02" },
-    { ...base, id: "a1-toobig", area_id: "a1", effort: 15, created_at: "2026-01-03" },
-    { ...base, id: "a2-min", area_id: "a2", effort: 15, created_at: "2026-01-01" },
-    { ...base, id: "none-min", area_id: null, effort: 5, created_at: "2026-01-01" },
-  ];
-  const pools = buildAreaCandidatePools(tasks, WEEKDAY);
-
-  const poolA1 = pools.find((p) => p.areaId === "a1");
-  assertEqual(poolA1.minimum.id, "a1-min", "buildAreaCandidatePools: Minimum ist dieselbe älteste Aufgabe wie Phase 1 von suggestTasksForPlan");
+  const WEEKEND = "2026-07-18";
   assertEqual(
-    poolA1.additionalCandidates.map((t) => t.id),
-    ["a1-fits"],
-    "buildAreaCandidatePools: Zusatz-Kandidat unter Cap aufgenommen, Cap-Überschreitung (a1-toobig, 10+20+15=45>40) ausgeschlossen"
+    buildEffortClassSlots(WEEKDAY),
+    [60, 30, 30, 10, 10, 10, 5, 5, 5, 5, 5, 5],
+    "buildEffortClassSlots: Werktag liefert eine 12-Slot-Runde (1×60/2×30/3×10/6×5)"
   );
-
-  const poolA2 = pools.find((p) => p.areaId === "a2");
-  assertEqual(poolA2.minimum.id, "a2-min", "buildAreaCandidatePools: Bereich ohne weitere offene Aufgaben liefert nur das Minimum");
-  assertEqual(poolA2.additionalCandidates.length, 0, "buildAreaCandidatePools: leere additionalCandidates-Liste ohne weitere offene Aufgaben");
-
-  const poolNone = pools.find((p) => p.areaId === null);
-  assertEqual(poolNone.minimum.id, "none-min", "buildAreaCandidatePools: area_id null (Ohne Bereich) ist ein regulärer Bucket");
+  assertEqual(
+    buildEffortClassSlots(WEEKEND).length,
+    24,
+    "buildEffortClassSlots: Wochenende verdoppelt die Runde auf 24 Slots (180×2=360 Min. Budget)"
+  );
 }
 
-// additionalCandidates: Anzeige-Reihenfolge nach Aufwand absteigend (tagesplan-algorithmus-v2.md,
-// "Künftige Verfeinerung — Aufwand-Reihenfolge"), unabhängig von der Priority/Age-Auswahlreihenfolge.
+// ---------- buildAreaRotationQueue (Bereichs-Rotation innerhalb einer Aufwandsklasse) ----------
 {
-  const WEEKDAY = "2026-07-14";
-  const base = { status: "open", priority: "medium" };
-  const tasks = [
-    { ...base, id: "b1-min", area_id: "b1", effort: 5, priority: "high", created_at: "2026-01-01" },
-    { ...base, id: "b1-small", area_id: "b1", effort: 10, priority: "medium", created_at: "2026-01-02" },
-    { ...base, id: "b1-big", area_id: "b1", effort: 20, priority: "low", created_at: "2026-01-03" },
+  const areas = [
+    { id: "a1", last_served_at: "2026-01-05T00:00:00Z" },
+    { id: "a2", last_served_at: "2026-01-01T00:00:00Z" }, // am längsten bedient, aber nicht "nie"
+    { id: "a3", last_served_at: null }, // nie bedient
   ];
-  // b1-min hat die höchste Priorität und wird dadurch garantiert das Minimum (Phase 1). Ohne die neue
-  // Sortierung stünde b1-small (höhere Priorität) vor b1-big (mehr Aufwand) in additionalCandidates —
-  // areaCap = 120/1 = 120, beide Zusatz-Kandidaten passen locker unter den Cap.
-  const pools = buildAreaCandidatePools(tasks, WEEKDAY);
-  const poolB1 = pools.find((p) => p.areaId === "b1");
+  const base = { status: "open", effort: 30 };
+  const tasks = [
+    { ...base, id: "t-a1", area_id: "a1", priority: "medium", created_at: "2026-01-01" },
+    { ...base, id: "t-a2", area_id: "a2", priority: "medium", created_at: "2026-01-01" },
+    { ...base, id: "t-a3", area_id: "a3", priority: "medium", created_at: "2026-01-01" },
+  ];
+
+  const queue = buildAreaRotationQueue(tasks, areas, 30);
   assertEqual(
-    poolB1.additionalCandidates.map((t) => t.id),
-    ["b1-big", "b1-small"],
-    "buildAreaCandidatePools: additionalCandidates nach Aufwand absteigend sortiert, nicht nach Priorität"
+    queue.map((e) => e.areaId),
+    ["a3", "a2", "a1"],
+    "buildAreaRotationQueue: least-recently-served zuerst, nie bedient (null) vor allen anderen"
+  );
+
+  // a1 wurde zuletzt bedient (stünde eigentlich hinten), springt aber vor, weil sein Top-Kandidat
+  // dieser Klasse hohe Priorität hat.
+  const tasksWithPriority = tasks.map((t) => (t.id === "t-a1" ? { ...t, priority: "high" } : t));
+  const queuePriority = buildAreaRotationQueue(tasksWithPriority, areas, 30);
+  assertEqual(
+    queuePriority.map((e) => e.areaId),
+    ["a1", "a3", "a2"],
+    "buildAreaRotationQueue: Bereich mit hochpriorisiertem Top-Kandidat springt vor die Recency-Reihenfolge"
+  );
+
+  // excludeTaskIds: bereits gewählte Aufgabe fällt raus — war es die einzige Aufgabe ihres Bereichs
+  // in dieser Klasse, fällt der ganze Bereich aus der Queue.
+  const queueExcluded = buildAreaRotationQueue(tasks, areas, 30, new Set(["t-a2"]));
+  assertEqual(
+    queueExcluded.map((e) => e.areaId),
+    ["a3", "a1"],
+    "buildAreaRotationQueue: excludeTaskIds schließt bereits gewählte Aufgaben aus, Bereich ohne verbleibenden Kandidaten fällt komplett raus"
   );
 }
 
@@ -254,14 +261,14 @@ function assertEqual(actual, expected, label) {
     { id: "c1", status: "aktiv", sort_order: 0, created_at: "2026-01-01", type: "serie", duration_minutes: null }, // 45 Min Default
     { id: "c2", status: "aktiv", sort_order: 1, created_at: "2026-01-02", type: "anime", duration_minutes: null }, // 20 Min Default
   ];
-  const capacityDate = ["2026-07-20"]; // Montag -> budgetForDate = 120 Min
+  const capacityDate = ["2026-07-20"]; // Montag -> budgetForDate = 180 Min (seit War Room 2026-07-21)
   const alreadyScheduled = [{ watchlist_item_id: "c1", planned_date: "2026-07-20" }];
 
-  const tooTight = planMissingSlots(capacityItems, alreadyScheduled, capacityDate, { "2026-07-20": 60 });
-  assertEqual(tooTight.length, 0, "planMissingSlots: zweiter Eintrag wird bei zu wenig Kapazität nicht zugeteilt (60+45+20 > 120)");
+  const tooTight = planMissingSlots(capacityItems, alreadyScheduled, capacityDate, { "2026-07-20": 120 });
+  assertEqual(tooTight.length, 0, "planMissingSlots: zweiter Eintrag wird bei zu wenig Kapazität nicht zugeteilt (120+45+20 > 180)");
 
   const roomy = planMissingSlots(capacityItems, alreadyScheduled, capacityDate, { "2026-07-20": 0 });
-  assertEqual(roomy.length, 1, "planMissingSlots: zweiter Eintrag wird bei ausreichender Kapazität zugeteilt (0+45+20 <= 120)");
+  assertEqual(roomy.length, 1, "planMissingSlots: zweiter Eintrag wird bei ausreichender Kapazität zugeteilt (0+45+20 <= 180)");
   assertEqual(roomy[0], { date: "2026-07-20", item: capacityItems[1] }, "planMissingSlots: zweiter Eintrag ist der nächste Pool-Kandidat (c2)");
 }
 

@@ -14,6 +14,7 @@ create table if not exists areas (
   color text not null default '#888888',
   icon text,
   sort_order integer default 0,
+  last_served_at timestamptz,
   created_at timestamptz default now(),
   unique (user_id, name)
 );

@@ -11,13 +11,22 @@
   <p class="plan-date" id="plan-date"></p>
 </section>
 
-<section class="panel" id="area-walkthrough-panel" hidden>
-  <p class="status-message" id="walkthrough-progress"></p>
-  <h2 id="walkthrough-area-name"></h2>
-  <ul class="task-list" id="walkthrough-minimum"></ul>
-  <div class="pot-chips" id="walkthrough-candidates"></div>
-  <p class="empty-state" id="walkthrough-no-candidates" hidden>Keine weiteren offenen Aufgaben in diesem Bereich.</p>
-  <button class="btn" type="button" id="walkthrough-next">Weiter</button>
+<section class="panel" id="effort-walkthrough-panel" hidden>
+  <p class="status-message" id="effort-progress"></p>
+  <h2 id="effort-area-name"></h2>
+  <ul class="task-list" id="effort-candidate-row"></ul>
+  <div class="modal-actions">
+    <button class="btn" type="button" id="effort-accept">Übernehmen</button>
+    <button class="btn btn-secondary" type="button" id="effort-skip-area">Anderen Bereich zeigen</button>
+    <button class="btn btn-secondary" type="button" id="effort-skip-class">Klasse überspringen</button>
+  </div>
+</section>
+
+<section class="panel" id="restrunde-panel" hidden>
+  <h2>Restrunde</h2>
+  <p class="status-message">Noch Budget übrig — wähle mindestens eine der ältesten offenen Aufgaben.</p>
+  <div class="pot-chips" id="restrunde-candidates"></div>
+  <button class="btn" type="button" id="restrunde-next" disabled>Weiter</button>
 </section>
 
 <div id="post-walkthrough-panels" hidden>
