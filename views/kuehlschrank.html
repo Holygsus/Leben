@@ -11,6 +11,13 @@
 <form class="quick-capture-panel" id="pantry-quick-form" hidden>
   <input type="text" class="input" id="pantry-quick-name" placeholder="Was ist da?" autocomplete="off" required />
   <input type="text" class="input" id="pantry-quick-amount" placeholder="Menge (optional, z.B. 500g)" autocomplete="off" />
+  <select class="select" id="pantry-quick-category" aria-label="Kategorie (optional)">
+    <option value="">Kategorie (optional)</option>
+    <option value="kuehlschrank">Kühlschrank</option>
+    <option value="tiefkuehl">Tiefkühl</option>
+    <option value="vorrat">Vorrat</option>
+    <option value="gewuerze">Gewürze</option>
+  </select>
   <div class="quick-capture-actions">
     <button class="btn" type="submit">Hinzufügen</button>
     <button class="btn btn-secondary" type="button" id="pantry-quick-cancel">Abbrechen</button>

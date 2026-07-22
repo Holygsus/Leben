@@ -20,14 +20,15 @@
     <button type="button" class="pot-chip" data-pot="wachstum" style="--pot-color: var(--color-success)">Wachstum</button>
     <button type="button" class="pot-chip" data-pot="freiheit" data-active="true" style="--pot-color: var(--color-accent-warm)">Freiheit</button>
   </div>
-  <div class="pot-chips" id="tx-quick-category" role="group" aria-label="Kategorie (optional)">
-    <button type="button" class="pot-chip" data-category="essen" style="--pot-color: var(--color-cat-essen)">Essen</button>
-    <button type="button" class="pot-chip" data-category="wohnen" style="--pot-color: var(--color-cat-wohnen)">Wohnen/Fixkosten</button>
-    <button type="button" class="pot-chip" data-category="transport" style="--pot-color: var(--color-cat-transport)">Transport</button>
-    <button type="button" class="pot-chip" data-category="freizeit" style="--pot-color: var(--color-cat-freizeit)">Freizeit</button>
-    <button type="button" class="pot-chip" data-category="gesundheit" style="--pot-color: var(--color-cat-gesundheit)">Gesundheit</button>
-    <button type="button" class="pot-chip" data-category="sonstiges" style="--pot-color: var(--color-cat-sonstiges)">Sonstiges</button>
-  </div>
+  <select class="select" id="tx-quick-category" aria-label="Kategorie (optional)">
+    <option value="">Kategorie (optional)</option>
+    <option value="essen">Essen</option>
+    <option value="wohnen">Wohnen/Fixkosten</option>
+    <option value="transport">Transport</option>
+    <option value="freizeit">Freizeit</option>
+    <option value="gesundheit">Gesundheit</option>
+    <option value="sonstiges">Sonstiges</option>
+  </select>
   <label class="checkbox-label" id="tx-quick-notgroschen-toggle" hidden>
     <input type="checkbox" id="tx-quick-notgroschen-checkbox" />
     Rückfluss aus dem Notgroschen

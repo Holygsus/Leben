@@ -548,6 +548,19 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
+/* Geburtstage-Verwalten-Zeile hat sechs Inline-Elemente (Name/Tag/Monat/Jahr/Wichtig/Löschen) —
+   scoped statt global auf .task-item/.input, damit keine andere Liste in der App mitbetroffen ist
+   (implementieren-jetzt.md, Triage 2026-07-21: lief auf schmalen Bildschirmen horizontal über, weil
+   Flex-Items ohne min-width:0 nicht unter ihre Inhalts-Mindestbreite schrumpfen). */
+.birthday-row {
+  flex-wrap: wrap;
+}
+.birthday-row .input,
+.birthday-row .select {
+  min-width: 0;
+  flex: 1 1 90px;
+}
+
 /* Bei aktivem Hintergrundbild (Personalisierung) werden Karten leicht durchscheinend statt
    blickdicht, sonst ist das Bild praktisch nur in den Lücken zwischen Karten sichtbar. */
 body.has-bg-image .task-item {

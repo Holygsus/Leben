@@ -1566,9 +1566,9 @@ function renderBirthdaysWidget(birthdays) {
   const BIRTHDAY_WINDOW_DAYS = 30;
   const withinWindow = sorted.filter((b) => daysUntilNextOccurrence(b.day, b.month) <= BIRTHDAY_WINDOW_DAYS);
 
-  // Kurzzeile jetzt nur noch "Name (Alter)" statt Datum+Name+Alter (implementieren-jetzt.md,
-  // Triage 2026-07-20) — Bearbeiten/Löschen sitzt nicht mehr hier, sondern im Verwalten-Modal
-  // (openBirthdaysDetail), daher kein Löschen-Button mehr pro Zeile.
+  // Kurzzeile "TT.MM. Name (Alter)" (implementieren-jetzt.md, Triage 2026-07-21 — Datum war seit
+  // dem 2026-07-20-Umbau ganz raus, fehlte dem Nutzer). Bearbeiten/Löschen sitzt weiterhin nicht
+  // hier, sondern im Verwalten-Modal (openBirthdaysDetail), daher kein Löschen-Button pro Zeile.
   const renderItems = (items) => {
     list.innerHTML = "";
     for (const b of items) {
@@ -1576,8 +1576,9 @@ function renderBirthdaysWidget(birthdays) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "task-title-btn";
+      const dateLabel = `${String(b.day).padStart(2, "0")}.${String(b.month).padStart(2, "0")}.`;
       const ageLabel = b.year ? ` (${nextOccurrence(b.day, b.month).getFullYear() - b.year})` : "";
-      btn.textContent = `${b.name}${ageLabel}`;
+      btn.textContent = `${dateLabel} ${b.name}${ageLabel}`;
       btn.addEventListener("click", () => openBirthdaysDetail());
       li.appendChild(btn);
       list.appendChild(li);
@@ -1636,7 +1637,7 @@ function openBirthdaysDetail() {
     const rowsHtml = sorted
       .map(
         (b) => `
-      <li class="task-item" data-birthday-id="${b.id}">
+      <li class="task-item birthday-row" data-birthday-id="${b.id}">
         <input type="text" class="input" data-field="name" value="${escapeHtml(b.name)}" aria-label="Name" />
         <input type="number" class="input" data-field="day" value="${b.day}" min="1" max="31" style="max-width: 60px" aria-label="Tag" />
         <select class="select" data-field="month" aria-label="Monat">${monthOptionsHtml(b.month)}</select>
@@ -3780,6 +3781,57 @@ async function renderHabitsView() {
   habitsViewState.areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
   habitsViewState.completions = completions;
   renderHabitList();
+  wireHabitQuickAddForm();
+}
+
+// Direkter Habit-Einstieg im Habit-Tab selbst (implementieren-jetzt.md, Triage 2026-07-21) — bisher
+// musste man zwingend erst eine normale Aufgabe anlegen/öffnen und dort td-is-habit aktivieren.
+// Bewusst kein Bereichsfeld: ein Habit muss laut Nutzer keinem Bereich zugeordnet sein, area_id ist
+// bereits nullable. Legt die Mutter mit habit_weekdays: [] an (noch keine Tage gewählt) — Wochentage
+// konfiguriert der Nutzer danach über die bereits bestehenden Chips/Presets in der Liste, exakt wie
+// bei einem über das Task-Detail-Modal erstellten Habit. Optionales erstes Pool-Kind nutzt dasselbe
+// parent_task_id-Muster wie der bestehende Aufgaben-Pool (siehe js/habits.js, findHabitsDueToday).
+function wireHabitQuickAddForm() {
+  const toggleBtn = document.getElementById("habit-quick-add-toggle");
+  const form = document.getElementById("habit-quick-form");
+  const titleInput = document.getElementById("habit-quick-title");
+  const subtaskInput = document.getElementById("habit-quick-subtask");
+  const cancelBtn = document.getElementById("habit-quick-cancel");
+  const submitBtn = form.querySelector('button[type="submit"]');
+
+  const closeForm = () => {
+    form.hidden = true;
+    form.reset();
+  };
+
+  toggleBtn.addEventListener("click", () => {
+    if (form.hidden) {
+      form.hidden = false;
+      titleInput.focus();
+    } else {
+      closeForm();
+    }
+  });
+  cancelBtn.addEventListener("click", closeForm);
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (submitBtn.disabled) return;
+    const title = titleInput.value.trim();
+    if (!title) return;
+    const subtaskTitle = subtaskInput.value.trim();
+    submitBtn.disabled = true;
+    try {
+      await withErrorToast(async () => {
+        const mother = await createTask({ title, habitWeekdays: [] });
+        if (subtaskTitle) await createTask({ title: subtaskTitle, parentTaskId: mother.id });
+        closeForm();
+        await renderHabitsView();
+      });
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
 }
 
 // Kompakte Punktreihe für den Default-Zustand einer Habit-Zeile: zeigt auf einen Blick, an
@@ -4334,32 +4386,26 @@ function buildTransactionItem(tx) {
 
   li.append(line1, line2);
 
-  // Kategorie nachträglich änderbar (implementieren-jetzt.md, Triage 2026-07-20) — dieselben Chips/
-  // Konstanten wie im Kategorie-Donut, nur pro bestehender Transaktion statt beim Neuanlegen.
-  // Ausgeblendet bei Einnahmen, die haben keine Kategorie (analog zur Topf-Auswahl im
-  // Neuanlage-Formular).
+  // Kategorie nachträglich änderbar (implementieren-jetzt.md, Triage 2026-07-20) — als Dropdown
+  // statt Chip-Reihe (Triage 2026-07-21, dieselben TRANSACTION_CATEGORY_*-Konstanten wie im
+  // Kategorie-Donut). Ausgeblendet bei Einnahmen, die haben keine Kategorie (analog zur
+  // Topf-Auswahl im Neuanlage-Formular).
   if (tx.direction === "expense") {
-    const categoryRow = document.createElement("div");
-    categoryRow.className = "pot-chips tx-line";
-    categoryRow.setAttribute("role", "group");
-    categoryRow.setAttribute("aria-label", "Kategorie");
-    for (const key of TRANSACTION_CATEGORY_ORDER) {
-      const chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = "pot-chip";
-      chip.style.setProperty("--pot-color", TRANSACTION_CATEGORY_COLOR_VAR[key]);
-      chip.dataset.active = String(tx.category === key);
-      chip.textContent = TRANSACTION_CATEGORY_LABELS[key];
-      chip.addEventListener("click", async () => {
-        const nextCategory = tx.category === key ? null : key;
-        await withErrorToast(async () => {
-          await updateTransaction(tx.id, { category: nextCategory });
-          await reloadFinance();
-        });
+    const categorySelect = document.createElement("select");
+    categorySelect.className = "select tx-line";
+    categorySelect.setAttribute("aria-label", "Kategorie");
+    categorySelect.innerHTML =
+      `<option value="">Nicht kategorisiert</option>` +
+      TRANSACTION_CATEGORY_ORDER.map(
+        (key) => `<option value="${key}"${tx.category === key ? " selected" : ""}>${TRANSACTION_CATEGORY_LABELS[key]}</option>`
+      ).join("");
+    categorySelect.addEventListener("change", async () => {
+      await withErrorToast(async () => {
+        await updateTransaction(tx.id, { category: categorySelect.value || null });
+        await reloadFinance();
       });
-      categoryRow.appendChild(chip);
-    }
-    li.appendChild(categoryRow);
+    });
+    li.appendChild(categorySelect);
   }
 
   return li;
@@ -4737,18 +4783,9 @@ function wireTransactionQuickCapture() {
     });
   });
 
-  // Kategorien sind — anders als Topf/Direction — optional und abwählbar: ein Klick auf den
-  // bereits aktiven Chip setzt selectedCategory zurück auf null, statt dass immer genau ein Chip
-  // aktiv sein muss.
-  let selectedCategory = null;
-  categoryGroup.querySelectorAll(".pot-chip").forEach((chip) => {
-    chip.addEventListener("click", () => {
-      selectedCategory = selectedCategory === chip.dataset.category ? null : chip.dataset.category;
-      categoryGroup
-        .querySelectorAll(".pot-chip")
-        .forEach((c) => (c.dataset.active = String(c.dataset.category === selectedCategory)));
-    });
-  });
+  // Kategorie als Dropdown statt Chip-Reihe (implementieren-jetzt.md, Triage 2026-07-21) — der
+  // leere Wert ("Kategorie (optional)") übernimmt die frühere Abwähl-Funktion des erneuten
+  // Chip-Klicks, kein selectedCategory-State mehr nötig, categoryGroup.value ist die Quelle.
 
   // Töpfe ordnen Ausgaben einem Verwendungszweck zu — bei einer Einnahme ergibt das fachlich
   // keinen Sinn, daher wird die Topf-Auswahl dafür ausgeblendet statt nur deaktiviert. Die sechs
@@ -4771,8 +4808,7 @@ function wireTransactionQuickCapture() {
     form.reset();
     selectedPot = "freiheit";
     potGroup.querySelectorAll(".pot-chip").forEach((c) => (c.dataset.active = String(c.dataset.pot === "freiheit")));
-    selectedCategory = null;
-    categoryGroup.querySelectorAll(".pot-chip").forEach((c) => (c.dataset.active = "false"));
+    categoryGroup.value = "";
     selectedDirection = "expense";
     directionGroup
       .querySelectorAll(".priority-chip")
@@ -4805,7 +4841,7 @@ function wireTransactionQuickCapture() {
           amount,
           direction: selectedDirection,
           pot: selectedDirection === "income" ? (notgroschenCheckbox.checked ? "sicherheit" : null) : selectedPot,
-          category: selectedDirection === "income" ? null : selectedCategory,
+          category: selectedDirection === "income" ? null : categoryGroup.value || null,
           note: noteInput.value.trim() || null,
         });
         showToast(`${formatEuro(amount)} erfasst.`);
@@ -5408,7 +5444,7 @@ function wireRecipeQuickAddForm() {
 
 // ----- Rezept-Detail (Modal) -----
 
-async function openRecipeDetail(recipeId) {
+async function openRecipeDetail(recipeId, mode) {
   const root = document.getElementById("modal-root");
   document.body.style.overflow = "hidden";
 
@@ -5432,7 +5468,7 @@ async function openRecipeDetail(recipeId) {
     if (e.target.id === "recipe-detail-backdrop") close();
   });
 
-  await renderRecipeDetailCard(recipeId, close);
+  await renderRecipeDetailCard(recipeId, close, mode);
 }
 
 function buildIngredientRow(ingredient = { name: "", amount: "" }) {
@@ -5447,7 +5483,11 @@ function buildIngredientRow(ingredient = { name: "", amount: "" }) {
   return row;
 }
 
-async function renderRecipeDetailCard(recipeId, close) {
+// Startet standardmäßig im Lese-Modus (Einkaufslisten-Optik) für ein bereits ausgefülltes Rezept,
+// im Edit-Modus für ein frisch angelegtes leeres (implementieren-jetzt.md, Triage 2026-07-21 —
+// vorher war die Ansicht immer im Editier-Modus, kein Lese-/Bearbeiten-Unterschied). Ein explizit
+// übergebener mode gewinnt immer (z.B. "Bearbeiten"-Button oder Rücksprung nach dem Speichern).
+async function renderRecipeDetailCard(recipeId, close, mode) {
   const recipes = await listRecipes();
   const recipe = recipes.find((r) => r.id === recipeId);
   const card = document.getElementById("recipe-detail-card");
@@ -5456,6 +5496,70 @@ async function renderRecipeDetailCard(recipeId, close) {
     return;
   }
 
+  const hasContent = recipe.ingredients?.some((i) => i.name) || recipe.instructions;
+  const currentMode = mode || (hasContent ? "view" : "edit");
+
+  if (currentMode === "view") {
+    renderRecipeViewCard(recipe, card, close);
+  } else {
+    renderRecipeEditCard(recipe, card, close);
+  }
+
+  document.getElementById("rd-delete").addEventListener("click", async () => {
+    const ok = await showConfirm(`„${recipe.title}" wirklich löschen?`, { confirmLabel: "Löschen", danger: true });
+    if (!ok) return;
+    await withErrorToast(async () => {
+      await deleteRecipe(recipe.id);
+      close();
+      await renderRecipeList();
+    });
+  });
+}
+
+function renderRecipeViewCard(recipe, card, close) {
+  const ingredients = recipe.ingredients?.filter((i) => i.name) || [];
+  const ingredientsHtml = ingredients.length
+    ? ingredients
+        .map((i) => `<li class="task-item"><span class="task-title">${i.amount ? `${escapeHtml(i.amount)} ` : ""}${escapeHtml(i.name)}</span></li>`)
+        .join("")
+    : `<li class="empty-state">Keine Zutaten hinterlegt.</li>`;
+
+  card.innerHTML = `
+    <h2 class="modal-view-title">${escapeHtml(recipe.title)}</h2>
+
+    <h3>Zutaten</h3>
+    <ul class="task-list" id="rd-ingredients-view">${ingredientsHtml}</ul>
+
+    <h3>Zubereitung</h3>
+    <p class="status-message" style="white-space:pre-wrap">${recipe.instructions ? escapeHtml(recipe.instructions) : "Keine Zubereitung hinterlegt."}</p>
+
+    <div class="modal-actions">
+      <button class="btn" type="button" id="rd-edit">Bearbeiten</button>
+      <button class="btn btn-secondary" type="button" id="rd-shopping-list">Einkaufsliste kopieren</button>
+      <button class="btn btn-secondary" type="button" id="rd-close">Schließen</button>
+    </div>
+    <p class="status-message" id="rd-status"></p>
+
+    <button class="btn" type="button" id="rd-delete" style="background:var(--color-danger)">Rezept löschen</button>
+  `;
+
+  document.getElementById("rd-close").addEventListener("click", close);
+  document.getElementById("rd-edit").addEventListener("click", () => {
+    renderRecipeDetailCard(recipe.id, close, "edit");
+  });
+  document.getElementById("rd-shopping-list").addEventListener("click", async () => {
+    const status = document.getElementById("rd-status");
+    const text = formatIngredientsForShoppingList(ingredients);
+    try {
+      await navigator.clipboard.writeText(text);
+      status.textContent = "In die Zwischenablage kopiert.";
+    } catch {
+      status.textContent = text;
+    }
+  });
+}
+
+function renderRecipeEditCard(recipe, card, close) {
   card.innerHTML = `
     <h2 class="modal-view-title">${escapeHtml(recipe.title)}</h2>
 
@@ -5510,9 +5614,11 @@ async function renderRecipeDetailCard(recipeId, close) {
 
     status.textContent = "Speichere…";
     try {
-      await updateRecipe(recipeId, { title, ingredients: collectedIngredients, instructions });
-      status.textContent = "Gespeichert.";
+      await updateRecipe(recipe.id, { title, ingredients: collectedIngredients, instructions });
       await renderRecipeList();
+      // Zurück zur Leseansicht nach dem Speichern (implementieren-jetzt.md, Triage 2026-07-21) —
+      // vorher blieb die Ansicht nach dem Speichern im selben Editier-Modus stehen.
+      await renderRecipeDetailCard(recipe.id, close, "view");
     } catch (err) {
       status.textContent = friendlyErrorMessage(err);
     }
@@ -5534,21 +5640,21 @@ async function renderRecipeDetailCard(recipeId, close) {
       status.textContent = text;
     }
   });
-
-  document.getElementById("rd-delete").addEventListener("click", async () => {
-    const ok = await showConfirm(`„${recipe.title}" wirklich löschen?`, { confirmLabel: "Löschen", danger: true });
-    if (!ok) return;
-    await withErrorToast(async () => {
-      await deleteRecipe(recipe.id);
-      close();
-      await renderRecipeList();
-    });
-  });
 }
 
 /* ---------- Kühlschrank ---------- */
 // wissensdatenbank/features/kochen-rezepte-kuehlschrank.md, Punkt 2 — diese Runde deckt nur den
 // manuellen Bestand-Teil ab (Zu-/Abgangs-Werkzeug), keine automatische OCR-Befüllung.
+
+// Freies category-Feld auf pantry_items (kein CHECK-Constraint), aber eine feste, kleine Auswahl
+// hält die Liste konsistent statt frei getippter Varianten (implementieren-jetzt.md, Triage
+// 2026-07-21) — geteilt zwischen Quick-Add-Select (kuehlschrank.html) und Inline-Edit pro Zeile.
+const PANTRY_CATEGORY_LABELS = {
+  kuehlschrank: "Kühlschrank",
+  tiefkuehl: "Tiefkühl",
+  vorrat: "Vorrat",
+  gewuerze: "Gewürze",
+};
 
 async function renderKuehlschrankView() {
   const myGeneration = renderGeneration;
@@ -5605,6 +5711,19 @@ function buildPantryItem(item) {
     if (e.key === "Enter") amountInput.blur();
   });
 
+  const categorySelect = document.createElement("select");
+  categorySelect.className = "select";
+  categorySelect.setAttribute("aria-label", "Kategorie");
+  categorySelect.innerHTML = `<option value="">Kategorie</option>${Object.entries(PANTRY_CATEGORY_LABELS)
+    .map(([value, label]) => `<option value="${value}"${item.category === value ? " selected" : ""}>${label}</option>`)
+    .join("")}`;
+  categorySelect.addEventListener("change", async () => {
+    await withErrorToast(async () => {
+      await updatePantryItem(item.id, { category: categorySelect.value || null });
+      await renderPantryList();
+    });
+  });
+
   const deleteBtn = document.createElement("button");
   deleteBtn.type = "button";
   deleteBtn.className = "icon-btn icon-btn-danger";
@@ -5617,7 +5736,7 @@ function buildPantryItem(item) {
     });
   });
 
-  li.append(nameSpan, amountInput, deleteBtn);
+  li.append(nameSpan, amountInput, categorySelect, deleteBtn);
   return li;
 }
 
@@ -5626,6 +5745,7 @@ function wirePantryQuickAddForm() {
   const form = document.getElementById("pantry-quick-form");
   const nameInput = document.getElementById("pantry-quick-name");
   const amountInput = document.getElementById("pantry-quick-amount");
+  const categorySelect = document.getElementById("pantry-quick-category");
   const cancelBtn = document.getElementById("pantry-quick-cancel");
 
   const closeForm = () => {
@@ -5648,7 +5768,7 @@ function wirePantryQuickAddForm() {
     const name = nameInput.value.trim();
     if (!name) return;
     await withErrorToast(async () => {
-      await createPantryItem({ name, amount: amountInput.value.trim() || null });
+      await createPantryItem({ name, amount: amountInput.value.trim() || null, category: categorySelect.value || null });
       closeForm();
       await renderPantryList();
     });
