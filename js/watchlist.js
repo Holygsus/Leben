@@ -214,6 +214,13 @@ export function buildSwapOperations(slotA, slotB) {
 
 // ---------- Async-Wrapper ----------
 
+// HINWEIS (Governance-Entscheidung 2026-07-25, siehe
+// wissensdatenbank/features/watchlist-fernsehprogramm.md, Abschnitt "Zugang & Grundmechanik"):
+// Diese Funktion wird aktuell NICHT mehr aufgerufen — die automatische Tagesplan-Einplanung von
+// Watchlist-Einträgen ist in app.js deaktiviert (renderTodayView / renderFernsehprogrammView).
+// Bewusst erhalten und getestet (test.js), damit die Tagesplan-Präsenz später ohne Neuaufbau
+// zurückgeholt werden kann.
+//
 // Idempotenz-Pattern von autoplanDueHabits übernommen: legt für jedes Datum ohne bestehende
 // Watchlist-Aufgabe eine neue tasks-Zeile an (planned_date=Datum, status='planned',
 // watchlist_item_id gesetzt). effort bleibt NULL, siehe Kommentar in supabase/schema.sql —

@@ -74,7 +74,12 @@ import {
   computeAverageRating,
   filterWatchlistItems,
   currentWeekDates,
-  autoplanWatchlistForDates,
+  // autoplanWatchlistForDates: bewusst nicht mehr importiert/aufgerufen. Die automatische
+  // Tagesplan-Einplanung von Watchlist-Einträgen ist per Governance-Entscheidung 2026-07-25
+  // deaktiviert (wissensdatenbank/features/watchlist-fernsehprogramm.md, Abschnitt "Zugang &
+  // Grundmechanik"). Die Funktion bleibt in watchlist.js erhalten — zum Reaktivieren hier wieder
+  // importieren und die beiden markierten Aufrufe (renderTodayView / renderFernsehprogrammView)
+  // einkommentieren.
   applyWatchlistSwap,
 } from "./watchlist.js";
 import { listBirthdays, createBirthday, updateBirthday, deleteBirthday, daysUntilNextOccurrence, nextOccurrence } from "./birthdays.js";
@@ -1129,12 +1134,13 @@ async function renderTodayView() {
   // Mutteraufgaben-Gruppierung trivial, weil der volle Baum schon vorliegt).
   // Ungefiltert holen (nicht nur status:"active") — filterBuyReady() muss auch bereits manuell auf
   // "ready" gesetzte Wünsche sehen können, sonst fehlen die im Kaufbereit-Widget.
-  const [areas, allTasks, wishlistItems, potBalance, watchlistItems, birthdays] = await Promise.all([
+  // listWatchlistItems() wurde hier früher nur für die Watchlist-Auto-Einplanung geladen — die ist
+  // per Governance-Entscheidung 2026-07-25 deaktiviert (siehe unten), daher entfällt der Fetch.
+  const [areas, allTasks, wishlistItems, potBalance, birthdays] = await Promise.all([
     listAreas(),
     listTasks(),
     listWishlistItems(),
     getSavingsPotBalance(),
-    listWatchlistItems(),
     listBirthdays(),
   ]);
   todayViewState.areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
@@ -1149,12 +1155,15 @@ async function renderTodayView() {
     ? allTasks.map((t) => (duePlannedIds.has(t.id) ? { ...t, planned_date: today, status: "planned" } : t))
     : allTasks;
 
-  // Analog zu Habits: fehlt für heute noch eine Watchlist-Aufgabe (aktives Item nicht bereits
-  // diese Woche verplant), wird sie hier automatisch angelegt — sonst würde sie erst nach einem
-  // Reload der Fernsehprogramm-Ansicht in Heute auftauchen. Nur für heute, nicht die ganze Woche
-  // (das übernimmt renderFernsehprogrammView separat).
-  const newWatchlistTasks = await autoplanWatchlistForDates(watchlistItems, [today]);
-  todayViewState.allTasks = newWatchlistTasks.length ? [...patchedTasks, ...newWatchlistTasks] : patchedTasks;
+  // Governance-Entscheidung 2026-07-25 (wissensdatenbank/features/watchlist-fernsehprogramm.md,
+  // Abschnitt "Zugang & Grundmechanik"): Watchlist-Einträge tauchen NICHT mehr automatisch als
+  // Aufgaben in Heute/Tagesplan auf — die Watchlist läuft ausschließlich über den
+  // Fernsehprogramm-Tab. Früher wurde hier für heute eine Watchlist-Aufgabe auto-eingeplant
+  // (autoplanWatchlistForDates); das ist deaktiviert. Zusätzlich werden evtl. noch aus früheren
+  // Auto-Planungs-Läufen in der DB liegende Watchlist-tasks-Zeilen hier herausgefiltert, damit sie
+  // weder in der Aufgabenliste noch als "überfällig" in Heute erscheinen. Die Zeilen bleiben in der
+  // DB und im Fernsehprogramm-Tab sichtbar (reversibel — Filter entfernen + Aufruf reaktivieren).
+  todayViewState.allTasks = patchedTasks.filter((t) => !isWatchlistTask(t));
   const tasks = todayViewState.allTasks.filter((t) => t.planned_date === today);
 
   renderGreeting();
@@ -5026,12 +5035,16 @@ async function renderFernsehprogrammView() {
   showLoading("watchlist-week-list");
 
   const [items, allTasks, logEntries] = await Promise.all([listWatchlistItems(), listTasks(), listAllViewingLogEntries()]);
-  const weekDates = currentWeekDates(todayISO());
-  // Anders als in renderTodayView (nur heute) wird hier gleich die ganze Woche aufgefüllt, damit
-  // der Wochenüberblick nicht erst nach 7 Tagen Heute-Besuchen vollständig wird.
-  const newTasks = await autoplanWatchlistForDates(items, weekDates);
+  // Governance-Entscheidung 2026-07-25 (wissensdatenbank/features/watchlist-fernsehprogramm.md,
+  // Abschnitt "Zugang & Grundmechanik"): keine automatische Tagesplan-Einplanung mehr. Früher wurde
+  // hier die ganze Woche mit autoplanWatchlistForDates aufgefüllt, damit der Wochenüberblick nicht
+  // erst nach 7 Tagen Heute-Besuchen vollständig wird. Das ist deaktiviert — es werden keine neuen
+  // Watchlist-tasks-Zeilen mehr erzeugt. Der Wochenüberblick zeigt jetzt nur noch bereits vorhandene
+  // Watchlist-Zeilen (aus früheren Läufen oder manuell per Swap gesetzt); freie Tage bleiben "frei".
+  // Die Auto-Befüllung bleibt in watchlist.js erhalten und lässt sich durch Reaktivieren dieses
+  // Aufrufs (siehe Import-Kommentar oben) zurückholen.
   watchlistViewState.items = items;
-  watchlistViewState.allTasks = newTasks.length ? [...allTasks, ...newTasks] : allTasks;
+  watchlistViewState.allTasks = allTasks;
   watchlistViewState.logEntries = logEntries;
 
   renderWatchlistWeek();
