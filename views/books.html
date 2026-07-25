@@ -1,0 +1,23 @@
+<section class="view-header">
+  <div class="view-title-group" style="--view-accent: var(--color-accent-warm);">
+    <div class="view-icon-badge"><svg viewBox="0 0 24 24"><path d="M4 4h6a2 2 0 0 1 2 2v14a2 2 0 0 0-2-2H4z"/><path d="M20 4h-6a2 2 0 0 0-2 2v14a2 2 0 0 1 2-2h6z"/></svg></div>
+    <h1>Lesen</h1>
+  </div>
+</section>
+
+<section class="panel">
+  <p class="status-message" id="books-month-summary"></p>
+  <ul class="task-list" id="books-list"></ul>
+  <form id="new-book-form" class="new-task-form">
+    <input class="input" type="text" id="new-book-title" placeholder="Buchtitel" required autocomplete="off" />
+    <input class="input" type="text" id="new-book-author" placeholder="Autor (optional)" autocomplete="off" />
+    <input class="input" type="number" id="new-book-pages" placeholder="Seiten gesamt (optional)" min="1" inputmode="numeric" />
+    <select class="select" id="new-book-status" aria-label="Status">
+      <option value="geplant">Geplant</option>
+      <option value="aktiv">Aktiv</option>
+      <option value="pausiert">Pausiert</option>
+      <option value="beendet">Beendet</option>
+    </select>
+    <button class="btn" type="submit">Anlegen</button>
+  </form>
+</section>

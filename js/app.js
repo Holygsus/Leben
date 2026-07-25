@@ -87,6 +87,7 @@ import { listBirthdays, createBirthday, updateBirthday, deleteBirthday, daysUnti
 import { listRecipes, createRecipe, updateRecipe, deleteRecipe, formatIngredientsForShoppingList } from "./recipes.js";
 import { listPantryItems, createPantryItem, updatePantryItem, deletePantryItem } from "./pantry.js";
 import { listGames, createGame, updateGame, deleteGame } from "./games.js";
+import { listBooks, createBook, updateBook, deleteBook, listReadingLog, logReadingSession, sumPagesInMonth } from "./books.js";
 import { listComments, listAllCommentedTaskIds, createComment, deleteComment } from "./comments.js";
 import { getReflectionForDate, createReflection } from "./reflections.js";
 import {
@@ -124,6 +125,7 @@ const routes = {
   rezepte: renderRezepteView,
   kuehlschrank: renderKuehlschrankView,
   games: renderGamesView,
+  books: renderBooksView,
   fixkosten: renderFixkostenView,
   "verpflichtende-ausgaben": renderVerpflichtendeAusgabenView,
   debts: renderDebtsView,
@@ -904,6 +906,11 @@ const MORE_ROUTES = [
     route: "games",
     label: "Gaming",
     icon: `<rect x="2" y="7" width="20" height="10" rx="4"/><path d="M7 12h2M8 11v2M15 11h.01M18 13h.01"/>`,
+  },
+  {
+    route: "books",
+    label: "Lesen",
+    icon: `<path d="M4 4h6a2 2 0 0 1 2 2v14a2 2 0 0 0-2-2H4z"/><path d="M20 4h-6a2 2 0 0 0-2 2v14a2 2 0 0 1 2-2h6z"/>`,
   },
 ];
 
@@ -5153,6 +5160,39 @@ function buildCurrentEpisodeLabel(item) {
   if (!item || (item.current_season == null && item.current_episode == null)) return "";
   return ` · S${item.current_season ?? "?"}E${item.current_episode ?? "?"}`;
 }
+
+// Reichere Fortschrittszeile für die Aktiv-Karte: "Staffel S · Folge E von Y", wenn Staffel/Folge und
+// die Folgenzahl der aktuellen Staffel (episode_counts_by_season) gepflegt sind — sonst Fallback auf
+// buildCurrentEpisodeLabel (ohne führendes " · "). Siehe wissensdatenbank/features/
+// watchlist-fernsehprogramm.md, "Automatische Metadaten-Anreicherung".
+function buildEpisodeProgressLabel(item) {
+  if (!item) return "";
+  const counts = item.episode_counts_by_season;
+  const total = counts && item.current_season != null ? counts[String(item.current_season)] : null;
+  if (item.current_season != null && item.current_episode != null && total != null) {
+    return `Staffel ${item.current_season} · Folge ${item.current_episode} von ${total}`;
+  }
+  return buildCurrentEpisodeLabel(item).replace(/^ · /, "");
+}
+
+// episode_counts_by_season (jsonb-Objekt { "1":10, "2":8 }) <-> Komma-Liste ("10, 8") fürs Textfeld.
+// Nach Staffelnummer sortiert formatiert; leere/ungültige Eingabe -> null.
+function formatEpisodeCounts(counts) {
+  if (!counts || typeof counts !== "object") return "";
+  const seasons = Object.keys(counts).map(Number).sort((a, b) => a - b);
+  return seasons.map((s) => counts[String(s)]).join(", ");
+}
+
+function parseEpisodeCounts(text) {
+  const parts = text.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+  const obj = {};
+  parts.forEach((p, i) => {
+    const n = Number(p);
+    if (!Number.isNaN(n)) obj[String(i + 1)] = n;
+  });
+  return Object.keys(obj).length ? obj : null;
+}
 const WATCHLIST_STATUS_LABEL = {
   aktiv: "Aktiv",
   geplant: "Geplant",
@@ -5347,7 +5387,7 @@ function buildWatchlistActiveCard(item, avg) {
   const card = document.createElement("div");
   card.className = "watchlist-active-card";
   const meta = [];
-  const episode = buildCurrentEpisodeLabel(item).replace(/^ · /, "");
+  const episode = buildEpisodeProgressLabel(item);
   if (episode) meta.push(episode);
   if (item.platform) meta.push(escapeHtml(item.platform));
   card.innerHTML =
@@ -5607,6 +5647,12 @@ async function renderWatchlistDetailCard(itemId, close) {
     <label class="modal-label">Folge
       <input type="number" class="input" id="wd-episode" value="${item.current_episode ?? ""}" min="1" />
     </label>
+    <label class="modal-label">Staffeln gesamt
+      <input type="number" class="input" id="wd-season-count" value="${item.season_count ?? ""}" min="1" />
+    </label>
+    <label class="modal-label">Folgen je Staffel (Komma-getrennt, z.B. 10, 8, 12)
+      <input type="text" class="input" id="wd-episode-counts" value="${escapeHtml(formatEpisodeCounts(item.episode_counts_by_season))}" />
+    </label>
     <label class="modal-label">Release-Termin nächste Staffel
       <input type="date" class="input" id="wd-release-date" value="${item.next_season_release_date || ""}" />
     </label>
@@ -5633,6 +5679,8 @@ async function renderWatchlistDetailCard(itemId, close) {
     const durationRaw = document.getElementById("wd-duration").value;
     const seasonRaw = document.getElementById("wd-season").value;
     const episodeRaw = document.getElementById("wd-episode").value;
+    const seasonCountRaw = document.getElementById("wd-season-count").value;
+    const episodeCounts = parseEpisodeCounts(document.getElementById("wd-episode-counts").value);
     await withErrorToast(async () => {
       await updateWatchlistItem(item.id, {
         title: document.getElementById("wd-title").value.trim() || item.title,
@@ -5643,6 +5691,8 @@ async function renderWatchlistDetailCard(itemId, close) {
         duration_minutes: durationRaw ? Number(durationRaw) : null,
         current_season: seasonRaw ? Number(seasonRaw) : null,
         current_episode: episodeRaw ? Number(episodeRaw) : null,
+        season_count: seasonCountRaw ? Number(seasonCountRaw) : null,
+        episode_counts_by_season: episodeCounts,
         next_season_release_date: document.getElementById("wd-release-date").value || null,
       });
       showToast("Gespeichert.");
@@ -6311,6 +6361,194 @@ function wireGamesQuickAddForm() {
         platformInput.value = "";
         statusSelect.value = "backlog";
         await reloadGamesList();
+      });
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+}
+
+/* ---------- Lesen (Bücher, einfache Seiten-Variante) ---------- */
+// wissensdatenbank/features/lesen-als-bereich.md — diese Runde nur Seiten-Fortschritt + Monats-
+// Übersicht (keine Kapitelstruktur, keine immersive Optik). Muster wie Gaming/Kühlschrank.
+
+const BOOK_STATUS_LABELS = {
+  geplant: "Geplant",
+  aktiv: "Aktiv",
+  pausiert: "Pausiert",
+  beendet: "Beendet",
+};
+
+const booksState = { books: [], log: [] };
+
+async function renderBooksView() {
+  const myGeneration = renderGeneration;
+  const container = document.getElementById("view-content");
+  const res = await fetch("views/books.html");
+  if (myGeneration !== renderGeneration) return;
+  container.innerHTML = await res.text();
+  await reloadBooks();
+  wireBooksQuickAddForm();
+}
+
+async function reloadBooks() {
+  const [books, log] = await Promise.all([listBooks(), listReadingLog()]);
+  booksState.books = books;
+  booksState.log = log;
+  renderBooksMonthSummary();
+  renderBooksList();
+}
+
+function renderBooksMonthSummary() {
+  const el = document.getElementById("books-month-summary");
+  if (!el) return;
+  const monthIso = todayISO().slice(0, 7);
+  const pages = sumPagesInMonth(booksState.log, monthIso);
+  el.textContent = `Diesen Monat gelesen: ${pages} Seiten`;
+}
+
+function renderBooksList() {
+  const list = document.getElementById("books-list");
+  list.innerHTML = "";
+  if (booksState.books.length === 0) {
+    list.appendChild(buildEmptyState("Noch keine Bücher", "Leg unten das erste Buch an."));
+    return;
+  }
+  booksState.books.forEach((book) => list.appendChild(buildBookItem(book)));
+}
+
+function buildBookItem(book) {
+  const li = document.createElement("li");
+  li.className = "task-item tx-item";
+
+  const title = document.createElement("input");
+  title.type = "text";
+  title.className = "input area-name-input";
+  title.value = book.title;
+  title.setAttribute("aria-label", "Titel");
+  title.addEventListener("blur", async () => {
+    const value = title.value.trim();
+    if (!value || value === book.title) {
+      title.value = book.title;
+      return;
+    }
+    await withErrorToast(async () => {
+      await updateBook(book.id, { title: value });
+      await reloadBooks();
+    });
+  });
+  title.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") title.blur();
+  });
+
+  const statusSelect = document.createElement("select");
+  statusSelect.className = "select";
+  statusSelect.setAttribute("aria-label", "Status");
+  statusSelect.innerHTML = Object.entries(BOOK_STATUS_LABELS)
+    .map(([value, label]) => `<option value="${value}"${book.status === value ? " selected" : ""}>${label}</option>`)
+    .join("");
+  statusSelect.addEventListener("change", async () => {
+    await withErrorToast(async () => {
+      await updateBook(book.id, { status: statusSelect.value });
+      await reloadBooks();
+    });
+  });
+
+  // Aktueller Seitenstand, inline editierbar (direkte Korrektur ohne Log-Eintrag).
+  const pageInput = document.createElement("input");
+  pageInput.type = "number";
+  pageInput.min = "0";
+  pageInput.className = "input";
+  pageInput.style.maxWidth = "70px";
+  pageInput.value = book.current_page ?? 0;
+  pageInput.setAttribute("aria-label", "Aktuelle Seite");
+  pageInput.addEventListener("blur", async () => {
+    const value = Number(pageInput.value);
+    if (Number.isNaN(value) || value === Number(book.current_page)) {
+      pageInput.value = book.current_page ?? 0;
+      return;
+    }
+    await withErrorToast(async () => {
+      await updateBook(book.id, { current_page: value });
+      await reloadBooks();
+    });
+  });
+
+  const meta = document.createElement("span");
+  meta.className = "count";
+  const pagesLabel = book.total_pages ? `S. ${book.current_page ?? 0} / ${book.total_pages}` : `S. ${book.current_page ?? 0}`;
+  meta.textContent = [pagesLabel, book.author].filter(Boolean).join(" · ");
+
+  // "+Seiten heute": loggt eine Session (Monats-Summe) und bumpt current_page.
+  const addPages = document.createElement("input");
+  addPages.type = "number";
+  addPages.min = "1";
+  addPages.className = "input";
+  addPages.style.maxWidth = "64px";
+  addPages.placeholder = "+S.";
+  addPages.setAttribute("aria-label", "Heute gelesene Seiten hinzufügen");
+  const commitPages = async () => {
+    const pages = Number(addPages.value);
+    if (Number.isNaN(pages) || pages <= 0) {
+      addPages.value = "";
+      return;
+    }
+    await withErrorToast(async () => {
+      await logReadingSession({ bookId: book.id, pagesRead: pages, currentPage: (book.current_page ?? 0) + pages });
+      addPages.value = "";
+      await reloadBooks();
+    });
+  };
+  addPages.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitPages();
+    }
+  });
+  addPages.addEventListener("blur", commitPages);
+
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.className = "icon-btn icon-btn-danger";
+  deleteBtn.textContent = "×";
+  deleteBtn.setAttribute("aria-label", "Buch entfernen");
+  deleteBtn.addEventListener("click", async () => {
+    await withErrorToast(async () => {
+      await deleteBook(book.id);
+      await reloadBooks();
+    });
+  });
+
+  li.append(title, statusSelect, pageInput, meta, addPages, deleteBtn);
+  return li;
+}
+
+function wireBooksQuickAddForm() {
+  const form = document.getElementById("new-book-form");
+  const submitBtn = form.querySelector('button[type="submit"]');
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const titleInput = document.getElementById("new-book-title");
+    const authorInput = document.getElementById("new-book-author");
+    const pagesInput = document.getElementById("new-book-pages");
+    const statusSelect = document.getElementById("new-book-status");
+    const title = titleInput.value.trim();
+    if (!title || submitBtn.disabled) return;
+    submitBtn.disabled = true;
+    try {
+      await withErrorToast(async () => {
+        await createBook({
+          title,
+          author: authorInput.value.trim() || null,
+          totalPages: pagesInput.value ? Number(pagesInput.value) : null,
+          status: statusSelect.value,
+        });
+        showToast(`„${title}" angelegt.`);
+        titleInput.value = "";
+        authorInput.value = "";
+        pagesInput.value = "";
+        statusSelect.value = "geplant";
+        await reloadBooks();
       });
     } finally {
       submitBtn.disabled = false;

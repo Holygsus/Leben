@@ -13,6 +13,7 @@ import {
 import { findHabitsDueToday } from "./js/habits.js";
 import { computeBudgetTrend } from "./js/finance.js";
 import { formatIngredientsForShoppingList } from "./js/recipes.js";
+import { sumPagesInMonth } from "./js/books.js";
 
 const results = document.getElementById("results");
 let passCount = 0;
@@ -193,6 +194,18 @@ function assertEqual(actual, expected, label) {
   assertEqual(isPlannableCandidate(habitKind, all), false, "isPlannableCandidate: Habit-Pool-Kind ist kein Kandidat (läuft über Habit-Tab)");
   assertEqual(isPlannableCandidate(mutterMitEffortUndEffortKind, all), false, "isPlannableCandidate: Mutter mit effort-tragendem Kind ist nur Label, kein Kandidat");
   assertEqual(isPlannableCandidate(effortKindVonMe, all), true, "isPlannableCandidate: das effort-tragende Kind einer solchen Mutter ist der Kandidat");
+}
+
+// ---------- sumPagesInMonth (Lesen — Monats-Übersicht) ----------
+{
+  const log = [
+    { date: "2026-07-03", pages_read: 20 },
+    { date: "2026-07-28", pages_read: 15 },
+    { date: "2026-06-30", pages_read: 100 }, // anderer Monat
+    { date: "2026-08-01", pages_read: 50 }, // anderer Monat
+  ];
+  assertEqual(sumPagesInMonth(log, "2026-07"), 35, "sumPagesInMonth: summiert nur Einträge des Zielmonats");
+  assertEqual(sumPagesInMonth(log, "2026-05"), 0, "sumPagesInMonth: Monat ohne Einträge ergibt 0");
 }
 
 // ---------- formatTasksForExport ----------

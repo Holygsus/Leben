@@ -39,6 +39,8 @@ create table if not exists watchlist_items (
   duration_minutes integer,
   current_season integer,
   current_episode integer,
+  season_count integer,
+  episode_counts_by_season jsonb,
   next_season_release_date date,
   sort_order integer default 0,
   created_at timestamptz default now(),
@@ -221,6 +223,31 @@ create table if not exists debts (
   updated_at timestamptz default now()
 );
 
+-- "Lesen als Bereich" — einfache Seiten-Variante (siehe wissensdatenbank/features/lesen-als-bereich.md).
+create table if not exists books (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users not null,
+  title text not null,
+  author text,
+  total_pages integer,
+  current_page integer not null default 0,
+  status text not null default 'geplant'
+    check (status in ('geplant', 'aktiv', 'pausiert', 'beendet')),
+  genre text,
+  sort_order integer not null default 0,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create table if not exists book_reading_log (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users not null,
+  book_id uuid references books(id) on delete cascade,
+  date date not null default current_date,
+  pages_read integer not null,
+  created_at timestamptz default now()
+);
+
 -- Gaming-Backlog — manueller Bestand (siehe wissensdatenbank/features/gaming-backlog.md). Eigene
 -- Tabelle statt Erweiterung von watchlist_items (kontinuierlicher Fortschritt, kein Wochenprogramm).
 create table if not exists game_backlog_items (
@@ -352,6 +379,8 @@ alter table fixed_costs enable row level security;
 alter table committed_expenses enable row level security;
 alter table portfolio_positions enable row level security;
 alter table debts enable row level security;
+alter table books enable row level security;
+alter table book_reading_log enable row level security;
 alter table game_backlog_items enable row level security;
 alter table wishlist_items enable row level security;
 alter table savings_pot_entries enable row level security;
@@ -399,6 +428,12 @@ create policy "portfolio_positions: own data" on portfolio_positions for all usi
 
 drop policy if exists "debts: own data" on debts;
 create policy "debts: own data" on debts for all using (auth.uid() = user_id);
+
+drop policy if exists "books: own data" on books;
+create policy "books: own data" on books for all using (auth.uid() = user_id);
+
+drop policy if exists "book_reading_log: own data" on book_reading_log;
+create policy "book_reading_log: own data" on book_reading_log for all using (auth.uid() = user_id);
 
 drop policy if exists "game_backlog_items: own data" on game_backlog_items;
 create policy "game_backlog_items: own data" on game_backlog_items for all using (auth.uid() = user_id);
