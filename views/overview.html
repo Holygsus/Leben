@@ -30,6 +30,10 @@
     <svg viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
     Filter <span class="filter-count" id="filter-count" hidden></span>
   </button>
+  <button type="button" class="filter-toggle-btn" id="view-mode-toggle" aria-label="Ansicht umschalten">
+    <svg viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="16" rx="1"/><rect x="17" y="4" width="4" height="16" rx="1"/></svg>
+    <span id="view-mode-label">Kanban</span>
+  </button>
 </div>
 
 <section class="filter-bar" id="filter-bar" hidden>
@@ -54,6 +58,7 @@
 </section>
 
 <div class="area-tree" id="area-tree"></div>
+<div class="kanban-board" id="kanban-board" hidden></div>
 
 <section class="panel" id="no-area-panel" hidden>
   <h2>Ohne Bereich</h2>

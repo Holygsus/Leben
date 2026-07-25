@@ -1893,6 +1893,74 @@ body.has-bg-image .task-item {
   margin-bottom: var(--space-5);
 }
 
+/* Kanban-Ansicht der Übersicht — drei Statusspalten, auf Mobile horizontal scrollbar. */
+.kanban-board {
+  display: flex;
+  gap: var(--space-3);
+  overflow-x: auto;
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-5);
+  scroll-snap-type: x proximity;
+}
+
+.kanban-column {
+  flex: 0 0 min(78vw, 300px);
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.kanban-column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.kanban-column-title {
+  font-weight: 600;
+}
+
+.kanban-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+
+.kanban-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  cursor: pointer;
+  min-height: var(--touch-target);
+}
+
+.kanban-card-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.kanban-empty {
+  color: var(--color-text-subtle);
+  text-align: center;
+  margin: var(--space-2) 0;
+}
+
 .area-section {
   border: 1px solid color-mix(in srgb, var(--area-color, var(--color-border)) 35%, var(--color-border));
   border-radius: var(--radius-md);

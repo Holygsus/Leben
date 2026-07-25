@@ -154,7 +154,7 @@ function saveStoredFilters() {
   try {
     localStorage.setItem(
       FILTER_STORAGE_KEY,
-      JSON.stringify({ effort, status, search, showDone: overviewState.showDone })
+      JSON.stringify({ effort, status, search, showDone: overviewState.showDone, viewMode: overviewState.viewMode })
     );
   } catch {
     // z.B. Private-Browsing-Modus ohne Storage-Zugriff — Persistenz ist ein Nice-to-have,
@@ -173,6 +173,7 @@ const overviewState = {
     search: storedFilters?.search || "",
   },
   showDone: storedFilters?.showDone || false,
+  viewMode: storedFilters?.viewMode === "kanban" ? "kanban" : "list",
   collapsedAreas: new Set(),
   collapsedNodes: new Set(),
   commentedTaskIds: new Set(), // siehe loadOverviewData() — für den dezenten Notizen-Indikator in buildTaskNameEl
@@ -1973,12 +1974,31 @@ async function renderOverviewView() {
   // gemacht).
   overviewState.collapsedAreas = new Set(overviewState.areas.map((a) => a.id));
   renderPinnedTasks();
-  renderAreaTree();
+  renderOverviewBody();
   renderNoAreaSection();
   wireOverviewFilters();
+  wireViewModeToggle();
   await renderAreaManageList();
   wireNewAreaForm();
   wireAreaManageToggle();
+}
+
+// Entscheidet zwischen Listen- (Bereichsbaum) und Kanban-Darstellung derselben Aufgaben. Nur die
+// zwei Haupt-Render-Pfade (renderOverviewView/reloadOverview) laufen hierüber — die vielen direkten
+// renderAreaTree()-Aufrufe (Collapse-Toggles, Inline-Add) stammen aus Interaktionen, die es nur in
+// der Listenansicht gibt.
+function renderOverviewBody() {
+  const tree = document.getElementById("area-tree");
+  const board = document.getElementById("kanban-board");
+  if (overviewState.viewMode === "kanban") {
+    tree.hidden = true;
+    board.hidden = false;
+    renderKanbanBoard();
+  } else {
+    board.hidden = true;
+    tree.hidden = false;
+    renderAreaTree();
+  }
 }
 
 async function loadOverviewData() {
@@ -2011,7 +2031,7 @@ function refreshOpenViewsAfterTaskChange(allTasks) {
 async function reloadOverview() {
   await loadOverviewData();
   renderPinnedTasks();
-  renderAreaTree();
+  renderOverviewBody();
   renderNoAreaSection();
   await renderAreaManageList();
 }
@@ -2193,6 +2213,112 @@ function renderAreaTree() {
       )
     );
   }
+}
+
+// Schaltet zwischen Listen- und Kanban-Ansicht um; Auswahl bleibt über saveStoredFilters erhalten.
+function wireViewModeToggle() {
+  const btn = document.getElementById("view-mode-toggle");
+  if (!btn) return;
+  updateViewModeLabel();
+  btn.addEventListener("click", () => {
+    overviewState.viewMode = overviewState.viewMode === "kanban" ? "list" : "kanban";
+    saveStoredFilters();
+    updateViewModeLabel();
+    renderOverviewBody();
+  });
+}
+
+function updateViewModeLabel() {
+  const label = document.getElementById("view-mode-label");
+  if (label) label.textContent = overviewState.viewMode === "kanban" ? "Liste" : "Kanban";
+}
+
+const KANBAN_COLUMNS = [
+  { status: "open", title: "Offen" },
+  { status: "planned", title: "Geplant" },
+  { status: "done", title: "Erledigt" },
+];
+
+// Kanban-Darstellung: dieselben Top-Level-Aufgaben, nach Status in Spalten. Der Status-Filter greift
+// hier bewusst nicht (die Spalten SIND die Status); Aufwand- und Suchfilter greifen weiter, die
+// Erledigt-Spalte ist unabhängig von showDone immer sichtbar.
+function renderKanbanBoard() {
+  const board = document.getElementById("kanban-board");
+  board.innerHTML = "";
+  const { effort, search } = overviewState.filters;
+  const topLevel = overviewState.tasks.filter((t) => {
+    if (t.parent_task_id) return false;
+    if (effort && String(t.effort) !== effort) return false;
+    if (search && !t.title.toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  for (const col of KANBAN_COLUMNS) {
+    const column = document.createElement("div");
+    column.className = "kanban-column";
+
+    const header = document.createElement("div");
+    header.className = "kanban-column-header";
+    const heading = document.createElement("span");
+    heading.className = "kanban-column-title";
+    heading.textContent = col.title;
+    const tasksInCol = topLevel.filter((t) => t.status === col.status).sort(compareByUrgency);
+    const count = document.createElement("span");
+    count.className = "count";
+    count.textContent = String(tasksInCol.length);
+    header.append(heading, count);
+    column.appendChild(header);
+
+    const cards = document.createElement("div");
+    cards.className = "kanban-cards";
+    if (tasksInCol.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "kanban-empty";
+      empty.textContent = "—";
+      cards.appendChild(empty);
+    } else {
+      tasksInCol.forEach((task) => cards.appendChild(buildKanbanCard(task)));
+    }
+    column.appendChild(cards);
+    board.appendChild(column);
+  }
+}
+
+function buildKanbanCard(task) {
+  const card = document.createElement("button");
+  card.type = "button";
+  card.className = "kanban-card";
+
+  const area = overviewState.areas.find((a) => a.id === task.area_id);
+  if (area) {
+    const dot = document.createElement("span");
+    dot.className = "task-area-dot";
+    dot.style.background = area.color;
+    card.appendChild(dot);
+  }
+
+  const title = document.createElement("span");
+  title.className = "kanban-card-title";
+  title.textContent = task.title;
+  card.appendChild(title);
+
+  if (task.effort != null) {
+    const badge = document.createElement("span");
+    badge.className = "count";
+    badge.textContent = task.effort + "′";
+    card.appendChild(badge);
+  }
+
+  if (overviewState.commentedTaskIds.has(task.id)) {
+    const cdot = document.createElement("span");
+    cdot.className = "comment-indicator";
+    cdot.setAttribute("aria-label", "Hat Notizen");
+    cdot.title = "Hat Notizen";
+    card.appendChild(cdot);
+  }
+
+  card.addEventListener("click", () => openTaskDetail(task));
+  return card;
 }
 
 // Baut die Bereichs-Section inkl. ihres Aufgabenbaums. Gibt null zurück, wenn eine aktive Suche
