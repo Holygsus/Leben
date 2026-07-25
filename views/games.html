@@ -1,0 +1,23 @@
+<section class="view-header">
+  <div class="view-title-group" style="--view-accent: var(--color-accent-warm);">
+    <div class="view-icon-badge"><svg viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="4"/><path d="M7 12h2M8 11v2M15 11h.01M18 13h.01"/></svg></div>
+    <h1>Gaming-Backlog</h1>
+  </div>
+</section>
+
+<section class="panel">
+  <ul class="task-list" id="games-list"></ul>
+  <form id="new-game-form" class="new-task-form">
+    <input class="input" type="text" id="new-game-title" placeholder="Spieltitel (z.B. Elden Ring)" required autocomplete="off" />
+    <select class="select" id="new-game-status" aria-label="Status">
+      <option value="backlog">Backlog</option>
+      <option value="wishlist">Wunschliste</option>
+      <option value="playing">Spiele gerade</option>
+      <option value="paused">Pausiert</option>
+      <option value="done">Durch</option>
+      <option value="abandoned">Abgebrochen</option>
+    </select>
+    <input class="input" type="text" id="new-game-platform" placeholder="Plattform (optional)" autocomplete="off" />
+    <button class="btn" type="submit">Anlegen</button>
+  </form>
+</section>

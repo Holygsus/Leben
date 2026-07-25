@@ -221,6 +221,23 @@ create table if not exists debts (
   updated_at timestamptz default now()
 );
 
+-- Gaming-Backlog — manueller Bestand (siehe wissensdatenbank/features/gaming-backlog.md). Eigene
+-- Tabelle statt Erweiterung von watchlist_items (kontinuierlicher Fortschritt, kein Wochenprogramm).
+create table if not exists game_backlog_items (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users not null,
+  title text not null,
+  status text not null default 'backlog'
+    check (status in ('wishlist','backlog','playing','paused','done','abandoned')),
+  platform text,
+  release_date date,
+  progress_pct integer check (progress_pct is null or (progress_pct between 0 and 100)),
+  priority text check (priority is null or priority in ('low','medium','high')),
+  sort_order integer not null default 0,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
 -- Sparplan: Wunschliste — Rohtext-Einstieg, Anreicherung im Weekly Review
 create table if not exists wishlist_items (
   id uuid default gen_random_uuid() primary key,
@@ -335,6 +352,7 @@ alter table fixed_costs enable row level security;
 alter table committed_expenses enable row level security;
 alter table portfolio_positions enable row level security;
 alter table debts enable row level security;
+alter table game_backlog_items enable row level security;
 alter table wishlist_items enable row level security;
 alter table savings_pot_entries enable row level security;
 alter table recipes enable row level security;
@@ -381,6 +399,9 @@ create policy "portfolio_positions: own data" on portfolio_positions for all usi
 
 drop policy if exists "debts: own data" on debts;
 create policy "debts: own data" on debts for all using (auth.uid() = user_id);
+
+drop policy if exists "game_backlog_items: own data" on game_backlog_items;
+create policy "game_backlog_items: own data" on game_backlog_items for all using (auth.uid() = user_id);
 
 drop policy if exists "wishlist_items: own data" on wishlist_items;
 create policy "wishlist_items: own data" on wishlist_items for all using (auth.uid() = user_id);

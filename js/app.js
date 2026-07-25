@@ -85,6 +85,7 @@ import {
 import { listBirthdays, createBirthday, updateBirthday, deleteBirthday, daysUntilNextOccurrence, nextOccurrence } from "./birthdays.js";
 import { listRecipes, createRecipe, updateRecipe, deleteRecipe, formatIngredientsForShoppingList } from "./recipes.js";
 import { listPantryItems, createPantryItem, updatePantryItem, deletePantryItem } from "./pantry.js";
+import { listGames, createGame, updateGame, deleteGame } from "./games.js";
 import { listComments, listAllCommentedTaskIds, createComment, deleteComment } from "./comments.js";
 import { getReflectionForDate, createReflection } from "./reflections.js";
 import {
@@ -121,6 +122,7 @@ const routes = {
   fernsehprogramm: renderFernsehprogrammView,
   rezepte: renderRezepteView,
   kuehlschrank: renderKuehlschrankView,
+  games: renderGamesView,
   fixkosten: renderFixkostenView,
   "verpflichtende-ausgaben": renderVerpflichtendeAusgabenView,
   debts: renderDebtsView,
@@ -896,6 +898,11 @@ const MORE_ROUTES = [
     route: "kuehlschrank",
     label: "Kühlschrank",
     icon: `<path d="M5 2h14a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M4 9h16M8 2v4M8 13v4"/>`,
+  },
+  {
+    route: "games",
+    label: "Gaming",
+    icon: `<rect x="2" y="7" width="20" height="10" rx="4"/><path d="M7 12h2M8 11v2M15 11h.01M18 13h.01"/>`,
   },
 ];
 
@@ -6055,6 +6062,159 @@ function wirePantryQuickAddForm() {
       closeForm();
       await renderPantryList();
     });
+  });
+}
+
+/* ---------- Gaming-Backlog ---------- */
+// wissensdatenbank/features/gaming-backlog.md — diese Runde nur der manuelle Bestand (kein Preis-/
+// Budget-Teil, der läuft weiter über die Wunschliste). Muster wie Kühlschrank/Fixkosten.
+
+const GAME_STATUS_LABELS = {
+  wishlist: "Wunschliste",
+  backlog: "Backlog",
+  playing: "Spiele gerade",
+  paused: "Pausiert",
+  done: "Durch",
+  abandoned: "Abgebrochen",
+};
+
+const gamesState = { games: [] };
+
+async function renderGamesView() {
+  const myGeneration = renderGeneration;
+  const container = document.getElementById("view-content");
+  const res = await fetch("views/games.html");
+  if (myGeneration !== renderGeneration) return;
+  container.innerHTML = await res.text();
+  await reloadGamesList();
+  wireGamesQuickAddForm();
+}
+
+async function reloadGamesList() {
+  gamesState.games = await listGames();
+  renderGamesList();
+}
+
+function renderGamesList() {
+  const list = document.getElementById("games-list");
+  list.innerHTML = "";
+  if (gamesState.games.length === 0) {
+    list.appendChild(buildEmptyState("Noch keine Spiele erfasst", "Leg unten den ersten Titel an."));
+    return;
+  }
+  gamesState.games.forEach((game) => list.appendChild(buildGameItem(game)));
+}
+
+function buildGameItem(game) {
+  const li = document.createElement("li");
+  li.className = "task-item tx-item";
+
+  // Titel inline editierbar (Blur committet) — gleiches Muster wie Fixkosten/Schulden.
+  const title = document.createElement("input");
+  title.type = "text";
+  title.className = "input area-name-input";
+  title.value = game.title;
+  title.setAttribute("aria-label", "Titel");
+  title.addEventListener("blur", async () => {
+    const value = title.value.trim();
+    if (!value || value === game.title) {
+      title.value = game.title;
+      return;
+    }
+    await withErrorToast(async () => {
+      await updateGame(game.id, { title: value });
+      await reloadGamesList();
+    });
+  });
+  title.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") title.blur();
+  });
+
+  const statusSelect = document.createElement("select");
+  statusSelect.className = "select";
+  statusSelect.setAttribute("aria-label", "Status");
+  statusSelect.innerHTML = Object.entries(GAME_STATUS_LABELS)
+    .map(([value, label]) => `<option value="${value}"${game.status === value ? " selected" : ""}>${label}</option>`)
+    .join("");
+  statusSelect.addEventListener("change", async () => {
+    await withErrorToast(async () => {
+      await updateGame(game.id, { status: statusSelect.value });
+      await reloadGamesList();
+    });
+  });
+
+  const progressInput = document.createElement("input");
+  progressInput.type = "number";
+  progressInput.min = "0";
+  progressInput.max = "100";
+  progressInput.className = "input";
+  progressInput.style.maxWidth = "70px";
+  progressInput.value = game.progress_pct ?? "";
+  progressInput.placeholder = "%";
+  progressInput.setAttribute("aria-label", "Fortschritt in Prozent");
+  progressInput.addEventListener("blur", async () => {
+    const raw = progressInput.value.trim();
+    const value = raw === "" ? null : Math.min(100, Math.max(0, Number(raw)));
+    if (value === (game.progress_pct ?? null)) {
+      progressInput.value = game.progress_pct ?? "";
+      return;
+    }
+    await withErrorToast(async () => {
+      await updateGame(game.id, { progress_pct: value });
+      await reloadGamesList();
+    });
+  });
+  progressInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") progressInput.blur();
+  });
+
+  const meta = document.createElement("span");
+  meta.className = "count";
+  meta.textContent = game.platform || "";
+
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.className = "icon-btn icon-btn-danger";
+  deleteBtn.textContent = "×";
+  deleteBtn.setAttribute("aria-label", "Aus dem Backlog entfernen");
+  deleteBtn.addEventListener("click", async () => {
+    await withErrorToast(async () => {
+      await deleteGame(game.id);
+      await reloadGamesList();
+    });
+  });
+
+  li.append(title, statusSelect, progressInput, meta, deleteBtn);
+  return li;
+}
+
+function wireGamesQuickAddForm() {
+  const form = document.getElementById("new-game-form");
+  const submitBtn = form.querySelector('button[type="submit"]');
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const titleInput = document.getElementById("new-game-title");
+    const statusSelect = document.getElementById("new-game-status");
+    const platformInput = document.getElementById("new-game-platform");
+    const title = titleInput.value.trim();
+    if (!title || submitBtn.disabled) return;
+    submitBtn.disabled = true;
+    try {
+      await withErrorToast(async () => {
+        await createGame({
+          title,
+          status: statusSelect.value,
+          platform: platformInput.value.trim() || null,
+        });
+        showToast(`„${title}" angelegt.`);
+        titleInput.value = "";
+        platformInput.value = "";
+        statusSelect.value = "backlog";
+        await reloadGamesList();
+      });
+    } finally {
+      submitBtn.disabled = false;
+    }
   });
 }
 
