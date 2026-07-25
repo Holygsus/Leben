@@ -1,5 +1,7 @@
 -- Leben OS — Migration 020
 -- Einmalig im Supabase SQL Editor ausführen (Project → SQL Editor → New query → Run)
+-- Update 2026-07-25: via Supabase-MCP angewendet, live in der Produktions-DB (Tabelle + RLS-Policy
+-- + Spalten verifiziert) — nicht erneut ausführen.
 --
 -- Schulden-Erfassung für den Sparplan (siehe
 -- wissensdatenbank/finanzen-erweiterungen/finanzplan-erweiterungen-v2.md, Punkt 6). Schulden sind
