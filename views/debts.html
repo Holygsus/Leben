@@ -1,0 +1,19 @@
+<section class="view-header">
+  <div class="view-title-group" style="--view-accent: var(--color-accent-warm);">
+    <div class="view-icon-badge"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div>
+    <h1>Schulden</h1>
+  </div>
+  <a href="#/finance" class="chip-btn">← Finanzen</a>
+</section>
+
+<section class="panel">
+  <ul class="task-list" id="debts-list"></ul>
+  <form id="new-debt-form" class="new-task-form">
+    <input class="input" type="text" id="new-debt-name" placeholder="Name (z.B. Autokredit)" required autocomplete="off" />
+    <input class="input" type="number" id="new-debt-remaining" placeholder="Restschuld (€)" step="0.01" min="0" inputmode="decimal" required />
+    <input class="input" type="number" id="new-debt-initial" placeholder="Ursprünglich (€, optional)" step="0.01" min="0" inputmode="decimal" />
+    <input class="input" type="number" id="new-debt-interest" placeholder="Zins % p.a. (optional)" step="0.01" min="0" inputmode="decimal" />
+    <input class="input" type="number" id="new-debt-min-payment" placeholder="Mindestrate (€, optional)" step="0.01" min="0" inputmode="decimal" />
+    <button class="btn" type="submit">Anlegen</button>
+  </form>
+</section>

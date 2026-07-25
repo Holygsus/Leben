@@ -205,6 +205,22 @@ create table if not exists portfolio_positions (
   created_at timestamptz default now()
 );
 
+-- Sparplan: Schulden — Bestand mit Resttilgung + optional Zins (siehe wissensdatenbank/
+-- finanzen-erweiterungen/finanzplan-erweiterungen-v2.md, Punkt 6). Bewusst eine eigene Tabelle statt
+-- committed_expenses (das ist ein Termin-Ereignis, keine laufende Restschuld). Vorrang-Logik
+-- (Tilgung vor Wachstums-/Freiheit-Zuteilung) läuft im Weekly Review, nicht hier.
+create table if not exists debts (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users not null,
+  name text not null,
+  initial_amount numeric(10,2) not null,
+  remaining_amount numeric(10,2) not null,
+  interest_rate numeric(5,2),
+  min_payment numeric(10,2),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
 -- Sparplan: Wunschliste — Rohtext-Einstieg, Anreicherung im Weekly Review
 create table if not exists wishlist_items (
   id uuid default gen_random_uuid() primary key,
@@ -318,6 +334,7 @@ alter table category_mappings enable row level security;
 alter table fixed_costs enable row level security;
 alter table committed_expenses enable row level security;
 alter table portfolio_positions enable row level security;
+alter table debts enable row level security;
 alter table wishlist_items enable row level security;
 alter table savings_pot_entries enable row level security;
 alter table recipes enable row level security;
@@ -361,6 +378,9 @@ create policy "committed_expenses: own data" on committed_expenses for all using
 
 drop policy if exists "portfolio_positions: own data" on portfolio_positions;
 create policy "portfolio_positions: own data" on portfolio_positions for all using (auth.uid() = user_id);
+
+drop policy if exists "debts: own data" on debts;
+create policy "debts: own data" on debts for all using (auth.uid() = user_id);
 
 drop policy if exists "wishlist_items: own data" on wishlist_items;
 create policy "wishlist_items: own data" on wishlist_items for all using (auth.uid() = user_id);

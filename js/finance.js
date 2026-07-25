@@ -121,6 +121,43 @@ export async function deleteCommittedExpense(id) {
   if (error) throw error;
 }
 
+// Schulden (Sparplan) — Bestand mit Resttilgung, siehe wissensdatenbank/finanzen-erweiterungen/
+// finanzplan-erweiterungen-v2.md, Punkt 6. Gleiches CRUD-Muster wie Fixkosten/Verpflichtende Ausgaben.
+export async function listDebts() {
+  const { data, error } = await supabase.from("debts").select("*").order("created_at", { ascending: true });
+  if (error) throw error;
+  return data;
+}
+
+export async function createDebt({ name, initialAmount, remainingAmount, interestRate = null, minPayment = null }) {
+  const userId = await getCurrentUserId();
+  const { data, error } = await supabase
+    .from("debts")
+    .insert({
+      user_id: userId,
+      name,
+      initial_amount: initialAmount,
+      remaining_amount: remainingAmount,
+      interest_rate: interestRate,
+      min_payment: minPayment,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateDebt(id, updates) {
+  const { data, error } = await supabase.from("debts").update(updates).eq("id", id).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteDebt(id) {
+  const { error } = await supabase.from("debts").delete().eq("id", id);
+  if (error) throw error;
+}
+
 // Default-Konfiguration für den Finanzplan — Phase 1, alle Töpfe/Ziele noch unberechnet, bis genug
 // Datenpunkte vorliegen (siehe wissensdatenbank/finanzplan-architektur.md, "Entschiedene Fragen").
 const DEFAULT_FINANCE_SETTINGS = {
