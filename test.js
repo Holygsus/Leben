@@ -1,5 +1,5 @@
 import { buildTaskTree, collectDescendantIds, countDescendantsRecursive } from "./js/tasks.js";
-import { suggestTasksForPlan, formatTasksForExport, buildEffortClassSlots, buildAreaRotationQueue } from "./js/planner.js";
+import { suggestTasksForPlan, formatTasksForExport, buildEffortClassSlots, buildAreaRotationQueue, isPlannableCandidate } from "./js/planner.js";
 import {
   DEFAULT_DURATION_MIN,
   isWatchlistTask,
@@ -72,11 +72,15 @@ function assertEqual(actual, expected, label) {
     { ...base, id: "t2", area_id: "a2", priority: "medium", created_at: "2026-01-02" },
     { ...base, id: "t3", area_id: "a3", priority: "medium", created_at: "2026-01-03" },
     { ...base, id: "done", area_id: "a4", priority: "medium", status: "done", created_at: "2026-01-01" },
-    { ...base, id: "sub", area_id: "a5", priority: "medium", parent_task_id: "t1", created_at: "2026-01-01" },
+    { ...base, id: "sub", area_id: "a1", priority: "medium", parent_task_id: "t1", created_at: "2026-01-01" },
   ];
   const selected = suggestTasksForPlan(tasks, WEEKDAY);
   assertEqual(selected.some((t) => t.id === "done"), false, "suggestTasksForPlan: erledigte Aufgaben werden ignoriert");
-  assertEqual(selected.some((t) => t.id === "sub"), false, "suggestTasksForPlan: Unteraufgaben werden ignoriert (laufen kaskadiert mit)");
+  // War Room 2026-07-25: effort ist das alleinige Planbarkeits-Signal, auch für Unteraufgaben.
+  // "sub" trägt eigenen effort → eigenständiger Kandidat; "t1" ist Mutter mit effort-Kind → nur noch
+  // Gruppierungs-Label, kein Slot (Doppelzählung vermeiden).
+  assertEqual(selected.some((t) => t.id === "sub"), true, "suggestTasksForPlan: Unteraufgabe mit eigenem effort ist Kandidat");
+  assertEqual(selected.some((t) => t.id === "t1"), false, "suggestTasksForPlan: Mutter mit effort-tragendem Kind ist kein eigener Slot");
 
   // Regressionstest für die round5-Rundung des Bereichs-Caps: 10 Bereiche à 2 Aufgaben (9+9 Min).
   // Bug-Variante: eine gerundete Cap-Schwelle verschenkt Budget systematisch. Fix: areaCap =
@@ -167,6 +171,28 @@ function assertEqual(actual, expected, label) {
     ["a3", "a1"],
     "buildAreaRotationQueue: excludeTaskIds schließt bereits gewählte Aufgaben aus, Bereich ohne verbleibenden Kandidaten fällt komplett raus"
   );
+}
+
+// ---------- isPlannableCandidate (effort = Planbarkeits-Signal, auch für Unteraufgaben) ----------
+// War Room 2026-07-25, siehe wissensdatenbank/features/tagesplan-algorithmus-v2.md.
+{
+  const projektMutter = { id: "pm", status: "open", effort: null, parent_task_id: null };
+  const projektKind = { id: "pk", status: "open", effort: 30, parent_task_id: "pm" };
+  const containerMutter = { id: "cm", status: "open", effort: 30, parent_task_id: null };
+  const containerKind = { id: "ck", status: "open", effort: null, parent_task_id: "cm" };
+  const habitMutter = { id: "hm", status: "open", effort: null, parent_task_id: null, habit_weekdays: ["mon"] };
+  const habitKind = { id: "hk", status: "open", effort: 10, parent_task_id: "hm" };
+  const mutterMitEffortUndEffortKind = { id: "me", status: "open", effort: 30, parent_task_id: null };
+  const effortKindVonMe = { id: "mek", status: "open", effort: 10, parent_task_id: "me" };
+  const all = [projektMutter, projektKind, containerMutter, containerKind, habitMutter, habitKind, mutterMitEffortUndEffortKind, effortKindVonMe];
+
+  assertEqual(isPlannableCandidate(projektKind, all), true, "isPlannableCandidate: Unteraufgabe mit eigenem effort ist Kandidat");
+  assertEqual(isPlannableCandidate(projektMutter, all), false, "isPlannableCandidate: effortlose Projekt-Mutter ist kein Kandidat");
+  assertEqual(isPlannableCandidate(containerMutter, all), true, "isPlannableCandidate: Container-Mutter (effort, Kinder ohne effort) ist Kandidat");
+  assertEqual(isPlannableCandidate(containerKind, all), false, "isPlannableCandidate: Container-Kind ohne effort ist kein Kandidat (kaskadiert mit)");
+  assertEqual(isPlannableCandidate(habitKind, all), false, "isPlannableCandidate: Habit-Pool-Kind ist kein Kandidat (läuft über Habit-Tab)");
+  assertEqual(isPlannableCandidate(mutterMitEffortUndEffortKind, all), false, "isPlannableCandidate: Mutter mit effort-tragendem Kind ist nur Label, kein Kandidat");
+  assertEqual(isPlannableCandidate(effortKindVonMe, all), true, "isPlannableCandidate: das effort-tragende Kind einer solchen Mutter ist der Kandidat");
 }
 
 // ---------- formatTasksForExport ----------

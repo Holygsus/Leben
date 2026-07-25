@@ -1961,6 +1961,63 @@ body.has-bg-image .task-item {
   margin: var(--space-2) 0;
 }
 
+/* Watchlist-Übersicht: nach status gruppiert, Aktiv als reichere Karte (War Room 2026-07-25). */
+.watchlist-group {
+  margin-bottom: var(--space-4);
+}
+
+.watchlist-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.watchlist-group-title {
+  font-weight: 600;
+  color: var(--color-text-subtle);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.watchlist-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.watchlist-active-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+}
+
+.watchlist-active-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.watchlist-active-meta {
+  color: var(--color-text-subtle);
+  font-size: 0.9rem;
+}
+
+.watchlist-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 .area-section {
   border: 1px solid color-mix(in srgb, var(--area-color, var(--color-border)) 35%, var(--color-border));
   border-radius: var(--radius-md);

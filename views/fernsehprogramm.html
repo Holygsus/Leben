@@ -39,25 +39,28 @@
     <button type="button" class="icon-btn" id="watchlist-toggle" aria-label="Watchlist anzeigen"><span class="inline-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span></button>
   </div>
   <div id="watchlist-panel" hidden>
-    <section class="filter-bar">
-      <select id="watchlist-filter-type" class="select" aria-label="Nach Typ filtern">
-        <option value="">Alle Typen</option>
-        <option value="serie">Serie</option>
-        <option value="anime">Anime</option>
-        <option value="film">Film</option>
-        <option value="doku">Doku</option>
-        <option value="youtube">YouTube</option>
-      </select>
+    <div class="filter-toggle-row">
+      <button type="button" class="filter-toggle-btn" id="watchlist-filter-toggle" aria-expanded="false" aria-controls="watchlist-filter-bar">
+        <svg viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+        Filtern <span class="filter-count" id="watchlist-filter-count" hidden></span>
+      </button>
+    </div>
+    <section class="filter-bar watchlist-filter-bar" id="watchlist-filter-bar" hidden>
+      <div class="watchlist-filter-chips" id="watchlist-filter-type" role="group" aria-label="Nach Typ filtern">
+        <button type="button" class="pot-chip" data-type="serie">Serie</button>
+        <button type="button" class="pot-chip" data-type="anime">Anime</button>
+        <button type="button" class="pot-chip" data-type="film">Film</button>
+        <button type="button" class="pot-chip" data-type="doku">Doku</button>
+        <button type="button" class="pot-chip" data-type="youtube">YouTube</button>
+      </div>
+      <div class="watchlist-filter-chips" id="watchlist-filter-rating" role="group" aria-label="Nach Bewertung filtern">
+        <button type="button" class="pot-chip" data-rating="7">Ø ≥ 7</button>
+        <button type="button" class="pot-chip" data-rating="8">Ø ≥ 8</button>
+        <button type="button" class="pot-chip" data-rating="9">Ø ≥ 9</button>
+      </div>
       <input type="text" class="input" id="watchlist-filter-genre" placeholder="Genre" autocomplete="off" />
-      <select id="watchlist-filter-rating" class="select" aria-label="Nach Bewertung filtern">
-        <option value="">Alle Bewertungen</option>
-        <option value="7">Ø ≥ 7</option>
-        <option value="8">Ø ≥ 8</option>
-        <option value="9">Ø ≥ 9</option>
-      </select>
     </section>
-    <ul class="events-widget-list" id="watchlist-overview-list"></ul>
-    <button type="button" class="events-widget-more" id="watchlist-overview-more" hidden></button>
+    <div id="watchlist-overview"></div>
     <div class="empty-state-rich" id="watchlist-overview-empty-state" hidden>
       <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
       <strong>Watchlist ist leer</strong>

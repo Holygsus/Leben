@@ -228,11 +228,24 @@ export async function reopenTaskCascade(rootTask, allTasks) {
 // Plant eine Aufgabe für ein Datum ein und zieht dabei alle noch offenen (nicht bereits
 // erledigten) Unteraufgaben automatisch auf dasselbe Datum mit — Einkaufslisten-Modell:
 // einmal die Mutteraufgabe einplanen genügt, die Unterpunkte laufen mit.
+// Ausnahme (War Room 2026-07-25, siehe wissensdatenbank/features/tagesplan-algorithmus-v2.md):
+// Unteraufgaben mit eigenem effort sind eigenständige Plan-Kandidaten und kaskadieren NICHT mit der
+// Mutter mit — sie (und ihr ganzer Teilbaum) werden ausgeschlossen. rootTask selbst wird immer
+// eingeplant (auch wenn er effort trägt — er ist die bewusst gewählte Aufgabe). Kinder ohne effort
+// kaskadieren unverändert.
 export async function planTaskCascade(rootTask, plannedDate, allTasks) {
-  const descendants = Array.from(collectDescendantIds(allTasks, rootTask.id))
-    .map((id) => allTasks.find((t) => t.id === id))
-    .filter(Boolean);
-  const ids = [rootTask.id, ...descendants.filter((t) => t.status !== "done").map((t) => t.id)];
+  const descendantIds = collectDescendantIds(allTasks, rootTask.id);
+  const excluded = new Set();
+  for (const id of descendantIds) {
+    const t = allTasks.find((x) => x.id === id);
+    if (t && t.effort != null) {
+      excluded.add(id);
+      for (const sub of collectDescendantIds(allTasks, id)) excluded.add(sub);
+    }
+  }
+  const byId = new Map(allTasks.map((t) => [t.id, t]));
+  const cascadedIds = [...descendantIds].filter((id) => !excluded.has(id) && byId.get(id)?.status !== "done");
+  const ids = [rootTask.id, ...cascadedIds];
   const { error } = await supabase
     .from("tasks")
     .update({ planned_date: plannedDate, status: plannedDate ? "planned" : "open" })

@@ -30,16 +30,26 @@ export function budgetForDate(targetDateIso) {
   return isWeekendIso(targetDateIso) ? BUDGET_MINUTES.weekend : BUDGET_MINUTES.weekday;
 }
 
-// Mutteraufgabe + Unteraufgaben zählen als eine Gruppe/ein Slot im Verteilungs-Algorithmus
-// (Unteraufgaben werden beim Einplanen automatisch mitkaskadiert, siehe planTaskCascade),
-// daher werden hier nur Top-Level-Aufgaben als Kandidaten betrachtet.
+// `effort != null` ist das alleinige Planbarkeits-Signal — auch für Unteraufgaben (War Room
+// 2026-07-25, siehe wissensdatenbank/features/tagesplan-algorithmus-v2.md). Ein Knoten ist Kandidat
+// gdw. er offen ist, kein Habit-Aufgabe (habit_weekdays gesetzt) und kein Habit-Pool-Kind (Mutter ist
+// Habit) ist, einen eigenen effort-Wert trägt UND kein Kind mit eigenem effort hat. Letzteres
+// verhindert Doppelzählung: eine Projekt-Mutter, deren Teilschritte eigenen effort tragen, ist dann
+// nur noch Gruppierungs-Label, kein eigener Slot. Container-Mütter (Kinder ohne effort, Mutter mit
+// effort — z. B. Einkaufsliste) bleiben ein Slot und kaskadieren beim Einplanen (siehe planTaskCascade).
+export function isPlannableCandidate(task, allTasks) {
+  if (task.status !== "open" || task.habit_weekdays != null || task.effort == null) return false;
+  const hasEffortBearingChild = allTasks.some((t) => t.parent_task_id === task.id && t.effort != null);
+  if (hasEffortBearingChild) return false;
+  if (task.parent_task_id) {
+    const parent = allTasks.find((t) => t.id === task.parent_task_id);
+    if (parent && parent.habit_weekdays != null) return false; // Habit-Pool-Kind → läuft über Habit-Tab
+  }
+  return true;
+}
+
 export function suggestTasksForPlan(openTasks, targetDateIso) {
-  // Habit-Aufgaben (habit_weekdays gesetzt) werden bereits automatisch über den Habit-Tab
-  // eingeplant. Aufgaben ohne effort-Wert werden von der automatischen Auswahl ausgeschlossen
-  // (kein Default-Schätzwert, siehe Konzept-Dokument) und bleiben nur manuell wählbar.
-  const pool = openTasks.filter(
-    (t) => t.status === "open" && !t.parent_task_id && t.habit_weekdays == null && t.effort != null
-  );
+  const pool = openTasks.filter((t) => isPlannableCandidate(t, openTasks));
 
   const totalBudget = budgetForDate(targetDateIso);
 
@@ -110,12 +120,7 @@ export function buildEffortClassSlots(targetDateIso) {
 // last_served_at-Konzept und wird wie "nie bedient" behandelt (immer vorne in seiner Gruppe).
 export function buildAreaRotationQueue(openTasks, areas, effortValue, excludeTaskIds = new Set()) {
   const pool = openTasks.filter(
-    (t) =>
-      t.status === "open" &&
-      !t.parent_task_id &&
-      t.habit_weekdays == null &&
-      t.effort === effortValue &&
-      !excludeTaskIds.has(t.id)
+    (t) => t.effort === effortValue && !excludeTaskIds.has(t.id) && isPlannableCandidate(t, openTasks)
   );
 
   const byArea = new Map();

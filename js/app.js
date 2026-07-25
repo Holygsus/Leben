@@ -20,6 +20,7 @@ import {
   budgetForDate,
   buildEffortClassSlots,
   buildAreaRotationQueue,
+  isPlannableCandidate,
 } from "./planner.js";
 import {
   listTransactions,
@@ -3720,8 +3721,12 @@ function renderEffortSlotStep() {
 
   const row = document.getElementById("effort-candidate-row");
   row.innerHTML = "";
+  // Unteraufgabe: Mutter-Titel als Kontext-Präfix, damit ein Teilschritt nicht wie ein zusammenhangloser
+  // Fremdkörper wirkt (z. B. „Steuererklärung · Anlage KAP").
+  const parent = candidate.parent_task_id ? planState.pool.find((t) => t.id === candidate.parent_task_id) : null;
+  const titleWithContext = (parent ? `${parent.title} · ` : "") + candidate.title;
   row.appendChild(
-    buildPlanRowBase(candidate, planState.areaColorById, candidate.title + (candidate.effort ? ` · ${candidate.effort} min` : ""))
+    buildPlanRowBase(candidate, planState.areaColorById, titleWithContext + (candidate.effort ? ` · ${candidate.effort} min` : ""))
   );
 }
 
@@ -3754,10 +3759,7 @@ function startRestrunde() {
   const remainingBudget = budgetForDate(planState.targetDate) - usedMinutes;
   const selectedIds = new Set(planState.selected.map((t) => t.id));
   const eligible = planState.pool
-    .filter(
-      (t) =>
-        t.status === "open" && !t.parent_task_id && t.habit_weekdays == null && t.effort != null && !selectedIds.has(t.id)
-    )
+    .filter((t) => !selectedIds.has(t.id) && isPlannableCandidate(t, planState.pool))
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
   if (remainingBudget <= 0 || eligible.length === 0) {
@@ -5326,62 +5328,160 @@ function computeAvgRatingByItemId() {
   return avgByItemId;
 }
 
+// Filter-Auswahl liegt in einem eigenen State statt in <select>.value — die Filter sind jetzt
+// mobil-taugliche Chips (Toggle, erneuter Klug hebt auf → leer = "alle"), siehe wissensdatenbank/
+// features/watchlist-fernsehprogramm.md, "Layout-Zielbild" (War Room 2026-07-25).
+const watchlistFilterState = { type: "", minRating: "", genre: "" };
+
+// Feste Gruppen-Reihenfolge nach status. Leere Gruppen werden nicht gerendert (status ist immer
+// gesetzt, DB-Default 'geplant' — kein "ohne Status"-Fall).
+const WATCHLIST_STATUS_GROUPS = [
+  { key: "aktiv", label: "Aktiv", statuses: ["aktiv"], rich: true, collapsible: false },
+  { key: "warteschlange", label: "Warteschlange", statuses: ["geplant", "irgendwann"], rich: false, collapsible: true },
+  { key: "abgeschlossen", label: "Abgeschlossen", statuses: ["beendet", "wartet_auf_neue_staffel"], rich: false, collapsible: false },
+];
+
+// Aktiv-Eintrag = reichere Karte: Titel, Fortschritt (buildCurrentEpisodeLabel als Fallback — die
+// Metadaten-Anreicherung "Folge X von Y" existiert noch nicht), Plattform, Ø-Rating.
+function buildWatchlistActiveCard(item, avg) {
+  const card = document.createElement("div");
+  card.className = "watchlist-active-card";
+  const meta = [];
+  const episode = buildCurrentEpisodeLabel(item).replace(/^ · /, "");
+  if (episode) meta.push(episode);
+  if (item.platform) meta.push(escapeHtml(item.platform));
+  card.innerHTML =
+    `<div class="watchlist-active-top"><span class="task-title">${escapeHtml(item.title)}</span>${buildRatingStarsHtml(avg)}</div>` +
+    (meta.length ? `<div class="watchlist-active-meta">${meta.join(" · ")}</div>` : "");
+  card.addEventListener("click", () => openWatchlistDetail(item.id));
+  return card;
+}
+
+function buildWatchlistSlimRow(item, avg) {
+  const li = document.createElement("li");
+  li.className = "rating-row";
+  li.innerHTML = `<span class="task-title">${WATCHLIST_TYPE_LABEL[item.type]} · ${escapeHtml(item.title)}${buildCurrentEpisodeLabel(item)}</span>${buildRatingStarsHtml(avg)}`;
+  li.addEventListener("click", () => openWatchlistDetail(item.id));
+  return li;
+}
+
 function renderWatchlistOverview() {
-  const list = document.getElementById("watchlist-overview-list");
-  const moreBtn = document.getElementById("watchlist-overview-more");
+  const container = document.getElementById("watchlist-overview");
   const emptyState = document.getElementById("watchlist-overview-empty-state");
 
   if (watchlistViewState.items.length === 0) {
     emptyState.hidden = false;
-    list.innerHTML = "";
-    moreBtn.hidden = true;
+    container.innerHTML = "";
+    updateWatchlistFilterCount();
     return;
   }
   emptyState.hidden = true;
+  updateWatchlistFilterCount();
 
-  const typeFilter = document.getElementById("watchlist-filter-type").value;
-  const genreFilter = document.getElementById("watchlist-filter-genre").value.trim().toLowerCase();
-  const minRatingFilter = document.getElementById("watchlist-filter-rating").value;
   const avgByItemId = computeAvgRatingByItemId();
-
   const filtered = filterWatchlistItems(
     watchlistViewState.items,
-    { type: typeFilter || undefined, minAvgRating: minRatingFilter ? Number(minRatingFilter) : undefined },
+    {
+      type: watchlistFilterState.type || undefined,
+      minAvgRating: watchlistFilterState.minRating ? Number(watchlistFilterState.minRating) : undefined,
+    },
     avgByItemId
   );
-  // Genre-Filter hier bewusst nicht über filterWatchlistItems (dort exakter Tag-Match), sondern
-  // als Teilstring-Suche — Genres sind frei eingegebene Tags, kein fester Enum wie Typ/Status.
-  const genreFiltered = genreFilter ? filtered.filter((i) => i.genres?.some((g) => g.toLowerCase().includes(genreFilter))) : filtered;
+  // Genre bewusst als Teilstring-Suche (nicht filterWatchlistItems' exakter Tag-Match) — Genres sind
+  // frei eingegebene Tags.
+  const genre = watchlistFilterState.genre.trim().toLowerCase();
+  const items = genre ? filtered.filter((i) => i.genres?.some((g) => g.toLowerCase().includes(genre))) : filtered;
 
-  const renderItems = (items) => {
-    list.innerHTML = "";
-    for (const item of items) {
-      const li = document.createElement("li");
-      li.className = "rating-row";
-      const avg = avgByItemId[item.id];
-      li.innerHTML = `<span class="task-title">${WATCHLIST_TYPE_LABEL[item.type]} · ${escapeHtml(item.title)}${buildCurrentEpisodeLabel(item)}</span>${buildRatingStarsHtml(avg)}`;
-      li.addEventListener("click", () => openWatchlistDetail(item.id));
-      list.appendChild(li);
-    }
-  };
-  renderItems(genreFiltered.slice(0, 5));
+  container.innerHTML = "";
+  if (items.length === 0) {
+    const note = document.createElement("p");
+    note.className = "kanban-empty";
+    note.textContent = "Keine Treffer für die aktuellen Filter.";
+    container.appendChild(note);
+    return;
+  }
 
-  if (genreFiltered.length > 5) {
-    moreBtn.hidden = false;
-    moreBtn.textContent = `+${genreFiltered.length - 5} weitere`;
-    moreBtn.onclick = () => {
-      renderItems(genreFiltered);
-      moreBtn.hidden = true;
+  for (const group of WATCHLIST_STATUS_GROUPS) {
+    const groupItems = items.filter((i) => group.statuses.includes(i.status));
+    if (groupItems.length === 0) continue; // leere Gruppen nicht rendern
+
+    const section = document.createElement("section");
+    section.className = "watchlist-group";
+    const header = document.createElement("div");
+    header.className = "watchlist-group-header";
+    header.innerHTML = `<span class="watchlist-group-title">${group.label}</span><span class="count">${groupItems.length}</span>`;
+    section.appendChild(header);
+
+    const body = document.createElement("div");
+    body.className = "watchlist-group-body";
+
+    const appendItems = (list) => {
+      for (const item of list) {
+        body.appendChild(group.rich ? buildWatchlistActiveCard(item, avgByItemId[item.id]) : buildWatchlistSlimRow(item, avgByItemId[item.id]));
+      }
     };
-  } else {
-    moreBtn.hidden = true;
+
+    // Warteschlange: erste 5 + "+N weitere" (bisheriges Verhalten, jetzt gruppen-lokal).
+    if (group.collapsible && groupItems.length > 5) {
+      appendItems(groupItems.slice(0, 5));
+      const moreBtn = document.createElement("button");
+      moreBtn.type = "button";
+      moreBtn.className = "events-widget-more";
+      moreBtn.textContent = `+${groupItems.length - 5} weitere`;
+      moreBtn.addEventListener("click", () => {
+        body.innerHTML = "";
+        appendItems(groupItems);
+        moreBtn.remove();
+      });
+      section.appendChild(body);
+      section.appendChild(moreBtn);
+    } else {
+      appendItems(groupItems);
+      section.appendChild(body);
+    }
+    container.appendChild(section);
   }
 }
 
+function updateWatchlistFilterCount() {
+  const badge = document.getElementById("watchlist-filter-count");
+  if (!badge) return;
+  const count = [watchlistFilterState.type, watchlistFilterState.minRating, watchlistFilterState.genre].filter(Boolean).length;
+  badge.hidden = count === 0;
+  badge.textContent = String(count);
+}
+
 function wireWatchlistFilters() {
-  document.getElementById("watchlist-filter-type").addEventListener("change", renderWatchlistOverview);
-  document.getElementById("watchlist-filter-genre").addEventListener("input", renderWatchlistOverview);
-  document.getElementById("watchlist-filter-rating").addEventListener("change", renderWatchlistOverview);
+  const toggleBtn = document.getElementById("watchlist-filter-toggle");
+  const filterBar = document.getElementById("watchlist-filter-bar");
+  toggleBtn.addEventListener("click", () => {
+    const open = filterBar.hidden;
+    filterBar.hidden = !open;
+    toggleBtn.setAttribute("aria-expanded", String(open));
+  });
+
+  // Typ-/Rating-Chips: Einzelauswahl mit Toggle (erneuter Klick auf den aktiven Chip → "alle").
+  const wireChipGroup = (groupId, dataAttr, stateKey) => {
+    const group = document.getElementById(groupId);
+    group.addEventListener("click", (e) => {
+      const chip = e.target.closest(".pot-chip");
+      if (!chip) return;
+      const value = chip.dataset[dataAttr];
+      watchlistFilterState[stateKey] = watchlistFilterState[stateKey] === value ? "" : value;
+      group.querySelectorAll(".pot-chip").forEach((c) => {
+        c.dataset.active = String(c.dataset[dataAttr] === watchlistFilterState[stateKey]);
+      });
+      renderWatchlistOverview();
+    });
+  };
+  wireChipGroup("watchlist-filter-type", "type", "type");
+  wireChipGroup("watchlist-filter-rating", "rating", "minRating");
+
+  const genreInput = document.getElementById("watchlist-filter-genre");
+  genreInput.addEventListener("input", () => {
+    watchlistFilterState.genre = genreInput.value;
+    renderWatchlistOverview();
+  });
 }
 
 function wireWatchlistQuickAddForm() {
