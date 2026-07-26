@@ -11,9 +11,9 @@ import {
   buildSwapOperations,
 } from "./js/watchlist.js";
 import { findHabitsDueToday } from "./js/habits.js";
-import { computeBudgetTrend } from "./js/finance.js";
+import { computeBudgetTrend, computeCategoryBreakdown, slugifyCategoryKey } from "./js/finance.js";
 import { formatIngredientsForShoppingList } from "./js/recipes.js";
-import { sumPagesInMonth } from "./js/books.js";
+import { sumPagesInMonth, sumChaptersInMonth } from "./js/books.js";
 
 const results = document.getElementById("results");
 let passCount = 0;
@@ -206,6 +206,41 @@ function assertEqual(actual, expected, label) {
   ];
   assertEqual(sumPagesInMonth(log, "2026-07"), 35, "sumPagesInMonth: summiert nur Einträge des Zielmonats");
   assertEqual(sumPagesInMonth(log, "2026-05"), 0, "sumPagesInMonth: Monat ohne Einträge ergibt 0");
+}
+
+// ---------- sumChaptersInMonth (Lesen — Kapitel-Monats-Übersicht) ----------
+{
+  const log = [
+    { date: "2026-07-03", chapters_read: 2 },
+    { date: "2026-07-28", chapters_read: 3 },
+    { date: "2026-07-10", pages_read: 40 }, // Seiten-Session zählt hier nicht mit
+    { date: "2026-06-30", chapters_read: 9 }, // anderer Monat
+  ];
+  assertEqual(sumChaptersInMonth(log, "2026-07"), 5, "sumChaptersInMonth: summiert nur Kapitel des Zielmonats");
+  assertEqual(sumChaptersInMonth(log, "2026-05"), 0, "sumChaptersInMonth: Monat ohne Einträge ergibt 0");
+}
+
+// ---------- computeCategoryBreakdown (frei editierbare Kategorien) ----------
+{
+  const txs = [
+    { direction: "expense", amount: 10, category: "haustier" }, // frei benannter Key
+    { direction: "expense", amount: 5, category: "haustier" },
+    { direction: "expense", amount: 7, category: null }, // uncategorized
+    { direction: "income", amount: 100, category: "essen" }, // Einnahme zählt nicht
+  ];
+  assertEqual(
+    computeCategoryBreakdown(txs),
+    { haustier: 15, uncategorized: 7 },
+    "computeCategoryBreakdown: aggregiert freien Key + uncategorized-Fallback, ignoriert Einnahmen"
+  );
+}
+
+// ---------- slugifyCategoryKey (Key-Generierung für neue Kategorien) ----------
+{
+  assertEqual(slugifyCategoryKey("Essen gehen / Ausgehen"), "essen_gehen_ausgehen", "slugifyCategoryKey: Leerzeichen/Sonderzeichen werden zu _");
+  assertEqual(slugifyCategoryKey("Bücher & Hörbücher"), "buecher_hoerbuecher", "slugifyCategoryKey: Umlaute werden transliteriert");
+  assertEqual(slugifyCategoryKey("Haustier", ["haustier"]), "haustier_2", "slugifyCategoryKey: Kollision hängt _2 an");
+  assertEqual(slugifyCategoryKey("Haustier", ["haustier", "haustier_2"]), "haustier_3", "slugifyCategoryKey: zweite Kollision hängt _3 an");
 }
 
 // ---------- formatTasksForExport ----------

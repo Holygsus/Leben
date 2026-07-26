@@ -22,12 +22,6 @@
   </div>
   <select class="select" id="tx-quick-category" aria-label="Kategorie (optional)">
     <option value="">Kategorie (optional)</option>
-    <option value="essen">Essen</option>
-    <option value="wohnen">Wohnen/Fixkosten</option>
-    <option value="transport">Transport</option>
-    <option value="freizeit">Freizeit</option>
-    <option value="gesundheit">Gesundheit</option>
-    <option value="sonstiges">Sonstiges</option>
   </select>
   <label class="checkbox-label" id="tx-quick-notgroschen-toggle" hidden>
     <input type="checkbox" id="tx-quick-notgroschen-checkbox" />
@@ -93,6 +87,11 @@
   <a href="#/debts" class="finance-manage-row">
     <span class="fm-label">Schulden</span>
     <span class="fm-sum" id="fm-debts"></span>
+    <span class="fm-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span>
+  </a>
+  <a href="#/expense-categories" class="finance-manage-row">
+    <span class="fm-label">Ausgaben-Kategorien</span>
+    <span class="fm-sum"></span>
     <span class="fm-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span>
   </a>
 </section>

@@ -158,6 +158,66 @@ export async function deleteDebt(id) {
   if (error) throw error;
 }
 
+// Frei editierbare Ausgaben-Kategorien (siehe wissensdatenbank/finanzen-erweiterungen/
+// finanzplan-erweiterungen-v2.md, Punkt 9). transactions.category speichert den text-Key.
+export async function listExpenseCategories() {
+  const { data, error } = await supabase
+    .from("expense_categories")
+    .select("*")
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
+  if (error) throw error;
+  return data;
+}
+
+export async function createExpenseCategory({ key, name, color, sortOrder = 0 }) {
+  const userId = await getCurrentUserId();
+  const { data, error } = await supabase
+    .from("expense_categories")
+    .insert({ user_id: userId, key, name, color, sort_order: sortOrder })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateExpenseCategory(id, updates) {
+  const { data, error } = await supabase.from("expense_categories").update(updates).eq("id", id).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteExpenseCategory(id) {
+  const { error } = await supabase.from("expense_categories").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// Reiner Helfer: erzeugt aus einem Anzeigenamen einen stabilen Key (a-z0-9_), kollisionsfrei gegen
+// eine Menge bereits vergebener Keys (hängt _2, _3 … an). Umlaute werden transliteriert.
+export function slugifyCategoryKey(name, existingKeys = []) {
+  const base =
+    (name || "")
+      .toLowerCase()
+      .replace(/ä/g, "ae")
+      .replace(/ö/g, "oe")
+      .replace(/ü/g, "ue")
+      .replace(/ß/g, "ss")
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "kategorie";
+  const taken = new Set(existingKeys);
+  if (!taken.has(base)) return base;
+  let n = 2;
+  while (taken.has(`${base}_${n}`)) n += 1;
+  return `${base}_${n}`;
+}
+
+// Setzt category aller Transaktionen mit dem gegebenen Key auf null (vor dem Löschen einer
+// Kategorie — die Transaktionen werden "Nicht kategorisiert", statt einen toten Key zu behalten).
+export async function clearTransactionCategory(key) {
+  const { error } = await supabase.from("transactions").update({ category: null }).eq("category", key);
+  if (error) throw error;
+}
+
 // Default-Konfiguration für den Finanzplan — Phase 1, alle Töpfe/Ziele noch unberechnet, bis genug
 // Datenpunkte vorliegen (siehe wissensdatenbank/finanzplan-architektur.md, "Entschiedene Fragen").
 const DEFAULT_FINANCE_SETTINGS = {

@@ -144,7 +144,7 @@ create table if not exists transactions (
   direction text not null check (direction in ('income', 'expense')),
   amount numeric(10,2) not null,
   pot text check (pot in ('fixkosten', 'sicherheit', 'wachstum', 'freiheit')),
-  category text check (category is null or category in ('essen', 'wohnen', 'transport', 'freizeit', 'gesundheit', 'sonstiges')),
+  category text, -- freier Key in expense_categories (frei editierbar, kein festes Enum mehr; siehe migration-025)
   note text,
   source text not null default 'manual' check (source in ('manual', 'scan')),
   occurred_at date not null default current_date,
@@ -223,6 +223,19 @@ create table if not exists debts (
   updated_at timestamptz default now()
 );
 
+-- Frei editierbare Ausgaben-Kategorien (siehe wissensdatenbank/finanzen-erweiterungen/
+-- finanzplan-erweiterungen-v2.md, Punkt 9). transactions.category speichert den text-Key.
+create table if not exists expense_categories (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users not null,
+  key text not null,
+  name text not null,
+  color text not null,
+  sort_order integer not null default 0,
+  created_at timestamptz default now(),
+  unique (user_id, key)
+);
+
 -- "Lesen als Bereich" — einfache Seiten-Variante (siehe wissensdatenbank/features/lesen-als-bereich.md).
 create table if not exists books (
   id uuid default gen_random_uuid() primary key,
@@ -231,6 +244,10 @@ create table if not exists books (
   author text,
   total_pages integer,
   current_page integer not null default 0,
+  progress_unit text not null default 'chapters'
+    check (progress_unit in ('pages', 'chapters')),
+  total_chapters integer,
+  current_chapter integer not null default 0,
   status text not null default 'geplant'
     check (status in ('geplant', 'aktiv', 'pausiert', 'beendet')),
   genre text,
@@ -244,7 +261,8 @@ create table if not exists book_reading_log (
   user_id uuid references auth.users not null,
   book_id uuid references books(id) on delete cascade,
   date date not null default current_date,
-  pages_read integer not null,
+  pages_read integer,
+  chapters_read integer,
   created_at timestamptz default now()
 );
 
@@ -379,6 +397,7 @@ alter table fixed_costs enable row level security;
 alter table committed_expenses enable row level security;
 alter table portfolio_positions enable row level security;
 alter table debts enable row level security;
+alter table expense_categories enable row level security;
 alter table books enable row level security;
 alter table book_reading_log enable row level security;
 alter table game_backlog_items enable row level security;
@@ -428,6 +447,9 @@ create policy "portfolio_positions: own data" on portfolio_positions for all usi
 
 drop policy if exists "debts: own data" on debts;
 create policy "debts: own data" on debts for all using (auth.uid() = user_id);
+
+drop policy if exists "expense_categories: own data" on expense_categories;
+create policy "expense_categories: own data" on expense_categories for all using (auth.uid() = user_id);
 
 drop policy if exists "books: own data" on books;
 create policy "books: own data" on books for all using (auth.uid() = user_id);

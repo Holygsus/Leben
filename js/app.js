@@ -39,6 +39,12 @@ import {
   createDebt,
   updateDebt,
   deleteDebt,
+  listExpenseCategories,
+  createExpenseCategory,
+  updateExpenseCategory,
+  deleteExpenseCategory,
+  clearTransactionCategory,
+  slugifyCategoryKey,
   getFinanceModuleSettings,
   computeCategoryBreakdown,
   computeBudgetTrend,
@@ -87,7 +93,7 @@ import { listBirthdays, createBirthday, updateBirthday, deleteBirthday, daysUnti
 import { listRecipes, createRecipe, updateRecipe, deleteRecipe, formatIngredientsForShoppingList } from "./recipes.js";
 import { listPantryItems, createPantryItem, updatePantryItem, deletePantryItem } from "./pantry.js";
 import { listGames, createGame, updateGame, deleteGame } from "./games.js";
-import { listBooks, createBook, updateBook, deleteBook, listReadingLog, logReadingSession, sumPagesInMonth } from "./books.js";
+import { listBooks, createBook, updateBook, deleteBook, listReadingLog, logReadingSession, sumPagesInMonth, sumChaptersInMonth } from "./books.js";
 import { listComments, listAllCommentedTaskIds, createComment, deleteComment } from "./comments.js";
 import { getReflectionForDate, createReflection } from "./reflections.js";
 import {
@@ -129,6 +135,7 @@ const routes = {
   fixkosten: renderFixkostenView,
   "verpflichtende-ausgaben": renderVerpflichtendeAusgabenView,
   debts: renderDebtsView,
+  "expense-categories": renderExpenseCategoriesView,
 };
 
 const WEEKDAY_LABEL = { mon: "Mo", tue: "Di", wed: "Mi", thu: "Do", fri: "Fr", sat: "Sa", sun: "So" };
@@ -3906,28 +3913,34 @@ const POT_COLOR_VAR = {
 };
 const INTERVAL_LABELS = { monthly: "monatlich", quarterly: "quartalsweise", yearly: "jährlich" };
 
-// Feste Reihenfolge (nicht alphabetisch, nicht nach Betrag) — CVD-sichere Farbzuordnung aus dem
-// dataviz-Skill gilt pro fester Position, nicht neu gemischt je nach Datenlage. "uncategorized"
-// läuft separat (siehe buildCategoryDonut), nicht Teil dieser Liste.
-const TRANSACTION_CATEGORY_ORDER = ["essen", "wohnen", "transport", "freizeit", "gesundheit", "sonstiges"];
-const TRANSACTION_CATEGORY_LABELS = {
-  essen: "Essen",
-  wohnen: "Wohnen/Fixkosten",
-  transport: "Transport",
-  freizeit: "Freizeit",
-  gesundheit: "Gesundheit",
-  sonstiges: "Sonstiges",
-  uncategorized: "Nicht kategorisiert",
-};
-const TRANSACTION_CATEGORY_COLOR_VAR = {
-  essen: "var(--color-cat-essen)",
-  wohnen: "var(--color-cat-wohnen)",
-  transport: "var(--color-cat-transport)",
-  freizeit: "var(--color-cat-freizeit)",
-  gesundheit: "var(--color-cat-gesundheit)",
-  sonstiges: "var(--color-cat-sonstiges)",
-  uncategorized: "var(--color-border)",
-};
+// Ausgaben-Kategorien sind seit 2026-07-25 (War Room, finanzplan-erweiterungen-v2.md Punkt 9) frei
+// editierbar und liegen in expense_categories (financeState.expenseCategories). Der 9er-Default-Satz
+// wird beim ersten Laden lazy geseedet (seedExpenseCategoriesIfEmpty). Die bestehenden Slugs bleiben
+// als stabile Keys erhalten → keine Datenmigration. Farben sind CVD-sicher aus dem dataviz-Skill.
+const DEFAULT_EXPENSE_CATEGORIES = [
+  { key: "essen", name: "Essen", color: "#2a78d6" },
+  { key: "wohnen", name: "Wohnen/Fixkosten", color: "#1baf7a" },
+  { key: "transport", name: "Transport", color: "#eda100" },
+  { key: "gesundheit", name: "Gesundheit", color: "#4a3aa7" },
+  { key: "sonstiges", name: "Sonstiges", color: "#e34948" },
+  { key: "freizeit", name: "Hobbys & Freizeit", color: "#008300" },
+  { key: "ausgehen", name: "Essen gehen / Ausgehen", color: "#00a3a3" },
+  { key: "abos", name: "Abos & Streaming", color: "#b5179e" },
+  { key: "anschaffungen", name: "Anschaffungen & Geschenke", color: "#7d5a2a" },
+];
+
+// Lookup-Helfer über den aktuellen expense_categories-Stand. "uncategorized" ist ein Sonderfall
+// (kein echter DB-Eintrag), der im Donut/Dropdown als "Nicht kategorisiert" auftaucht.
+function categoryLabel(key) {
+  if (key === "uncategorized" || !key) return "Nicht kategorisiert";
+  const cat = financeState.expenseCategories.find((c) => c.key === key);
+  return cat ? cat.name : key;
+}
+function categoryColor(key) {
+  if (key === "uncategorized" || !key) return "var(--color-border)";
+  const cat = financeState.expenseCategories.find((c) => c.key === key);
+  return cat ? cat.color : "var(--color-border)";
+}
 const WISHLIST_STATUS_LABELS = { inactive: "Inaktiv", active: "Aktiv", ready: "Kaufbereit", bought: "Gekauft" };
 const WISHLIST_STATUS_CYCLE = ["inactive", "active", "ready", "bought"];
 const WISHLIST_CATEGORY_LABELS = { need: "Need", invest: "Invest", enjoy: "Enjoy" };
@@ -3996,6 +4009,7 @@ const financeState = {
   fixedCosts: [],
   committedExpenses: [],
   wishlistItems: [],
+  expenseCategories: [],
   potBalance: 0,
   txFilterPot: "",
 };
@@ -4260,15 +4274,17 @@ async function renderFinanceView() {
 }
 
 async function loadFinanceData() {
-  const [settings, transactions, fixedCosts, committedExpenses, debts, wishlistItems, potBalance] = await Promise.all([
-    getFinanceModuleSettings(),
-    listTransactions(),
-    listFixedCosts(),
-    listCommittedExpenses({ statusNot: "settled" }),
-    listDebts(),
-    listWishlistItems(),
-    getSavingsPotBalance(),
-  ]);
+  const [settings, transactions, fixedCosts, committedExpenses, debts, wishlistItems, potBalance, expenseCategories] =
+    await Promise.all([
+      getFinanceModuleSettings(),
+      listTransactions(),
+      listFixedCosts(),
+      listCommittedExpenses({ statusNot: "settled" }),
+      listDebts(),
+      listWishlistItems(),
+      getSavingsPotBalance(),
+      listExpenseCategories(),
+    ]);
   financeState.settings = settings;
   financeState.transactions = transactions;
   financeState.fixedCosts = fixedCosts;
@@ -4276,10 +4292,25 @@ async function loadFinanceData() {
   financeState.debts = debts;
   financeState.wishlistItems = wishlistItems;
   financeState.potBalance = potBalance;
+  financeState.expenseCategories = await seedExpenseCategoriesIfEmpty(expenseCategories);
+}
+
+// Lazy-Seed des 9er-Default-Satzes beim ersten Laden (per-User-Seed lässt sich nicht sauber in einer
+// statischen Migration abbilden). Deckt Fresh-Install UND Bestand ab — bei Bestand tragen die alten
+// Transaktionen bereits die Stock-Keys (essen/wohnen/…), die hier identisch angelegt werden.
+async function seedExpenseCategoriesIfEmpty(existing) {
+  if (existing.length > 0) return existing;
+  const created = [];
+  for (let i = 0; i < DEFAULT_EXPENSE_CATEGORIES.length; i++) {
+    const def = DEFAULT_EXPENSE_CATEGORIES[i];
+    created.push(await createExpenseCategory({ key: def.key, name: def.name, color: def.color, sortOrder: i }));
+  }
+  return created;
 }
 
 async function reloadFinance() {
   await loadFinanceData();
+  renderCategoryQuickOptions();
   renderPotGrid();
   renderBudgetTrend();
   renderCategoryDonut();
@@ -4339,7 +4370,8 @@ function buildCategoryDonut(breakdown) {
   const wrap = document.getElementById("category-donut-row");
   if (!panel || !wrap) return;
 
-  const keys = [...TRANSACTION_CATEGORY_ORDER, "uncategorized"].filter((k) => (breakdown[k] || 0) > 0);
+  const orderedKeys = [...financeState.expenseCategories].sort((a, b) => a.sort_order - b.sort_order).map((c) => c.key);
+  const keys = [...orderedKeys, "uncategorized"].filter((k) => (breakdown[k] || 0) > 0);
   const total = keys.reduce((sum, k) => sum + breakdown[k], 0);
   wrap.innerHTML = "";
   if (total <= 0) {
@@ -4379,10 +4411,10 @@ function buildCategoryDonut(breakdown) {
     circle.setAttribute("stroke-dasharray", `${segmentLength} ${circumference - segmentLength}`);
     circle.setAttribute("stroke-dashoffset", String(-offset));
     circle.setAttribute("transform", `rotate(-90 ${size / 2} ${size / 2})`);
-    circle.style.stroke = TRANSACTION_CATEGORY_COLOR_VAR[key];
+    circle.style.stroke = categoryColor(key);
 
     const title = document.createElementNS(svgNS, "title");
-    title.textContent = `${TRANSACTION_CATEGORY_LABELS[key]}: ${formatEuro(value)} (${pct}%)`;
+    title.textContent = `${categoryLabel(key)}: ${formatEuro(value)} (${pct}%)`;
     circle.appendChild(title);
     svg.appendChild(circle);
     offset += fraction * circumference;
@@ -4390,8 +4422,8 @@ function buildCategoryDonut(breakdown) {
     const li = document.createElement("li");
     const dot = document.createElement("span");
     dot.className = "category-donut-dot";
-    dot.style.background = TRANSACTION_CATEGORY_COLOR_VAR[key];
-    li.append(dot, document.createTextNode(`${TRANSACTION_CATEGORY_LABELS[key]} — ${formatEuro(value)} (${pct}%)`));
+    dot.style.background = categoryColor(key);
+    li.append(dot, document.createTextNode(`${categoryLabel(key)} — ${formatEuro(value)} (${pct}%)`));
     legend.appendChild(li);
   }
 
@@ -4403,6 +4435,19 @@ function buildCategoryDonut(breakdown) {
   chart.append(svg, center);
 
   wrap.append(chart, legend);
+}
+
+// Befüllt das Quick-Add-Kategorie-Dropdown dynamisch aus den frei editierbaren Kategorien; die
+// leere Platzhalter-Option ("Kategorie (optional)") bleibt als Abwähl-Wert erhalten. Der aktuell
+// gewählte Wert bleibt nach Möglichkeit erhalten.
+function renderCategoryQuickOptions() {
+  const select = document.getElementById("tx-quick-category");
+  if (!select) return;
+  const prev = select.value;
+  select.innerHTML =
+    `<option value="">Kategorie (optional)</option>` +
+    financeState.expenseCategories.map((c) => `<option value="${c.key}">${c.name}</option>`).join("");
+  if (prev && financeState.expenseCategories.some((c) => c.key === prev)) select.value = prev;
 }
 
 // Aktueller Kalendermonat, konsistent mit dem bestehenden spentThisMonth-Fenster weiter unten in
@@ -4661,9 +4706,9 @@ function buildTransactionItem(tx) {
     categorySelect.setAttribute("aria-label", "Kategorie");
     categorySelect.innerHTML =
       `<option value="">Nicht kategorisiert</option>` +
-      TRANSACTION_CATEGORY_ORDER.map(
-        (key) => `<option value="${key}"${tx.category === key ? " selected" : ""}>${TRANSACTION_CATEGORY_LABELS[key]}</option>`
-      ).join("");
+      financeState.expenseCategories
+        .map((c) => `<option value="${c.key}"${tx.category === c.key ? " selected" : ""}>${c.name}</option>`)
+        .join("");
     categorySelect.addEventListener("change", async () => {
       await withErrorToast(async () => {
         await updateTransaction(tx.id, { category: categorySelect.value || null });
@@ -5066,6 +5111,125 @@ function wireDebtsForm() {
       });
     } finally {
       debtSubmitBtn.disabled = false;
+    }
+  });
+}
+
+// ---- Frei editierbare Ausgaben-Kategorien (Verwaltungs-Unterseite) ----
+async function renderExpenseCategoriesView() {
+  const myGeneration = renderGeneration;
+  const container = document.getElementById("view-content");
+  const res = await fetch("views/expense-categories.html");
+  if (myGeneration !== renderGeneration) return;
+  container.innerHTML = await res.text();
+  await reloadExpenseCategories();
+  wireExpenseCategoryForm();
+}
+
+async function reloadExpenseCategories() {
+  financeState.expenseCategories = await listExpenseCategories();
+  renderExpenseCategoriesList();
+}
+
+function renderExpenseCategoriesList() {
+  const list = document.getElementById("expense-categories-list");
+  if (!list) return;
+  list.innerHTML = "";
+  if (financeState.expenseCategories.length === 0) {
+    list.appendChild(buildEmptyState("Noch keine Kategorien", "Leg unten die erste Kategorie an."));
+    return;
+  }
+  const sorted = [...financeState.expenseCategories].sort((a, b) => a.sort_order - b.sort_order);
+  sorted.forEach((cat) => list.appendChild(buildExpenseCategoryItem(cat)));
+}
+
+function buildExpenseCategoryItem(cat) {
+  const li = document.createElement("li");
+  li.className = "task-item";
+
+  const colorInput = document.createElement("input");
+  colorInput.type = "color";
+  colorInput.className = "input";
+  colorInput.style.maxWidth = "48px";
+  colorInput.value = cat.color;
+  colorInput.setAttribute("aria-label", "Farbe");
+  colorInput.addEventListener("change", async () => {
+    if (colorInput.value === cat.color) return;
+    await withErrorToast(async () => {
+      await updateExpenseCategory(cat.id, { color: colorInput.value });
+      await reloadExpenseCategories();
+    });
+  });
+
+  const name = document.createElement("input");
+  name.type = "text";
+  name.className = "input area-name-input";
+  name.value = cat.name;
+  name.setAttribute("aria-label", "Name");
+  name.addEventListener("blur", async () => {
+    const value = name.value.trim();
+    if (!value || value === cat.name) {
+      name.value = cat.name;
+      return;
+    }
+    await withErrorToast(async () => {
+      await updateExpenseCategory(cat.id, { name: value });
+      await reloadExpenseCategories();
+    });
+  });
+  name.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") name.blur();
+  });
+
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.className = "icon-btn icon-btn-danger";
+  deleteBtn.textContent = "×";
+  deleteBtn.setAttribute("aria-label", "Löschen");
+  deleteBtn.addEventListener("click", async () => {
+    await withErrorToast(async () => {
+      // Transaktionen mit diesem Key werden "Nicht kategorisiert", dann die Kategorie löschen.
+      await clearTransactionCategory(cat.key);
+      await deleteExpenseCategory(cat.id);
+      await reloadExpenseCategories();
+    });
+    showToast(`„${cat.name}" entfernt.`, false, {
+      label: "Rückgängig",
+      onClick: () =>
+        withErrorToast(async () => {
+          await createExpenseCategory({ key: cat.key, name: cat.name, color: cat.color, sortOrder: cat.sort_order });
+          await reloadExpenseCategories();
+        }),
+    });
+  });
+
+  li.append(colorInput, name, deleteBtn);
+  return li;
+}
+
+function wireExpenseCategoryForm() {
+  const form = document.getElementById("new-expense-category-form");
+  const submitBtn = form.querySelector('button[type="submit"]');
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const nameInput = document.getElementById("new-expense-category-name");
+    const colorInput = document.getElementById("new-expense-category-color");
+    const name = nameInput.value.trim();
+    if (!name || submitBtn.disabled) return;
+    submitBtn.disabled = true;
+    try {
+      await withErrorToast(async () => {
+        const existingKeys = financeState.expenseCategories.map((c) => c.key);
+        const key = slugifyCategoryKey(name, existingKeys);
+        const sortOrder = financeState.expenseCategories.reduce((max, c) => Math.max(max, c.sort_order), -1) + 1;
+        await createExpenseCategory({ key, name, color: colorInput.value, sortOrder });
+        showToast(`„${name}" angelegt.`);
+        nameInput.value = "";
+        colorInput.value = "#2a78d6";
+        await reloadExpenseCategories();
+      });
+    } finally {
+      submitBtn.disabled = false;
     }
   });
 }
@@ -6727,8 +6891,13 @@ function renderBooksMonthSummary() {
   const el = document.getElementById("books-month-summary");
   if (!el) return;
   const monthIso = todayISO().slice(0, 7);
+  const chapters = sumChaptersInMonth(booksState.log, monthIso);
   const pages = sumPagesInMonth(booksState.log, monthIso);
-  el.textContent = `Diesen Monat gelesen: ${pages} Seiten`;
+  const parts = [];
+  if (chapters > 0) parts.push(`${chapters} Kapitel`);
+  if (pages > 0) parts.push(`${pages} Seiten`);
+  if (parts.length === 0) parts.push("0 Kapitel");
+  el.textContent = `Diesen Monat gelesen: ${parts.join(" · ")}`;
 }
 
 function renderBooksList() {
@@ -6781,58 +6950,66 @@ function buildBookItem(book) {
     });
   });
 
-  // Aktueller Seitenstand, inline editierbar (direkte Korrektur ohne Log-Eintrag).
-  const pageInput = document.createElement("input");
-  pageInput.type = "number";
-  pageInput.min = "0";
-  pageInput.className = "input";
-  pageInput.style.maxWidth = "70px";
-  pageInput.value = book.current_page ?? 0;
-  pageInput.setAttribute("aria-label", "Aktuelle Seite");
-  pageInput.addEventListener("blur", async () => {
-    const value = Number(pageInput.value);
-    if (Number.isNaN(value) || value === Number(book.current_page)) {
-      pageInput.value = book.current_page ?? 0;
+  // Fortschritt in der Einheit des Buchs (Kapitel als Default, sonst Seiten).
+  const unit = book.progress_unit === "pages" ? "pages" : "chapters";
+  const currentField = unit === "pages" ? "current_page" : "current_chapter";
+  const totalField = unit === "pages" ? "total_pages" : "total_chapters";
+  const unitShort = unit === "pages" ? "S." : "Kap.";
+  const currentValue = book[currentField] ?? 0;
+  const totalValue = book[totalField];
+
+  // Aktueller Stand, inline editierbar (direkte Korrektur ohne Log-Eintrag).
+  const progressInput = document.createElement("input");
+  progressInput.type = "number";
+  progressInput.min = "0";
+  progressInput.className = "input";
+  progressInput.style.maxWidth = "70px";
+  progressInput.value = currentValue;
+  progressInput.setAttribute("aria-label", unit === "pages" ? "Aktuelle Seite" : "Aktuelles Kapitel");
+  progressInput.addEventListener("blur", async () => {
+    const value = Number(progressInput.value);
+    if (Number.isNaN(value) || value === Number(currentValue)) {
+      progressInput.value = currentValue;
       return;
     }
     await withErrorToast(async () => {
-      await updateBook(book.id, { current_page: value });
+      await updateBook(book.id, { [currentField]: value });
       await reloadBooks();
     });
   });
 
   const meta = document.createElement("span");
   meta.className = "count";
-  const pagesLabel = book.total_pages ? `S. ${book.current_page ?? 0} / ${book.total_pages}` : `S. ${book.current_page ?? 0}`;
-  meta.textContent = [pagesLabel, book.author].filter(Boolean).join(" · ");
+  const progressLabel = totalValue ? `${unitShort} ${currentValue} / ${totalValue}` : `${unitShort} ${currentValue}`;
+  meta.textContent = [progressLabel, book.author].filter(Boolean).join(" · ");
 
-  // "+Seiten heute": loggt eine Session (Monats-Summe) und bumpt current_page.
-  const addPages = document.createElement("input");
-  addPages.type = "number";
-  addPages.min = "1";
-  addPages.className = "input";
-  addPages.style.maxWidth = "64px";
-  addPages.placeholder = "+S.";
-  addPages.setAttribute("aria-label", "Heute gelesene Seiten hinzufügen");
-  const commitPages = async () => {
-    const pages = Number(addPages.value);
-    if (Number.isNaN(pages) || pages <= 0) {
-      addPages.value = "";
+  // "+heute": loggt eine Session (Monats-Summe) und bumpt den Stand in der Buch-Einheit.
+  const addProgress = document.createElement("input");
+  addProgress.type = "number";
+  addProgress.min = "1";
+  addProgress.className = "input";
+  addProgress.style.maxWidth = "64px";
+  addProgress.placeholder = `+${unitShort}`;
+  addProgress.setAttribute("aria-label", unit === "pages" ? "Heute gelesene Seiten hinzufügen" : "Heute gelesene Kapitel hinzufügen");
+  const commitProgress = async () => {
+    const amount = Number(addProgress.value);
+    if (Number.isNaN(amount) || amount <= 0) {
+      addProgress.value = "";
       return;
     }
     await withErrorToast(async () => {
-      await logReadingSession({ bookId: book.id, pagesRead: pages, currentPage: (book.current_page ?? 0) + pages });
-      addPages.value = "";
+      await logReadingSession({ bookId: book.id, unit, amountRead: amount, currentValue: currentValue + amount });
+      addProgress.value = "";
       await reloadBooks();
     });
   };
-  addPages.addEventListener("keydown", (e) => {
+  addProgress.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      commitPages();
+      commitProgress();
     }
   });
-  addPages.addEventListener("blur", commitPages);
+  addProgress.addEventListener("blur", commitProgress);
 
   const deleteBtn = document.createElement("button");
   deleteBtn.type = "button";
@@ -6852,6 +7029,8 @@ function buildBookItem(book) {
             title: book.title,
             author: book.author,
             totalPages: book.total_pages,
+            progressUnit: book.progress_unit,
+            totalChapters: book.total_chapters,
             status: book.status,
             genre: book.genre,
           });
@@ -6860,34 +7039,47 @@ function buildBookItem(book) {
     });
   });
 
-  li.append(title, statusSelect, pageInput, meta, addPages, deleteBtn);
+  li.append(title, statusSelect, progressInput, meta, addProgress, deleteBtn);
   return li;
 }
 
 function wireBooksQuickAddForm() {
   const form = document.getElementById("new-book-form");
   const submitBtn = form.querySelector('button[type="submit"]');
+  const unitSelect = document.getElementById("new-book-unit");
+  const totalInput = document.getElementById("new-book-total");
+  // Placeholder des Gesamt-Felds folgt der gewählten Einheit.
+  const syncTotalPlaceholder = () => {
+    totalInput.placeholder = unitSelect.value === "pages" ? "Seiten gesamt (optional)" : "Kapitel gesamt (optional)";
+  };
+  syncTotalPlaceholder();
+  unitSelect.addEventListener("change", syncTotalPlaceholder);
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const titleInput = document.getElementById("new-book-title");
     const authorInput = document.getElementById("new-book-author");
-    const pagesInput = document.getElementById("new-book-pages");
     const statusSelect = document.getElementById("new-book-status");
     const title = titleInput.value.trim();
     if (!title || submitBtn.disabled) return;
     submitBtn.disabled = true;
     try {
       await withErrorToast(async () => {
+        const unit = unitSelect.value === "pages" ? "pages" : "chapters";
+        const total = totalInput.value ? Number(totalInput.value) : null;
         await createBook({
           title,
           author: authorInput.value.trim() || null,
-          totalPages: pagesInput.value ? Number(pagesInput.value) : null,
+          progressUnit: unit,
+          totalPages: unit === "pages" ? total : null,
+          totalChapters: unit === "chapters" ? total : null,
           status: statusSelect.value,
         });
         showToast(`„${title}" angelegt.`);
         titleInput.value = "";
         authorInput.value = "";
-        pagesInput.value = "";
+        totalInput.value = "";
+        unitSelect.value = "chapters";
+        syncTotalPlaceholder();
         statusSelect.value = "geplant";
         await reloadBooks();
       });

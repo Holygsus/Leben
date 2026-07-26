@@ -13,11 +13,28 @@ export async function listBooks() {
   return data;
 }
 
-export async function createBook({ title, author = null, totalPages = null, status = "geplant", genre = null }) {
+export async function createBook({
+  title,
+  author = null,
+  totalPages = null,
+  progressUnit = "chapters",
+  totalChapters = null,
+  status = "geplant",
+  genre = null,
+}) {
   const userId = await getCurrentUserId();
   const { data, error } = await supabase
     .from("books")
-    .insert({ user_id: userId, title, author, total_pages: totalPages, status, genre })
+    .insert({
+      user_id: userId,
+      title,
+      author,
+      total_pages: totalPages,
+      progress_unit: progressUnit,
+      total_chapters: totalChapters,
+      status,
+      genre,
+    })
     .select()
     .single();
   if (error) throw error;
@@ -41,20 +58,20 @@ export async function listReadingLog() {
   return data;
 }
 
-// Loggt eine Lese-Session UND erhöht current_page des Buchs (nicht destruktiv — der Log bleibt die
-// Quelle der Monats-Summe, current_page nur der aktuelle Stand). date optional (Default heute).
-export async function logReadingSession({ bookId, pagesRead, date = null, currentPage }) {
+// Loggt eine Lese-Session in der Einheit des Buchs (Seiten ODER Kapitel) UND aktualisiert den
+// aktuellen Stand des Buchs (nicht destruktiv — der Log bleibt die Quelle der Monats-Summe,
+// current_page/current_chapter nur der aktuelle Stand). date optional (Default heute).
+// unit: 'chapters' | 'pages', amountRead: die heute gelesene Menge, currentValue: neuer Gesamtstand.
+export async function logReadingSession({ bookId, unit = "chapters", amountRead, date = null, currentValue }) {
   const userId = await getCurrentUserId();
-  const payload = { user_id: userId, book_id: bookId, pages_read: pagesRead };
+  const payload = { user_id: userId, book_id: bookId };
+  if (unit === "chapters") payload.chapters_read = amountRead;
+  else payload.pages_read = amountRead;
   if (date) payload.date = date;
   const { error: logError } = await supabase.from("book_reading_log").insert(payload);
   if (logError) throw logError;
-  const { data, error } = await supabase
-    .from("books")
-    .update({ current_page: currentPage })
-    .eq("id", bookId)
-    .select()
-    .single();
+  const bookUpdate = unit === "chapters" ? { current_chapter: currentValue } : { current_page: currentValue };
+  const { data, error } = await supabase.from("books").update(bookUpdate).eq("id", bookId).select().single();
   if (error) throw error;
   return data;
 }
@@ -64,4 +81,11 @@ export function sumPagesInMonth(logEntries, monthIso) {
   return logEntries
     .filter((e) => typeof e.date === "string" && e.date.slice(0, 7) === monthIso)
     .reduce((sum, e) => sum + (Number(e.pages_read) || 0), 0);
+}
+
+// Reine Aggregation: Summe chapters_read aller Log-Einträge im angegebenen Kalendermonat ("YYYY-MM").
+export function sumChaptersInMonth(logEntries, monthIso) {
+  return logEntries
+    .filter((e) => typeof e.date === "string" && e.date.slice(0, 7) === monthIso)
+    .reduce((sum, e) => sum + (Number(e.chapters_read) || 0), 0);
 }

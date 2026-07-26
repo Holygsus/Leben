@@ -11,7 +11,11 @@
   <form id="new-book-form" class="new-task-form">
     <input class="input" type="text" id="new-book-title" placeholder="Buchtitel" required autocomplete="off" />
     <input class="input" type="text" id="new-book-author" placeholder="Autor (optional)" autocomplete="off" />
-    <input class="input" type="number" id="new-book-pages" placeholder="Seiten gesamt (optional)" min="1" inputmode="numeric" />
+    <select class="select" id="new-book-unit" aria-label="Fortschrittseinheit">
+      <option value="chapters">Kapitel</option>
+      <option value="pages">Seiten</option>
+    </select>
+    <input class="input" type="number" id="new-book-total" placeholder="Kapitel gesamt (optional)" min="1" inputmode="numeric" />
     <select class="select" id="new-book-status" aria-label="Status">
       <option value="geplant">Geplant</option>
       <option value="aktiv">Aktiv</option>
