@@ -1,5 +1,6 @@
 -- Leben OS — Migration 024
--- Einmalig im Supabase SQL Editor ausführen (Project → SQL Editor → New query → Run).
+-- Update 2026-07-26: via Supabase-MCP angewendet, live in der Produktions-DB verifiziert —
+-- nicht erneut ausführen.
 --
 -- "Lesen als Bereich" — Kapitel-Zählung (Variante B), siehe
 -- wissensdatenbank/features/lesen-als-bereich.md. Additive Erweiterung von Migration 023:

@@ -1,5 +1,6 @@
 -- Leben OS — Migration 025
--- Einmalig im Supabase SQL Editor ausführen (Project → SQL Editor → New query → Run).
+-- Update 2026-07-26: via Supabase-MCP angewendet, live in der Produktions-DB verifiziert —
+-- nicht erneut ausführen.
 --
 -- Frei editierbare Ausgaben-Kategorien (wissensdatenbank/finanzen-erweiterungen/
 -- finanzplan-erweiterungen-v2.md, Punkt 9, War-Room-Update 2026-07-25). Löst den festen
