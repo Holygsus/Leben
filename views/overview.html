@@ -4,6 +4,7 @@
     <h1>Übersicht</h1>
   </div>
   <div class="view-header-actions">
+    <button type="button" class="icon-btn" id="collapse-all-toggle" aria-label="Alle Bereiche ein-/ausklappen"><span class="inline-icon"><svg viewBox="0 0 24 24"><path d="M8 4l4 4 4-4M8 20l4-4 4 4"/></svg></span></button>
     <button type="button" class="icon-btn" id="area-add-btn" aria-label="Neuer Bereich"><span class="inline-icon"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span></button>
     <button type="button" class="icon-btn" id="area-manage-toggle" aria-label="Bereiche bearbeiten"><span class="inline-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span></button>
   </div>
@@ -30,10 +31,16 @@
     <svg viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
     Filter <span class="filter-count" id="filter-count" hidden></span>
   </button>
-  <button type="button" class="filter-toggle-btn" id="view-mode-toggle" aria-label="Ansicht umschalten">
-    <svg viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="16" rx="1"/><rect x="17" y="4" width="4" height="16" rx="1"/></svg>
-    <span id="view-mode-label">Kanban</span>
-  </button>
+  <div class="view-mode-switch" id="view-mode-switch" role="group" aria-label="Ansicht">
+    <button type="button" class="view-mode-opt" data-mode="list" aria-pressed="true">
+      <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+      Liste
+    </button>
+    <button type="button" class="view-mode-opt" data-mode="kanban" aria-pressed="false">
+      <svg viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="16" rx="1"/><rect x="17" y="4" width="4" height="16" rx="1"/></svg>
+      Kanban
+    </button>
+  </div>
 </div>
 
 <section class="filter-bar" id="filter-bar" hidden>

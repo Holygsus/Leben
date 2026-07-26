@@ -512,6 +512,13 @@ function shiftMonth(monthIso, delta) {
   return isoFromLocalDate(new Date(y, m - 1 + delta, 1));
 }
 
+// Verschiebt ein konkretes ISO-Datum (YYYY-MM-DD) um delta Tage — anders als isoDatePlusDays,
+// das immer von heute aus rechnet.
+function shiftIsoDay(dateIso, delta) {
+  const [y, m, d] = dateIso.split("-").map(Number);
+  return isoFromLocalDate(new Date(y, m - 1, d + delta));
+}
+
 // [ersterIso, letzterIso] aller sichtbaren Grid-Zellen (inkl. Padding-Tage aus Nachbarmonaten) —
 // so ist die Auslastungs-Färbung (data-load) auch für ausgegraute Tage korrekt.
 function monthRange(monthIso) {
@@ -1894,16 +1901,20 @@ function wireQuickCapture(areas, onAdded) {
     `<option value="">Bereich (optional)</option>` +
     areas.map((a) => `<option value="${a.id}">${escapeHtml(a.name)}</option>`).join("");
 
-  let selectedEffort = null;
+  const DEFAULT_EFFORT = 10;
+  let selectedEffort = DEFAULT_EFFORT;
+  const syncEffortChips = () =>
+    effortGroup.querySelectorAll(".effort-chip").forEach((c) => {
+      c.dataset.active = String(Number(c.dataset.effort) === selectedEffort);
+    });
   effortGroup.querySelectorAll(".effort-chip").forEach((chip) => {
     chip.addEventListener("click", () => {
       const value = Number(chip.dataset.effort);
       selectedEffort = selectedEffort === value ? null : value;
-      effortGroup.querySelectorAll(".effort-chip").forEach((c) => {
-        c.dataset.active = String(Number(c.dataset.effort) === selectedEffort);
-      });
+      syncEffortChips();
     });
   });
+  syncEffortChips();
 
   let selectedPriority = "medium";
   const setPriority = (value) => {
@@ -1919,8 +1930,8 @@ function wireQuickCapture(areas, onAdded) {
   const closeForm = () => {
     form.hidden = true;
     form.reset();
-    selectedEffort = null;
-    effortGroup.querySelectorAll(".effort-chip").forEach((c) => (c.dataset.active = "false"));
+    selectedEffort = DEFAULT_EFFORT;
+    syncEffortChips();
     setPriority("medium");
   };
 
@@ -2062,6 +2073,20 @@ function wireAreaManageToggle() {
     panel.hidden = false;
     document.getElementById("new-area-name").focus();
   });
+  // Alle Bereiche mit einem Klick ein-/ausklappen: sind aktuell alle eingeklappt, wird alles
+  // aufgeklappt, sonst alles eingeklappt (spart N Einzelklicks im collapsedAreas-Toggle).
+  const collapseAllBtn = document.getElementById("collapse-all-toggle");
+  if (collapseAllBtn) {
+    collapseAllBtn.addEventListener("click", () => {
+      const allCollapsed = overviewState.areas.every((a) => overviewState.collapsedAreas.has(a.id));
+      if (allCollapsed) {
+        overviewState.collapsedAreas.clear();
+      } else {
+        overviewState.collapsedAreas = new Set(overviewState.areas.map((a) => a.id));
+      }
+      renderAreaTree();
+    });
+  }
 }
 
 function taskPassesFilter(task) {
@@ -2230,22 +2255,33 @@ function renderAreaTree() {
   }
 }
 
-// Schaltet zwischen Listen- und Kanban-Ansicht um; Auswahl bleibt über saveStoredFilters erhalten.
+// Segmentierter Umschalter Liste/Kanban — der aktive Modus ist als gefüllter Chip sichtbar (statt
+// dass ein einzelner Button den jeweils anderen Modus als Label trägt). Auswahl bleibt über
+// saveStoredFilters erhalten.
 function wireViewModeToggle() {
-  const btn = document.getElementById("view-mode-toggle");
-  if (!btn) return;
+  const switchEl = document.getElementById("view-mode-switch");
+  if (!switchEl) return;
   updateViewModeLabel();
-  btn.addEventListener("click", () => {
-    overviewState.viewMode = overviewState.viewMode === "kanban" ? "list" : "kanban";
-    saveStoredFilters();
-    updateViewModeLabel();
-    renderOverviewBody();
+  switchEl.querySelectorAll(".view-mode-opt").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const mode = btn.dataset.mode === "kanban" ? "kanban" : "list";
+      if (overviewState.viewMode === mode) return;
+      overviewState.viewMode = mode;
+      saveStoredFilters();
+      updateViewModeLabel();
+      renderOverviewBody();
+    });
   });
 }
 
 function updateViewModeLabel() {
-  const label = document.getElementById("view-mode-label");
-  if (label) label.textContent = overviewState.viewMode === "kanban" ? "Liste" : "Kanban";
+  const switchEl = document.getElementById("view-mode-switch");
+  if (!switchEl) return;
+  switchEl.querySelectorAll(".view-mode-opt").forEach((btn) => {
+    const active = btn.dataset.mode === overviewState.viewMode;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-pressed", String(active));
+  });
 }
 
 const KANBAN_COLUMNS = [
@@ -2378,6 +2414,21 @@ function buildAreaSection(area) {
   name.textContent = area.name;
 
   const openCount = overviewState.tasks.filter((t) => t.area_id === area.id && t.status !== "done").length;
+
+  // Mini-Fortschrittsbalken pro Bereich (erledigt/gesamt) — macht auf einen Blick lesbar, wie weit
+  // ein Bereich ist, statt nur die Zahl offener Aufgaben zu zeigen. Füllfarbe = Bereichsfarbe.
+  const totalCount = allAreaTasks.length;
+  const doneCount = totalCount - openCount;
+  const progress = document.createElement("span");
+  progress.className = "area-progress";
+  progress.hidden = totalCount === 0;
+  progress.style.setProperty("--pct", totalCount ? Math.round((doneCount / totalCount) * 100) : 0);
+  progress.title = `${doneCount} von ${totalCount} erledigt`;
+  progress.setAttribute("aria-label", progress.title);
+  const progressFill = document.createElement("span");
+  progressFill.className = "area-progress-fill";
+  progress.appendChild(progressFill);
+
   const count = document.createElement("span");
   count.className = "count";
   count.textContent = String(openCount);
@@ -2405,7 +2456,7 @@ function buildAreaSection(area) {
   toggle.addEventListener("click", toggleFn);
   name.addEventListener("click", toggleFn);
 
-  header.append(toggle, dot, name, count, addBtn);
+  header.append(toggle, dot, name, progress, count, addBtn);
   section.appendChild(header);
 
   // Body steckt immer im DOM (in einem grid-rows-Wrapper) statt bei "collapsed" ganz zu
@@ -3502,6 +3553,14 @@ async function renderPlanView() {
     updatePlanDateLabel();
     await jumpCalendarToTargetDate(dateInput);
   });
+  const stepDay = async (delta) => {
+    planState.targetDate = shiftIsoDay(planState.targetDate, delta);
+    dateInput.value = planState.targetDate;
+    updatePlanDateLabel();
+    await jumpCalendarToTargetDate(dateInput);
+  };
+  document.getElementById("plan-date-prev").addEventListener("click", () => stepDay(-1));
+  document.getElementById("plan-date-next").addEventListener("click", () => stepDay(1));
   document.getElementById("month-prev").addEventListener("click", async () => {
     planState.calendarMonth = shiftMonth(planState.calendarMonth, -1);
     await withErrorToast(async () => {
@@ -3595,8 +3654,27 @@ function renderPlanTaskList() {
       return item ? sum + getEffectiveDuration(item) : sum;
     }, 0);
   const suggestedMinutes = planState.selected.reduce((sum, t) => sum + (t.effort || 0), 0);
-  document.getElementById("plan-budget").textContent =
-    `${committedMinutes} Min. verplant + ${suggestedMinutes} Min. Vorschlag / ${budgetForDate(planState.targetDate)} Min`;
+  // Budget als zweisegmentiger Balken statt reiner Textzeile — verplant (accent) + Vorschlag
+  // (accent-warm) gegen das Tagesbudget; bei Überbuchung schlägt der Balken auf danger um.
+  const totalBudget = budgetForDate(planState.targetDate);
+  const usedMinutes = committedMinutes + suggestedMinutes;
+  const over = usedMinutes > totalBudget;
+  const committedPct = totalBudget ? Math.min(100, (committedMinutes / totalBudget) * 100) : 0;
+  const suggestedPct = totalBudget ? Math.min(100 - committedPct, (suggestedMinutes / totalBudget) * 100) : 0;
+  const remaining = totalBudget - usedMinutes;
+  const legend = over
+    ? `${committedMinutes} verplant · ${suggestedMinutes} Vorschlag · ${usedMinutes - totalBudget} über Budget`
+    : `${committedMinutes} verplant · ${suggestedMinutes} Vorschlag${remaining > 0 ? ` · ${remaining} frei` : ""}`;
+  document.getElementById("plan-budget").innerHTML = `
+    <span class="plan-budget-head">
+      <strong>Tagesbudget</strong>
+      <span class="plan-budget-nums${over ? " is-over" : ""}">${usedMinutes} / ${totalBudget} min</span>
+    </span>
+    <span class="plan-budget-bar${over ? " is-over" : ""}">
+      <span class="plan-budget-fill committed" style="width:${committedPct}%"></span>
+      <span class="plan-budget-fill suggested" style="width:${suggestedPct}%"></span>
+    </span>
+    <span class="plan-budget-legend">${legend}</span>`;
 
   list.innerHTML = "";
   if (planState.selected.length === 0) {
@@ -3992,12 +4070,22 @@ function wireHabitQuickAddForm() {
 
 // Kompakte Punktreihe für den Default-Zustand einer Habit-Zeile: zeigt auf einen Blick, an
 // welchen Wochentagen das Habit aktiv ist, ohne 7 antippbare 40px-Chips permanent vorzuhalten.
-function buildHabitDotRow(task, todayCode) {
-  return `<div class="habit-dotrow" aria-hidden="true">${WEEKDAY_CODES.map((code) => {
-    const active = task.habit_weekdays.includes(code);
-    const isToday = code === todayCode;
-    return `<span class="habit-dot${active ? " active" : ""}${isToday ? " is-today" : ""}"></span>`;
-  }).join("")}</div>`;
+// Kompakte 7-Tage-Completion-Heatmap (ältester Tag links, heute rechts): erledigt = gefüllt,
+// fällig-aber-offen = umrandet, nicht fällig = blass. Gibt auf einen Blick ein Gefühl für Konstanz
+// ("don't break the chain"), ergänzend zum Streak-Badge. Zeitplan-Details bleiben in den
+// aufklappbaren Wochentags-Chips.
+function buildHabitHeatmap(task, completions, todayIso) {
+  const done = new Set(completions.filter((c) => c.task_id === task.id).map((c) => c.date));
+  const [ty, tm, td] = todayIso.split("-").map(Number);
+  const cells = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(ty, tm - 1, td - i);
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const due = task.habit_weekdays.includes(weekdayCodeFromIso(iso));
+    const state = done.has(iso) ? "done" : due ? "due" : "off";
+    cells.push(`<span class="habit-heat-cell ${state}" title="${iso}"></span>`);
+  }
+  return `<span class="habit-heatmap" aria-hidden="true">${cells.join("")}</span>`;
 }
 
 function buildHabitChips(task, todayCode) {
@@ -4028,7 +4116,6 @@ function updateHabitWeekdayChips(li, task, todayCode) {
     recurrence === "weekly"
       ? `${task.habit_weekdays.length}× pro Woche`
       : `${task.habit_weekdays.length}× · ${RECURRENCE_LABEL[recurrence]}`;
-  li.querySelector(".habit-dotrow").outerHTML = buildHabitDotRow(task, todayCode);
 }
 
 // Rendert die Liste der Habit-Aufgaben. Jede Zeile startet im Kompakt-Zustand (Punktreihe) und
@@ -4054,12 +4141,13 @@ function renderHabitList() {
       const freqLabel =
         recurrence === "weekly" ? `${t.habit_weekdays.length}× pro Woche` : `${t.habit_weekdays.length}× · ${RECURRENCE_LABEL[recurrence]}`;
       const streak = computeHabitStreak(t, habitsViewState.completions, todayISO());
-      const streakLabel =
+      const streakBadge =
         streak.count === 0
           ? ""
           : streak.type === "days"
-            ? ` · <span class="streak-flame">${STREAK_ICON_FLAME}${streak.count} Tage in Folge</span>`
-            : ` · ${streak.count}× erledigt`;
+            ? `<span class="habit-streak-badge" title="${streak.count} Tage in Folge">${STREAK_ICON_FLAME}${streak.count}</span>`
+            : `<span class="habit-streak-badge is-total" title="${streak.count}× erledigt">${streak.count}×</span>`;
+      const heatmap = buildHabitHeatmap(t, habitsViewState.completions, todayISO());
       return `
       <li class="task-item habit-item" data-habit-id="${t.id}" data-expanded="false" style="${
         areaColor ? `border-left-color:${areaColor};--task-area-color:${areaColor};` : ""
@@ -4067,8 +4155,8 @@ function renderHabitList() {
         <span class="task-area-dot" style="background:${areaColor || "var(--color-text-subtle)"}"></span>
         <div class="habit-body">
           <button type="button" class="habit-toggle" aria-expanded="false">
-            <span class="task-title">${escapeHtml(t.title)}<span class="habit-freq">${freqLabel}${streakLabel}</span></span>
-            ${buildHabitDotRow(t, todayCode)}
+            <span class="task-title">${escapeHtml(t.title)}<span class="habit-freq">${freqLabel}</span></span>
+            <span class="habit-metrics">${heatmap}${streakBadge}</span>
           </button>
           <div class="habit-expanded" hidden>
             <div class="habit-weekday-presets" role="group" aria-label="Wochentage-Voreinstellungen">
@@ -4163,6 +4251,7 @@ async function renderFinanceView() {
   renderCategoryDonut();
   renderBuyReadyAlert(financeState.wishlistItems, financeState.potBalance);
   renderCommittedPreview();
+  renderFinanceManageSummary();
   renderTransactionList();
   renderWishlistCards();
   wireFinanceFilters();
@@ -4171,11 +4260,12 @@ async function renderFinanceView() {
 }
 
 async function loadFinanceData() {
-  const [settings, transactions, fixedCosts, committedExpenses, wishlistItems, potBalance] = await Promise.all([
+  const [settings, transactions, fixedCosts, committedExpenses, debts, wishlistItems, potBalance] = await Promise.all([
     getFinanceModuleSettings(),
     listTransactions(),
     listFixedCosts(),
     listCommittedExpenses({ statusNot: "settled" }),
+    listDebts(),
     listWishlistItems(),
     getSavingsPotBalance(),
   ]);
@@ -4183,6 +4273,7 @@ async function loadFinanceData() {
   financeState.transactions = transactions;
   financeState.fixedCosts = fixedCosts;
   financeState.committedExpenses = committedExpenses;
+  financeState.debts = debts;
   financeState.wishlistItems = wishlistItems;
   financeState.potBalance = potBalance;
 }
@@ -4194,8 +4285,26 @@ async function reloadFinance() {
   renderCategoryDonut();
   renderBuyReadyAlert(financeState.wishlistItems, financeState.potBalance);
   renderCommittedPreview();
+  renderFinanceManageSummary();
   renderTransactionList();
   renderWishlistCards();
+}
+
+// Ersetzt die früheren drei fast leeren Fixkosten/Verpflichtende/Schulden-Panels durch kompakte
+// Verwalten-Zeilen mit Monats-/Gesamtsumme rechts. "—" wenn nichts erfasst ist.
+function renderFinanceManageSummary() {
+  const fixEl = document.getElementById("fm-fixkosten");
+  if (!fixEl) return;
+  const fixSum = financeState.fixedCosts.reduce((sum, c) => sum + monthlyAmount(c), 0);
+  fixEl.textContent = fixSum > 0 ? `${formatEuro(fixSum)}/Mon.` : "—";
+
+  const committedSum = (financeState.committedExpenses || []).reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  document.getElementById("fm-committed").textContent = committedSum > 0 ? formatEuro(committedSum) : "—";
+
+  const debtSum = (financeState.debts || []).reduce((sum, d) => sum + Number(d.remaining_amount || 0), 0);
+  const debtEl = document.getElementById("fm-debts");
+  debtEl.textContent = debtSum > 0 ? formatEuro(debtSum) : "—";
+  debtEl.classList.toggle("is-danger", debtSum > 0);
 }
 
 function buildPotCard(label, color, amountText, pct, celebrateAtFull = false) {
@@ -5071,16 +5180,30 @@ function wireTransactionQuickCapture() {
   const submitBtn = form.querySelector('button[type="submit"]');
 
   let selectedPot = "freiheit";
+  // Sobald der Nutzer den Topf einmal selbst antippt, hört das Kategorie-Automapping auf, seine
+  // Wahl zu überschreiben (er weiß dann besser, wohin die Ausgabe gehört).
+  let potTouchedManually = false;
+  const setPot = (pot) => {
+    selectedPot = pot;
+    potGroup.querySelectorAll(".pot-chip").forEach((c) => (c.dataset.active = String(c.dataset.pot === selectedPot)));
+  };
   potGroup.querySelectorAll(".pot-chip").forEach((chip) => {
     chip.addEventListener("click", () => {
-      selectedPot = chip.dataset.pot;
-      potGroup.querySelectorAll(".pot-chip").forEach((c) => (c.dataset.active = String(c.dataset.pot === selectedPot)));
+      potTouchedManually = true;
+      setPot(chip.dataset.pot);
     });
   });
 
   // Kategorie als Dropdown statt Chip-Reihe (implementieren-jetzt.md, Triage 2026-07-21) — der
   // leere Wert ("Kategorie (optional)") übernimmt die frühere Abwähl-Funktion des erneuten
   // Chip-Klicks, kein selectedCategory-State mehr nötig, categoryGroup.value ist die Quelle.
+  // Kategorie schlägt automatisch den passenden Topf vor (solange nicht manuell gewählt): Wohnen
+  // sind Fixkosten, Gesundheit fällt in Sicherheit, der Rest bleibt beim Default-Topf Freiheit.
+  const CATEGORY_POT_MAP = { wohnen: "fixkosten", gesundheit: "sicherheit" };
+  categoryGroup.addEventListener("change", () => {
+    if (potTouchedManually) return;
+    setPot(CATEGORY_POT_MAP[categoryGroup.value] || "freiheit");
+  });
 
   // Töpfe ordnen Ausgaben einem Verwendungszweck zu — bei einer Einnahme ergibt das fachlich
   // keinen Sinn, daher wird die Topf-Auswahl dafür ausgeblendet statt nur deaktiviert. Die sechs
@@ -5101,8 +5224,8 @@ function wireTransactionQuickCapture() {
   const closeForm = () => {
     form.hidden = true;
     form.reset();
-    selectedPot = "freiheit";
-    potGroup.querySelectorAll(".pot-chip").forEach((c) => (c.dataset.active = String(c.dataset.pot === "freiheit")));
+    potTouchedManually = false;
+    setPot("freiheit");
     categoryGroup.value = "";
     selectedDirection = "expense";
     directionGroup
@@ -5154,6 +5277,22 @@ function wireTransactionQuickCapture() {
 const watchlistViewState = { items: [], allTasks: [], logEntries: [] };
 
 const WATCHLIST_TYPE_LABEL = { serie: "Serie", anime: "Anime", film: "Film", doku: "Doku", youtube: "YouTube" };
+
+// Farbe + Icon pro Typ — für die farbige Typ-Badge und die Cover-Kachel der Aktiv-Karten. Farben aus
+// bestehenden Tokens (kein neuer Palettenwildwuchs); YouTube bewusst danger-nah (Marken-Rot-Anmutung).
+const WATCHLIST_TYPE_COLOR = {
+  serie: "var(--color-accent)",
+  anime: "var(--color-cat-gesundheit)",
+  film: "var(--color-accent-warm)",
+  doku: "var(--color-success)",
+  youtube: "var(--color-danger)",
+};
+const WATCHLIST_TYPE_ICON = { serie: "📺", anime: "🌸", film: "🎬", doku: "🌍", youtube: "▶" };
+
+function buildWatchlistTypeBadge(type) {
+  const label = WATCHLIST_TYPE_LABEL[type] || type;
+  return `<span class="wl-type-badge" style="--b:${WATCHLIST_TYPE_COLOR[type] || "var(--color-text-muted)"}">${label}</span>`;
+}
 
 // " · S1E4" wenn Staffel/Folge gepflegt sind (nur bei serie/anime relevant), sonst "".
 function buildCurrentEpisodeLabel(item) {
@@ -5371,7 +5510,7 @@ function computeAvgRatingByItemId() {
 // Filter-Auswahl liegt in einem eigenen State statt in <select>.value — die Filter sind jetzt
 // mobil-taugliche Chips (Toggle, erneuter Klug hebt auf → leer = "alle"), siehe wissensdatenbank/
 // features/watchlist-fernsehprogramm.md, "Layout-Zielbild" (War Room 2026-07-25).
-const watchlistFilterState = { type: "", minRating: "", genre: "" };
+const watchlistFilterState = { type: "", minRating: "", genre: "", title: "" };
 
 // Feste Gruppen-Reihenfolge nach status. Leere Gruppen werden nicht gerendert (status ist immer
 // gesetzt, DB-Default 'geplant' — kein "ohne Status"-Fall).
@@ -5391,8 +5530,11 @@ function buildWatchlistActiveCard(item, avg) {
   if (episode) meta.push(episode);
   if (item.platform) meta.push(escapeHtml(item.platform));
   card.innerHTML =
+    `<div class="watchlist-cover" style="--b:${WATCHLIST_TYPE_COLOR[item.type] || "var(--color-accent)"}" aria-hidden="true">${WATCHLIST_TYPE_ICON[item.type] || "📺"}</div>` +
+    `<div class="watchlist-active-body">` +
     `<div class="watchlist-active-top"><span class="task-title">${escapeHtml(item.title)}</span>${buildRatingStarsHtml(avg)}</div>` +
-    (meta.length ? `<div class="watchlist-active-meta">${meta.join(" · ")}</div>` : "");
+    `<div class="watchlist-active-meta">${buildWatchlistTypeBadge(item.type)}${meta.length ? `<span>${meta.join(" · ")}</span>` : ""}</div>` +
+    `</div>`;
   card.addEventListener("click", () => openWatchlistDetail(item.id));
   return card;
 }
@@ -5400,7 +5542,7 @@ function buildWatchlistActiveCard(item, avg) {
 function buildWatchlistSlimRow(item, avg) {
   const li = document.createElement("li");
   li.className = "rating-row";
-  li.innerHTML = `<span class="task-title">${WATCHLIST_TYPE_LABEL[item.type]} · ${escapeHtml(item.title)}${buildCurrentEpisodeLabel(item)}</span>${buildRatingStarsHtml(avg)}`;
+  li.innerHTML = `<span class="task-title">${buildWatchlistTypeBadge(item.type)}${escapeHtml(item.title)}${buildCurrentEpisodeLabel(item)}</span>${buildRatingStarsHtml(avg)}`;
   li.addEventListener("click", () => openWatchlistDetail(item.id));
   return li;
 }
@@ -5430,7 +5572,9 @@ function renderWatchlistOverview() {
   // Genre bewusst als Teilstring-Suche (nicht filterWatchlistItems' exakter Tag-Match) — Genres sind
   // frei eingegebene Tags.
   const genre = watchlistFilterState.genre.trim().toLowerCase();
-  const items = genre ? filtered.filter((i) => i.genres?.some((g) => g.toLowerCase().includes(genre))) : filtered;
+  const genreFiltered = genre ? filtered.filter((i) => i.genres?.some((g) => g.toLowerCase().includes(genre))) : filtered;
+  const title = watchlistFilterState.title.trim().toLowerCase();
+  const items = title ? genreFiltered.filter((i) => i.title?.toLowerCase().includes(title)) : genreFiltered;
 
   container.innerHTML = "";
   if (items.length === 0) {
@@ -5486,7 +5630,7 @@ function renderWatchlistOverview() {
 function updateWatchlistFilterCount() {
   const badge = document.getElementById("watchlist-filter-count");
   if (!badge) return;
-  const count = [watchlistFilterState.type, watchlistFilterState.minRating, watchlistFilterState.genre].filter(Boolean).length;
+  const count = [watchlistFilterState.type, watchlistFilterState.minRating, watchlistFilterState.genre, watchlistFilterState.title].filter(Boolean).length;
   badge.hidden = count === 0;
   badge.textContent = String(count);
 }
@@ -5520,6 +5664,12 @@ function wireWatchlistFilters() {
   const genreInput = document.getElementById("watchlist-filter-genre");
   genreInput.addEventListener("input", () => {
     watchlistFilterState.genre = genreInput.value;
+    renderWatchlistOverview();
+  });
+
+  const titleInput = document.getElementById("watchlist-filter-title");
+  titleInput.addEventListener("input", () => {
+    watchlistFilterState.title = titleInput.value;
     renderWatchlistOverview();
   });
 }
@@ -5819,31 +5969,92 @@ async function renderRezepteView() {
   const res = await fetch("views/rezepte.html");
   if (myGeneration !== renderGeneration) return;
   container.innerHTML = await res.text();
+  recipesViewState.search = "";
   await renderRecipeList();
   wireRecipeQuickAddForm();
+  const searchInput = document.getElementById("recipe-search");
+  if (searchInput) {
+    searchInput.addEventListener("input", () => {
+      recipesViewState.search = searchInput.value;
+      paintRecipeList();
+    });
+  }
 }
 
+// Cache der zuletzt geladenen Rezepte + Vorratsnamen, damit die Titelsuche nur neu filtert statt
+// bei jedem Tastendruck erneut aus Supabase zu laden.
+const recipesViewState = { recipes: [], pantryNames: [], search: "" };
+
 async function renderRecipeList() {
+  // Vorrat mitladen für den "kochbar jetzt"-Abgleich (verbindet Rezepte- und Kühlschrank-Tab).
+  const [recipes, pantryItems] = await Promise.all([listRecipes(), listPantryItems()]);
+  recipesViewState.recipes = recipes;
+  recipesViewState.pantryNames = pantryItems.map((p) => (p.name || "").toLowerCase()).filter(Boolean);
+  paintRecipeList();
+}
+
+function paintRecipeList() {
   const list = document.getElementById("recipe-list");
   const emptyState = document.getElementById("recipe-empty-state");
-  const recipes = await listRecipes();
+  const searchInput = document.getElementById("recipe-search");
+  const { recipes, pantryNames } = recipesViewState;
   list.innerHTML = "";
   if (recipes.length === 0) {
+    list.className = "task-list";
     emptyState.hidden = false;
+    if (searchInput) searchInput.hidden = true;
     return;
   }
   emptyState.hidden = true;
-  for (const recipe of recipes) {
-    const li = document.createElement("li");
-    li.className = "task-item";
-    const title = document.createElement("button");
-    title.type = "button";
-    title.className = "task-title task-title-btn";
-    title.textContent = recipe.title;
-    title.addEventListener("click", () => openRecipeDetail(recipe.id));
-    li.appendChild(title);
-    list.appendChild(li);
+  // Suchfeld erst ab einer Handvoll Rezepte einblenden — darunter ist es reiner Ballast.
+  if (searchInput) searchInput.hidden = recipes.length < 5;
+  const query = recipesViewState.search.trim().toLowerCase();
+  const shown = query ? recipes.filter((r) => (r.title || "").toLowerCase().includes(query)) : recipes;
+  list.className = "recipe-grid";
+  if (shown.length === 0) {
+    const note = document.createElement("p");
+    note.className = "kanban-empty";
+    note.textContent = "Keine Treffer.";
+    list.className = "task-list";
+    list.appendChild(note);
+    return;
   }
+  for (const recipe of shown) {
+    list.appendChild(buildRecipeCard(recipe, pantryNames));
+  }
+}
+
+function buildRecipeCard(recipe, pantryNames) {
+  const li = document.createElement("li");
+  li.className = "recipe-card";
+
+  const ingredients = (recipe.ingredients || []).filter((i) => i && i.name);
+  // Kochbar-Abgleich: Zutat gilt als vorhanden, wenn ein Vorratsname sie als Teilstring enthält
+  // oder umgekehrt (frei eingegebene Namen, gleiche Fuzzy-Logik wie der Watchlist-Genre-Filter).
+  let badge = "";
+  if (ingredients.length > 0) {
+    const missing = ingredients.filter((ing) => {
+      const n = ing.name.toLowerCase().trim();
+      return !pantryNames.some((p) => p.includes(n) || n.includes(p));
+    }).length;
+    badge =
+      missing === 0
+        ? `<span class="recipe-badge is-ready">✓ kochbar</span>`
+        : `<span class="recipe-badge is-missing">${missing} fehlt${missing === 1 ? "" : "en"}</span>`;
+  }
+
+  const chips = [`<span class="recipe-chip">${ingredients.length} Zutat${ingredients.length === 1 ? "" : "en"}</span>`];
+  if (recipe.instructions && recipe.instructions.trim()) chips.push(`<span class="recipe-chip">Zubereitung</span>`);
+
+  li.innerHTML =
+    `<div class="recipe-cover" aria-hidden="true">🍳</div>` +
+    `<div class="recipe-card-body">` +
+    `<span class="recipe-card-title">${escapeHtml(recipe.title)}</span>` +
+    `<div class="recipe-chips">${chips.join("")}</div>` +
+    `</div>` +
+    badge;
+  li.addEventListener("click", () => openRecipeDetail(recipe.id));
+  return li;
 }
 
 function wireRecipeQuickAddForm() {
@@ -6096,6 +6307,16 @@ const PANTRY_CATEGORY_LABELS = {
   gewuerze: "Gewürze",
 };
 
+// Icon + Farbe je Kategorie für die Gruppen-Überschriften (spiegelt die mentale Ordnung einer
+// Küche). Reihenfolge = Anzeigereihenfolge der Abschnitte; "" fängt unkategorisierte Items ab.
+const PANTRY_CATEGORY_META = {
+  kuehlschrank: { label: "Kühlschrank", icon: "❄️", color: "var(--color-accent)" },
+  tiefkuehl: { label: "Tiefkühl", icon: "🧊", color: "var(--color-cat-gesundheit)" },
+  vorrat: { label: "Vorrat", icon: "🥫", color: "var(--color-accent-warm)" },
+  gewuerze: { label: "Gewürze", icon: "🌿", color: "var(--color-success)" },
+};
+const PANTRY_CATEGORY_ORDER = ["kuehlschrank", "tiefkuehl", "vorrat", "gewuerze", ""];
+
 async function renderKuehlschrankView() {
   const myGeneration = renderGeneration;
   const container = document.getElementById("view-content");
@@ -6116,8 +6337,31 @@ async function renderPantryList() {
     return;
   }
   emptyState.hidden = true;
-  for (const item of items) {
-    list.appendChild(buildPantryItem(item));
+
+  // Nach Kategorie gruppiert mit Icon-Überschrift statt einer flachen Liste.
+  for (const cat of PANTRY_CATEGORY_ORDER) {
+    const catItems = items.filter((i) => (i.category || "") === cat);
+    if (catItems.length === 0) continue;
+    const meta = PANTRY_CATEGORY_META[cat] || { label: "Ohne Kategorie", icon: "📦", color: "var(--color-text-subtle)" };
+
+    const section = document.createElement("section");
+    section.className = "pantry-group";
+
+    const header = document.createElement("div");
+    header.className = "pantry-group-header";
+    header.style.setProperty("--c", meta.color);
+    header.innerHTML =
+      `<span class="pantry-group-icon" aria-hidden="true">${meta.icon}</span>` +
+      `<span class="pantry-group-title">${meta.label}</span>` +
+      `<span class="count">${catItems.length}</span>`;
+    section.appendChild(header);
+
+    const ul = document.createElement("ul");
+    ul.className = "task-list";
+    for (const item of catItems) ul.appendChild(buildPantryItem(item));
+    section.appendChild(ul);
+
+    list.appendChild(section);
   }
 }
 
@@ -6129,13 +6373,12 @@ function buildPantryItem(item) {
   li.className = "task-item tx-item";
 
   const nameSpan = document.createElement("span");
-  nameSpan.className = "task-title";
+  nameSpan.className = "task-title pantry-name";
   nameSpan.textContent = item.name;
 
   const amountInput = document.createElement("input");
   amountInput.type = "text";
-  amountInput.className = "input";
-  amountInput.style.maxWidth = "140px";
+  amountInput.className = "input pantry-amount";
   amountInput.value = item.amount || "";
   amountInput.placeholder = "Menge";
   amountInput.setAttribute("aria-label", "Menge");
@@ -6173,6 +6416,14 @@ function buildPantryItem(item) {
     await withErrorToast(async () => {
       await deletePantryItem(item.id);
       await renderPantryList();
+    });
+    showToast(`„${item.name}" entfernt.`, false, {
+      label: "Rückgängig",
+      onClick: () =>
+        withErrorToast(async () => {
+          await createPantryItem({ name: item.name, amount: item.amount, category: item.category });
+          await renderPantryList();
+        }),
     });
   });
 
@@ -6228,7 +6479,18 @@ const GAME_STATUS_LABELS = {
   abandoned: "Abgebrochen",
 };
 
-const gamesState = { games: [] };
+// Farbe + Sortierrang je Status — Sortierrang hebt "Spiele gerade" nach oben, Farbe codiert den
+// Status als Punkt/Zeilenakzent statt nur als Dropdown-Text.
+const GAME_STATUS_META = {
+  playing: { color: "var(--color-success)", order: 0 },
+  paused: { color: "var(--color-warning)", order: 1 },
+  backlog: { color: "var(--color-text-subtle)", order: 2 },
+  wishlist: { color: "var(--color-accent)", order: 3 },
+  done: { color: "var(--color-accent-warm)", order: 4 },
+  abandoned: { color: "var(--color-danger)", order: 5 },
+};
+
+const gamesState = { games: [], showFinished: false };
 
 async function renderGamesView() {
   const myGeneration = renderGeneration;
@@ -6236,8 +6498,16 @@ async function renderGamesView() {
   const res = await fetch("views/games.html");
   if (myGeneration !== renderGeneration) return;
   container.innerHTML = await res.text();
+  gamesState.showFinished = false;
   await reloadGamesList();
   wireGamesQuickAddForm();
+  const finishedToggle = document.getElementById("games-show-finished");
+  if (finishedToggle) {
+    finishedToggle.addEventListener("change", () => {
+      gamesState.showFinished = finishedToggle.checked;
+      renderGamesList();
+    });
+  }
 }
 
 async function reloadGamesList() {
@@ -6247,17 +6517,51 @@ async function reloadGamesList() {
 
 function renderGamesList() {
   const list = document.getElementById("games-list");
+  const stats = document.getElementById("games-stats");
   list.innerHTML = "";
   if (gamesState.games.length === 0) {
+    if (stats) stats.hidden = true;
     list.appendChild(buildEmptyState("Noch keine Spiele erfasst", "Leg unten den ersten Titel an."));
     return;
   }
-  gamesState.games.forEach((game) => list.appendChild(buildGameItem(game)));
+
+  // Stat-Leiste: Backlog / Am Spielen / Durch auf einen Blick.
+  if (stats) {
+    const by = (s) => gamesState.games.filter((g) => g.status === s).length;
+    stats.hidden = false;
+    stats.innerHTML =
+      `<div class="games-stat"><b>${by("backlog")}</b><small>Backlog</small></div>` +
+      `<div class="games-stat"><b style="color:var(--color-success)">${by("playing")}</b><small>Am Spielen</small></div>` +
+      `<div class="games-stat"><b style="color:var(--color-accent-warm)">${by("done")}</b><small>Durch</small></div>`;
+  }
+
+  // Durchgespielte/abgebrochene Titel wachsen sonst unbegrenzt und drängen den aktiven Backlog nach
+  // unten — standardmäßig ausblenden, per Checkbox einblendbar. Die Zeile nur zeigen, wenn es
+  // überhaupt solche Einträge gibt.
+  const finishedCount = gamesState.games.filter((g) => g.status === "done" || g.status === "abandoned").length;
+  const finishedRow = document.getElementById("games-show-finished-row");
+  const finishedToggle = document.getElementById("games-show-finished");
+  if (finishedRow) finishedRow.hidden = finishedCount === 0;
+  if (finishedToggle) finishedToggle.checked = gamesState.showFinished;
+  const visible = gamesState.showFinished
+    ? gamesState.games
+    : gamesState.games.filter((g) => g.status !== "done" && g.status !== "abandoned");
+
+  // "Spiele gerade" nach oben, danach nach Status-Rang, innerhalb gleich nach Titel.
+  const sorted = [...visible].sort((a, b) => {
+    const oa = GAME_STATUS_META[a.status]?.order ?? 9;
+    const ob = GAME_STATUS_META[b.status]?.order ?? 9;
+    return oa - ob || a.title.localeCompare(b.title);
+  });
+  sorted.forEach((game) => list.appendChild(buildGameItem(game)));
 }
 
 function buildGameItem(game) {
   const li = document.createElement("li");
-  li.className = "task-item tx-item";
+  li.className = "task-item tx-item game-item" + (game.status === "playing" ? " is-playing" : "");
+  const statusColor = GAME_STATUS_META[game.status]?.color || "var(--color-text-subtle)";
+  li.style.borderLeftColor = statusColor;
+  li.style.setProperty("--task-area-color", statusColor);
 
   // Titel inline editierbar (Blur committet) — gleiches Muster wie Fixkosten/Schulden.
   const title = document.createElement("input");
@@ -6319,8 +6623,10 @@ function buildGameItem(game) {
   });
 
   const meta = document.createElement("span");
-  meta.className = "count";
-  meta.textContent = game.platform || "";
+  if (game.platform) {
+    meta.className = "game-platform";
+    meta.textContent = game.platform;
+  }
 
   const deleteBtn = document.createElement("button");
   deleteBtn.type = "button";
@@ -6331,6 +6637,20 @@ function buildGameItem(game) {
     await withErrorToast(async () => {
       await deleteGame(game.id);
       await reloadGamesList();
+    });
+    showToast(`„${game.title}" entfernt.`, false, {
+      label: "Rückgängig",
+      onClick: () =>
+        withErrorToast(async () => {
+          await createGame({
+            title: game.title,
+            status: game.status,
+            platform: game.platform,
+            releaseDate: game.release_date,
+            priority: game.priority,
+          });
+          await reloadGamesList();
+        }),
     });
   });
 
@@ -6379,6 +6699,10 @@ const BOOK_STATUS_LABELS = {
   beendet: "Beendet",
 };
 
+// Anzeigerang: was man gerade liest zuerst, Beendetes ganz nach unten — sonst versickert das
+// aktive Buch zwischen längst durchgelesenen.
+const BOOK_STATUS_ORDER = { aktiv: 0, pausiert: 1, geplant: 2, beendet: 3 };
+
 const booksState = { books: [], log: [] };
 
 async function renderBooksView() {
@@ -6414,7 +6738,10 @@ function renderBooksList() {
     list.appendChild(buildEmptyState("Noch keine Bücher", "Leg unten das erste Buch an."));
     return;
   }
-  booksState.books.forEach((book) => list.appendChild(buildBookItem(book)));
+  const sorted = [...booksState.books].sort(
+    (a, b) => (BOOK_STATUS_ORDER[a.status] ?? 9) - (BOOK_STATUS_ORDER[b.status] ?? 9)
+  );
+  sorted.forEach((book) => list.appendChild(buildBookItem(book)));
 }
 
 function buildBookItem(book) {

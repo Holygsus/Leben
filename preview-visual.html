@@ -10,17 +10,21 @@
 <style>
   body {
     padding: var(--space-6) var(--space-4) var(--space-7);
-    max-width: 640px;
+    max-width: 1040px;
     margin: 0 auto;
-    text-align: center;
+    text-align: left;
   }
   .demo-topbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-3);
-    margin-bottom: var(--space-6);
-    text-align: left;
+    margin-bottom: var(--space-5);
+    position: sticky;
+    top: 0;
+    background: var(--color-bg);
+    padding: var(--space-2) 0;
+    z-index: 5;
   }
   .demo-topbar h1 { font-size: var(--font-size-lg); }
   .demo-toggle {
@@ -33,23 +37,110 @@
     font-weight: 600;
     font-size: var(--font-size-sm);
   }
-  .demo-empty {
-    padding: var(--space-7) var(--space-4);
+  .demo-intro { color: var(--color-text-muted); font-size: var(--font-size-sm); margin-bottom: var(--space-6); }
+
+  .tab { margin-bottom: var(--space-7); }
+  .tab > h2 {
+    font-size: var(--font-size-xl);
+    padding-bottom: var(--space-2);
+    border-bottom: 2px solid var(--color-border);
+    margin-bottom: var(--space-5);
   }
-  .demo-empty svg {
-    width: 32px;
-    height: 32px;
-    stroke: var(--color-success);
-    fill: none;
-    stroke-width: 1.8;
-    margin-bottom: var(--space-3);
+  .tip { margin-bottom: var(--space-6); }
+  .tip > h3 { font-size: var(--font-size-base); margin-bottom: var(--space-1); }
+  .tip > p { color: var(--color-text-muted); font-size: var(--font-size-sm); margin-bottom: var(--space-3); }
+
+  .cmp { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+  @media (max-width: 720px) { .cmp { grid-template-columns: 1fr; } }
+  .cmp-col { display: flex; flex-direction: column; gap: var(--space-2); }
+  .cmp-label {
+    align-self: flex-start;
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    padding: 2px 8px; border-radius: var(--radius-full);
   }
-  .demo-empty p {
-    color: var(--color-text-muted);
-    font-size: var(--font-size-sm);
-    max-width: 480px;
-    margin: var(--space-2) auto 0;
+  .cmp-label.bad { background: color-mix(in srgb, var(--color-danger) 16%, transparent); color: var(--color-danger); }
+  .cmp-label.good { background: color-mix(in srgb, var(--color-success) 18%, transparent); color: var(--color-success); }
+  .frame {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    flex: 1;
+    display: flex; flex-direction: column; gap: var(--space-3);
   }
+
+  /* ---- geteilte Demo-Bausteine (nur Preview, nicht in main.css) ---- */
+  .d-ring { width: 72px; height: 72px; border-radius: 50%; position: relative;
+    background: conic-gradient(var(--color-success) var(--p, 65%), var(--color-border) 0);
+    display: grid; place-items: center; flex-shrink: 0; }
+  .d-ring > span { width: 52px; height: 52px; border-radius: 50%; background: var(--color-bg);
+    display: grid; place-items: center; font-weight: 700; font-size: var(--font-size-sm); }
+
+  .d-row { display: flex; align-items: center; gap: var(--space-3); min-height: 44px;
+    padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+    background: var(--color-surface); border: 1px solid var(--color-border); }
+  .d-row .grow { flex: 1; min-width: 0; }
+  .d-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; background: var(--c, var(--color-accent)); }
+
+  .d-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
+    border-radius: var(--radius-full); font-size: 0.72rem; font-weight: 600;
+    background: color-mix(in srgb, var(--b, var(--color-accent)) 16%, transparent); color: var(--b, var(--color-accent)); }
+  .d-chip { font-size: 0.7rem; padding: 2px 8px; border-radius: var(--radius-full);
+    background: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-muted); }
+  .d-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+
+  .d-bar { height: 6px; border-radius: var(--radius-full); background: var(--color-border); overflow: hidden; }
+  .d-bar > i { display: block; height: 100%; background: var(--c, var(--color-accent)); }
+
+  .d-pill { font-variant-numeric: tabular-nums; font-weight: 700; padding: 2px 8px;
+    border-radius: var(--radius-sm); background: var(--color-bg); flex-shrink: 0; }
+
+  .d-heat { display: flex; gap: 4px; }
+  .d-heat i { width: 15px; height: 15px; border-radius: 4px; background: var(--color-border); }
+  .d-heat i.on { background: var(--color-success); }
+
+  .d-flame { display: inline-flex; align-items: center; gap: 3px; font-weight: 700; color: var(--color-accent-warm); }
+  .d-flame svg { width: 16px; height: 16px; stroke: var(--color-accent-warm); fill: color-mix(in srgb, var(--color-accent-warm) 25%, transparent); stroke-width: 1.6; }
+
+  .d-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+  .d-card { border: 1px solid var(--color-border); border-radius: var(--radius-md);
+    overflow: hidden; background: var(--color-surface); position: relative; }
+  .d-thumb { aspect-ratio: 16/10; display: grid; place-items: center; font-size: 1.8rem;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--c, var(--color-accent)) 30%, var(--color-surface)), var(--color-surface)); }
+  .d-card .body { padding: var(--space-2) var(--space-3); display: flex; flex-direction: column; gap: 4px; }
+  .d-card .body strong { font-size: var(--font-size-sm); }
+  .d-corner { position: absolute; top: 6px; right: 6px; }
+
+  .d-section-head { display: flex; align-items: center; gap: var(--space-2); font-weight: 700;
+    font-size: var(--font-size-sm); margin-top: var(--space-2); }
+  .d-section-head svg { width: 16px; height: 16px; stroke: var(--c, var(--color-accent)); fill: none; stroke-width: 1.7; }
+
+  .d-toggle-row { display: flex; gap: var(--space-2); }
+  .d-tog { font-size: var(--font-size-sm); font-weight: 600; padding: 6px 12px; border-radius: var(--radius-full);
+    border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-muted); }
+  .d-tog.on { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-accent-contrast); }
+
+  .d-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .d-cal span { aspect-ratio: 1; display: grid; place-items: center; font-size: 0.75rem;
+    border-radius: var(--radius-sm); background: var(--color-surface); border: 1px solid var(--color-border); position: relative; }
+  .d-cal span.load::after { content: ""; position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
+    width: var(--w, 4px); height: 4px; border-radius: 2px; background: var(--color-accent); }
+  .d-cal span.hi { background: color-mix(in srgb, var(--color-accent) 14%, var(--color-surface)); }
+
+  .d-stat { display: flex; gap: var(--space-4); }
+  .d-stat div { display: flex; flex-direction: column; }
+  .d-stat b { font-size: var(--font-size-lg); font-variant-numeric: tabular-nums; }
+  .d-stat small { color: var(--color-text-muted); font-size: 0.72rem; }
+
+  .d-evt { border-left: 3px solid var(--c, var(--color-accent)); padding-left: var(--space-3); }
+
+  .d-hero { border: 1px solid color-mix(in srgb, var(--color-accent-warm) 40%, var(--color-border));
+    background: linear-gradient(135deg, color-mix(in srgb, var(--color-accent-warm) 12%, var(--color-surface)), var(--color-surface));
+    border-radius: var(--radius-md); padding: var(--space-3); }
+
+  .muted { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+  .flex { display: flex; align-items: center; gap: var(--space-2); }
+  .between { justify-content: space-between; }
 </style>
 </head>
 <body>
@@ -59,12 +150,522 @@
   <button class="demo-toggle" id="theme-toggle" type="button">🌙 Dark Mode</button>
 </div>
 
-<div class="demo-empty">
-  <svg viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></svg>
-  <strong>Alle bisher gesammelten Punkte sind umgesetzt.</strong>
-  <p>Diese Seite sammelt zukünftige Vorher/Nachher-Beispiele für neue visuelle Verbesserungstipps —
-     bei der nächsten Runde kommen hier wieder Sektionen dazu.</p>
-</div>
+<p class="demo-intro">Vorher/Nachher zu allen visuellen Verbesserungstipps (9 Tabs × 3). Links jeweils der aktuelle
+Stand mit bestehenden Klassen, rechts der Vorschlag. Die „Nachher"-Bausteine sind Demo-Prototypen
+(<code>d-*</code>-Klassen in dieser Datei) — noch nicht in <code>main.css</code>. Theme-Toggle oben rechts.</p>
+
+<!-- ============ 1 · HEUTE ============ -->
+<section class="tab">
+  <h2>1 · Heute</h2>
+
+  <div class="tip">
+    <h3>1.1 Progress-Ring nach oben ziehen</h3>
+    <p>Der „X% geschafft"-Ring ist die emotionale Kernaussage, sitzt aktuell aber unter mehreren Widget-Karten.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame">
+          <strong>Guten Abend, Sven</strong>
+          <div class="d-row"><span>📅 Termine</span></div>
+          <div class="d-row"><span>🎂 Geburtstage</span></div>
+          <div class="flex" style="opacity:.9"><div class="d-ring" style="--p:65%"><span>65%</span></div><span class="muted">4 von 6 erledigt</span></div>
+        </div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame">
+          <div class="flex between"><strong>Guten Abend, Sven</strong><span class="muted">Sa · 26. Juli</span></div>
+          <div class="flex"><div class="d-ring" style="--p:65%"><span>65%</span></div>
+            <div><strong>Guter Lauf heute</strong><br><span class="muted">4 von 6 erledigt — 2 kleine Wins fehlen</span></div></div>
+          <div class="d-row"><span>📅 Termine</span></div>
+          <div class="d-row"><span>🎂 Geburtstage</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>1.2 Widget-Karten farblich unterscheiden</h3>
+    <p>Termine, Geburtstage und Kaufbereit sehen identisch aus. Eine Akzentkante links macht sie beim Scrollen sofort unterscheidbar.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame">
+          <div class="d-row"><span>📅 Anstehende Termine</span></div>
+          <div class="d-row"><span>🎂 Geburtstage</span></div>
+          <div class="d-row"><span>🛒 Kaufbereit</span></div>
+        </div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame">
+          <div class="d-row d-evt" style="--c:var(--color-accent)"><span>📅 Anstehende Termine</span></div>
+          <div class="d-row d-evt" style="--c:var(--color-accent-warm)"><span>🎂 Geburtstage</span></div>
+          <div class="d-row d-evt" style="--c:var(--color-success)"><span>🛒 Kaufbereit</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>1.3 Quick-Win-Card hervorheben</h3>
+    <p>Der „schnappbare Erfolg" ist konzeptionell ein Highlight, sitzt aber optisch flach zwischen den Listen.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame">
+          <div class="d-row"><span>⚡</span><span class="grow">Müll rausbringen</span><span class="muted">5 min</span></div>
+        </div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame">
+          <div class="d-hero flex"><span style="font-size:1.3rem">⚡</span>
+            <div class="grow"><span class="d-badge" style="--b:var(--color-accent-warm)">Quick Win</span><br><strong>Müll rausbringen</strong></div>
+            <span class="muted">5 min</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 2 · ÜBERSICHT ============ -->
+<section class="tab">
+  <h2>2 · Übersicht</h2>
+
+  <div class="tip">
+    <h3>2.1 Bereichs-Header mit Farbe füllen</h3>
+    <p>Die Bereichsfarbe existiert, ist aber nur eine 3px-Kante an der Zeile. Als farbige Pill + zarter Tint wird sie strukturgebend.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame">
+          <strong>Haushalt</strong>
+          <div class="d-row" style="border-left:3px solid var(--color-accent)"><span class="grow">Wäsche</span></div>
+          <div class="d-row" style="border-left:3px solid var(--color-accent)"><span class="grow">Einkaufen</span></div>
+        </div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame">
+          <div class="flex" style="background:color-mix(in srgb,var(--color-accent) 12%,transparent);padding:6px 10px;border-radius:var(--radius-sm)">
+            <span class="d-dot" style="--c:var(--color-accent)"></span><strong>Haushalt</strong></div>
+          <div class="d-row"><span class="grow">Wäsche</span></div>
+          <div class="d-row"><span class="grow">Einkaufen</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>2.2 Fortschritt pro Bereich</h3>
+    <p>Ein Mini-Balken „3/8" neben dem Bereichsnamen macht die Übersicht auf einen Blick lesbar.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame">
+          <strong>Haushalt</strong>
+          <strong>Finanzen</strong>
+          <strong>Gesundheit</strong>
+        </div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame">
+          <div><div class="flex between"><strong>Haushalt</strong><span class="muted">3/8</span></div><div class="d-bar" style="margin-top:4px"><i style="width:38%"></i></div></div>
+          <div><div class="flex between"><strong>Finanzen</strong><span class="muted">5/6</span></div><div class="d-bar" style="margin-top:4px"><i style="width:83%;background:var(--color-success)"></i></div></div>
+          <div><div class="flex between"><strong>Gesundheit</strong><span class="muted">1/9</span></div><div class="d-bar" style="margin-top:4px"><i style="width:11%;background:var(--color-warning)"></i></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>2.3 Aktiven Ansichts-Modus klar markieren</h3>
+    <p>Liste-vs-Kanban-Toggle wirkt wie nackter Text. Aktiver Modus als gefüllter Chip zeigt den Zustand ohne Lesen.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-toggle-row"><span class="muted">≡ Filter</span><span class="muted">▦ Kanban</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame"><div class="d-toggle-row"><span class="d-tog">≡ Liste</span><span class="d-tog on">▦ Kanban</span></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 3 · PLAN ============ -->
+<section class="tab">
+  <h2>3 · Plan</h2>
+
+  <div class="tip">
+    <h3>3.1 Monatskalender mit Auslastungs-Punkten</h3>
+    <p>Tage mit geplanten Aufgaben bekommen einen Punkt (Größe = Dichte) — der Kalender wird zur Info-Grafik.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-cal">
+          <span>21</span><span>22</span><span>23</span><span>24</span><span>25</span><span>26</span><span>27</span>
+        </div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame"><div class="d-cal">
+          <span class="load" style="--w:4px">21</span><span>22</span><span class="load" style="--w:10px">23</span>
+          <span class="load hi" style="--w:18px">24</span><span>25</span><span class="hi">26</span><span class="load" style="--w:6px">27</span>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>3.2 Primär-Aktion absetzen, Export degradieren</h3>
+    <p>Fünf gleiche Panels untereinander. „Plan bestätigen" als klarer Primär-CTA, Export als leiser Footer.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame">
+          <button class="btn" style="width:100%">Plan bestätigen</button>
+          <button class="btn" style="width:100%">Offene Aufgaben kopieren</button>
+          <button class="btn" style="width:100%">Alle Daten exportieren</button>
+        </div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame">
+          <button class="btn" style="width:100%;font-size:var(--font-size-lg);min-height:52px">Plan bestätigen</button>
+          <div class="flex" style="margin-top:var(--space-3);border-top:1px solid var(--color-border);padding-top:var(--space-2)">
+            <span class="muted">Export:</span>
+            <button class="d-chip" style="cursor:pointer">Aufgaben kopieren</button>
+            <button class="d-chip" style="cursor:pointer">JSON-Datei</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>3.3 Budget als Balken statt Text</h3>
+    <p>„genutzte vs. verfügbare Minuten" als Fortschrittsbalken passt zum Effort-Konzept und ist schneller erfassbar.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><p class="muted">Budget: 90 von 120 Min verplant</p></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame">
+          <div class="flex between"><strong>Tagesbudget</strong><span class="muted">90 / 120 min</span></div>
+          <div class="d-bar" style="height:10px"><i style="width:75%"></i></div>
+          <span class="muted" style="font-size:.72rem">30 min frei</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 4 · HABITS ============ -->
+<section class="tab">
+  <h2>4 · Habits</h2>
+
+  <div class="tip">
+    <h3>4.1 Streak sichtbar machen</h3>
+    <p>Das Flame-Icon existiert schon. Der aktuelle Streak gehört prominent in jede Zeile — er ist der Motivations-Kern.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-row"><span>⬜</span><span class="grow">Gym</span></div><div class="d-row"><span>⬜</span><span class="grow">Lesen</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame">
+          <div class="d-row"><span>⬜</span><span class="grow">Gym</span><span class="d-flame"><svg viewBox="0 0 24 24"><path d="M12 2c1 3-3 4-3 8a3 3 0 0 0 6 0c1.5 1 2 3 2 4.5A5.5 5.5 0 0 1 6 14.5C6 9 12 7 12 2z"/></svg>12</span></div>
+          <div class="d-row"><span>⬜</span><span class="grow">Lesen</span><span class="d-flame"><svg viewBox="0 0 24 24"><path d="M12 2c1 3-3 4-3 8a3 3 0 0 0 6 0c1.5 1 2 3 2 4.5A5.5 5.5 0 0 1 6 14.5C6 9 12 7 12 2z"/></svg>3</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>4.2 7-Tage-Mini-Heatmap</h3>
+    <p>Eine Reihe aus 7 Quadraten (erledigt = gefüllt) gibt sofort ein Gefühl für Konstanz — „don't break the chain".</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-row"><span class="grow">Gym</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame"><div class="d-row"><span class="grow">Gym</span>
+          <span class="d-heat"><i class="on"></i><i class="on"></i><i></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>4.3 Habits sind keine Tasks</h3>
+    <p>Aktuell reine graue Task-Zeilen. Größere Kacheln mit eigener Akzentfarbe grenzen den Habit-Charakter ab.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-row"><span>⬜</span><span class="grow">Gym</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame"><div style="border:1px solid color-mix(in srgb,var(--color-success) 35%,var(--color-border));border-left:4px solid var(--color-success);border-radius:var(--radius-md);padding:var(--space-3);display:flex;align-items:center;gap:var(--space-3)">
+          <span style="font-size:1.4rem">💪</span><div class="grow"><strong>Gym</strong><br><span class="muted" style="font-size:.72rem">Ziel: 3× / Woche</span></div>
+          <span class="d-flame"><svg viewBox="0 0 24 24"><path d="M12 2c1 3-3 4-3 8a3 3 0 0 0 6 0c1.5 1 2 3 2 4.5A5.5 5.5 0 0 1 6 14.5C6 9 12 7 12 2z"/></svg>12</span></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 5 · FINANZEN ============ -->
+<section class="tab">
+  <h2>5 · Finanzen</h2>
+
+  <div class="tip">
+    <h3>5.1 Pot-Cards mit Füllstands-Balken</h3>
+    <p>Ein Balken „aktuell / Ziel" in Topffarbe macht „wie voll ist Freiheit?" ohne Kopfrechnen sichtbar.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-row" style="display:block"><span class="muted">Freiheit</span><br><strong>420 €</strong></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame"><div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3)">
+          <div class="flex between"><span class="flex"><span class="d-dot" style="--c:var(--color-accent-warm)"></span>Freiheit</span><strong>420 € <span class="muted" style="font-weight:400">/ 600</span></strong></div>
+          <div class="d-bar" style="margin-top:8px"><i style="width:70%;background:var(--color-accent-warm)"></i></div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>5.2 Leere Panels zu kompakten Zeilen</h3>
+    <p>Fixkosten/Verpflichtende/Schulden sind drei große Panels für je eine Zeile. Kompakt mit Summe rechts.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame">
+          <div class="panel" style="margin:0"><div class="flex between"><h2 style="font-size:1rem">Fixkosten</h2><span>⚙</span></div></div>
+          <div class="panel" style="margin:0"><div class="flex between"><h2 style="font-size:1rem">Schulden</h2><span>⚙</span></div></div>
+        </div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame">
+          <div class="d-row"><span class="grow">Fixkosten</span><span class="d-pill">842 €</span><span class="muted">›</span></div>
+          <div class="d-row"><span class="grow">Verpflichtende Ausgaben</span><span class="d-pill">210 €</span><span class="muted">›</span></div>
+          <div class="d-row"><span class="grow">Schulden</span><span class="d-pill" style="color:var(--color-danger)">1.500 €</span><span class="muted">›</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>5.3 Transaktionsliste wie ein Kassenbon</h3>
+    <p>Betrag rechtsbündig & monospaced, Vorzeichen farbig (Einnahme/Ausgabe), Topf-Farbpunkt links.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame">
+          <div class="d-row"><span class="grow">Rewe Einkauf</span><span>-32,40</span></div>
+          <div class="d-row"><span class="grow">Gehalt</span><span>2400,00</span></div>
+        </div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame">
+          <div class="d-row"><span class="d-dot" style="--c:var(--color-cat-essen)"></span><span class="grow">Rewe Einkauf</span><span class="d-pill" style="color:var(--color-danger)">−32,40 €</span></div>
+          <div class="d-row"><span class="d-dot" style="--c:var(--color-success)"></span><span class="grow">Gehalt</span><span class="d-pill" style="color:var(--color-success)">+2.400,00 €</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 6 · FERNSEHPROGRAMM ============ -->
+<section class="tab">
+  <h2>6 · Fernsehprogramm</h2>
+
+  <div class="tip">
+    <h3>6.1 Poster-Grid statt Textzeilen</h3>
+    <p>Medien leben von Bildern. Ein Karten-Grid mit Cover-/Icon-Slot ist die größte visuelle Verbesserung hier.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-row"><span class="grow">Severance</span></div><div class="d-row"><span class="grow">Dune</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame"><div class="d-grid">
+          <div class="d-card"><div class="d-thumb" style="--c:var(--color-accent)">📺</div><div class="body"><strong>Severance</strong></div></div>
+          <div class="d-card"><div class="d-thumb" style="--c:var(--color-accent-warm)">🎬</div><div class="body"><strong>Dune</strong></div></div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>6.2 Typ als farbige Badge</h3>
+    <p>Serie/Anime/Film/Doku/YouTube brauchen unterscheidbare Farb-Pills — dieselbe Codierung wie in den Filtern.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-row"><span class="grow">Frieren</span><span class="muted">anime</span></div><div class="d-row"><span class="grow">Planet Earth</span><span class="muted">doku</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame">
+          <div class="d-row"><span class="grow">Frieren</span><span class="d-badge" style="--b:var(--color-cat-gesundheit)">Anime</span></div>
+          <div class="d-row"><span class="grow">Planet Earth</span><span class="d-badge" style="--b:var(--color-success)">Doku</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>6.3 Bewertung als Badge</h3>
+    <p>Das Ø-Rating (als Filter schon da) als kleine Zahl-Badge in der Ecke jeder Karte.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-row"><span class="grow">Severance</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame"><div class="d-grid">
+          <div class="d-card"><div class="d-corner"><span class="d-badge" style="--b:var(--color-accent-warm)">★ 9.1</span></div><div class="d-thumb" style="--c:var(--color-accent)">📺</div><div class="body"><strong>Severance</strong></div></div>
+          <div class="d-card"><div class="d-corner"><span class="d-badge" style="--b:var(--color-text-muted)">★ 7.4</span></div><div class="d-thumb" style="--c:var(--color-accent-warm)">🎬</div><div class="body"><strong>Dune</strong></div></div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 7 · REZEPTE ============ -->
+<section class="tab">
+  <h2>7 · Rezepte</h2>
+
+  <div class="tip">
+    <h3>7.1 Karten-Grid mit Foto-Slot</h3>
+    <p>Rezepte als 2-spaltige Kacheln mit Bild-/Icon-Kopf statt flacher Liste — kochbuch-artig, lädt zum Stöbern ein.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-row"><span class="grow">Spaghetti Carbonara</span></div><div class="d-row"><span class="grow">Chili sin Carne</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame"><div class="d-grid">
+          <div class="d-card"><div class="d-thumb" style="--c:var(--color-accent-warm)">🍝</div><div class="body"><strong>Carbonara</strong></div></div>
+          <div class="d-card"><div class="d-thumb" style="--c:var(--color-success)">🌶️</div><div class="body"><strong>Chili sin Carne</strong></div></div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>7.2 Meta-Chips (Dauer / Portionen)</h3>
+    <p>Kleine Chips für Dauer, Portionen, Hauptzutat geben jeder Karte Substanz und Wiedererkennung.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-row"><span class="grow">Carbonara</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame"><div class="d-card" style="max-width:220px"><div class="d-thumb" style="--c:var(--color-accent-warm)">🍝</div>
+          <div class="body"><strong>Carbonara</strong><div class="d-chips"><span class="d-chip">⏱ 20 min</span><span class="d-chip">2 Port.</span><span class="d-chip">Pasta</span></div></div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>7.3 „Kochbar jetzt"-Signal</h3>
+    <p>Bei Abgleich mit dem Kühlschrank ein grünes Badge — verbindet Rezepte und Kühlschrank sichtbar.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-row"><span class="grow">Carbonara</span></div><div class="d-row"><span class="grow">Chili sin Carne</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame">
+          <div class="d-row"><span class="grow">Carbonara</span><span class="d-badge" style="--b:var(--color-success)">✓ kochbar</span></div>
+          <div class="d-row"><span class="grow">Chili sin Carne</span><span class="d-badge" style="--b:var(--color-warning)">2 fehlen</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 8 · KÜHLSCHRANK ============ -->
+<section class="tab">
+  <h2>8 · Kühlschrank</h2>
+
+  <div class="tip">
+    <h3>8.1 Nach Kategorie gruppieren mit Icons</h3>
+    <p>Kühlschrank/Tiefkühl/Vorrat/Gewürze als Abschnitte mit eigenem Icon + Farbe spiegeln die Ordnung einer Küche.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-row"><span class="grow">Milch</span></div><div class="d-row"><span class="grow">Erbsen TK</span></div><div class="d-row"><span class="grow">Reis</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame">
+          <div class="d-section-head" style="--c:var(--color-accent)"><svg viewBox="0 0 24 24"><path d="M5 2h14v20H5z"/></svg>Kühlschrank</div>
+          <div class="d-row"><span class="grow">Milch</span></div>
+          <div class="d-section-head" style="--c:var(--color-cat-gesundheit)"><svg viewBox="0 0 24 24"><path d="M12 2v20M2 12h20"/></svg>Tiefkühl</div>
+          <div class="d-row"><span class="grow">Erbsen TK</span></div>
+          <div class="d-section-head" style="--c:var(--color-accent-warm)"><svg viewBox="0 0 24 24"><path d="M4 7h16v13H4z"/></svg>Vorrat</div>
+          <div class="d-row"><span class="grow">Reis</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>8.2 Mengen-Pille rechts</h3>
+    <p>Die Menge als eigene Pille rechtsbündig, damit Name und Menge nicht in einer Textzeile verschwimmen.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-row"><span class="grow">Reis — 500g</span></div><div class="d-row"><span class="grow">Milch — 1L</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame"><div class="d-row"><span class="grow">Reis</span><span class="d-pill">500 g</span></div><div class="d-row"><span class="grow">Milch</span><span class="d-pill">1 L</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>8.3 Ablauf-/Frische-Signal</h3>
+    <p>Farbcodierung frisch → wird knapp → alt — dieselbe Logik wie die bestehenden <code>is-due-soon</code>/<code>is-overdue</code>-Task-States.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-row"><span class="grow">Joghurt</span></div><div class="d-row"><span class="grow">Hack</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame">
+          <div class="d-row" style="border-left:3px solid var(--color-success)"><span class="grow">Reis</span><span class="d-badge" style="--b:var(--color-success)">frisch</span></div>
+          <div class="d-row" style="border-left:3px solid var(--color-warning)"><span class="grow">Joghurt</span><span class="d-badge" style="--b:var(--color-warning)">2 Tage</span></div>
+          <div class="d-row" style="border-left:3px solid var(--color-danger)"><span class="grow">Hack</span><span class="d-badge" style="--b:var(--color-danger)">heute!</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 9 · GAMING ============ -->
+<section class="tab">
+  <h2>9 · Gaming-Backlog</h2>
+
+  <div class="tip">
+    <h3>9.1 Status-Farbe & „Spiele gerade"-Hero</h3>
+    <p>Status braucht klare Farbcodierung; das aktuell gespielte Spiel als Hero-Karte oben absetzen.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-row"><span class="grow">Elden Ring</span><span class="muted">playing</span></div><div class="d-row"><span class="grow">Hades</span><span class="muted">backlog</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame">
+          <div class="d-hero flex"><span style="font-size:1.4rem">🎮</span><div class="grow"><span class="d-badge" style="--b:var(--color-success)">Spiele gerade</span><br><strong>Elden Ring</strong></div></div>
+          <div class="d-row"><span class="grow">Hades</span><span class="d-badge" style="--b:var(--color-text-muted)">Backlog</span></div>
+          <div class="d-row"><span class="grow">Celeste</span><span class="d-badge" style="--b:var(--color-accent)">Durch</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>9.2 Plattform-Badge</h3>
+    <p>Plattform (PC/PS/Switch) als kleines Icon/Pill statt Textzeile.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-row"><span class="grow">Elden Ring — PC</span></div><div class="d-row"><span class="grow">Zelda — Switch</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame"><div class="d-row"><span class="grow">Elden Ring</span><span class="d-chip">🖥 PC</span></div><div class="d-row"><span class="grow">Zelda TOTK</span><span class="d-chip">🎮 Switch</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>9.3 Backlog-Stat-Leiste oben</h3>
+    <p>„12 Backlog · 3 gespielt · 5 durch" gibt dem Screen einen Kopf und ein Gefühl für Größe.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><strong>Gaming-Backlog</strong><div class="d-row"><span class="grow">Elden Ring</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame">
+          <div class="d-stat"><div><b>12</b><small>Backlog</small></div><div><b style="color:var(--color-success)">3</b><small>Am Spielen</small></div><div><b style="color:var(--color-accent)">5</b><small>Durch</small></div></div>
+          <div class="d-row"><span class="grow">Elden Ring</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
 
 <script>
   const toggle = document.getElementById("theme-toggle");

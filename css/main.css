@@ -304,6 +304,41 @@ body {
   border: 1px solid var(--color-border);
 }
 
+/* Betonter Primär-CTA (z.B. "Plan bestätigen") — größer, volle Breite, leichter Schatten, damit die
+   entscheidende Aktion sich klar von den umliegenden Sekundär-Panels abhebt. */
+.btn-cta {
+  width: 100%;
+  min-height: 52px;
+  font-size: var(--font-size-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Export bewusst als leiser Footer statt vollwertiges Panel — kleinere, gedämpfte Überschrift und
+   nebeneinander liegende Sekundär-Buttons. */
+.plan-export {
+  background: transparent;
+  border-style: dashed;
+  box-shadow: none;
+}
+
+.plan-export h2 {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.plan-export-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.plan-export-row .btn {
+  flex: 1 1 auto;
+  min-height: 40px;
+  font-size: var(--font-size-sm);
+}
+
 .status-message {
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
@@ -343,7 +378,14 @@ body {
   border-radius: var(--radius-md);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
+  /* Farbige Akzentkante links macht die sonst identischen Karten (Termine/Geburtstage/Kaufbereit)
+     beim Scrollen auf einen Blick unterscheidbar. */
+  border-left: 3px solid var(--widget-accent, var(--color-border));
 }
+
+#events-widget { --widget-accent: var(--color-accent); }
+#birthdays-widget { --widget-accent: var(--color-accent-warm); }
+#buyready-card { --widget-accent: var(--color-success); }
 
 .events-widget-header {
   display: flex;
@@ -413,7 +455,7 @@ body {
 }
 
 .progress-hero {
-  margin-top: var(--space-6);
+  margin-top: var(--space-5);
   display: flex;
   align-items: center;
   gap: var(--space-4);
@@ -431,8 +473,15 @@ body {
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--color-accent-warm) 12%, var(--color-surface));
-  border: 1px solid color-mix(in srgb, var(--color-accent-warm) 40%, var(--color-border));
+  /* Sichtbarer Verlauf + kräftigere Kante heben den "schnappbaren Erfolg" aus den grauen
+     Listenzeilen heraus, statt flach dazwischen zu liegen. */
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-accent-warm) 16%, var(--color-surface)),
+    var(--color-surface)
+  );
+  border: 1px solid color-mix(in srgb, var(--color-accent-warm) 45%, var(--color-border));
+  border-left: 4px solid var(--color-accent-warm);
 }
 
 .quick-win-icon {
@@ -440,8 +489,24 @@ body {
   flex-shrink: 0;
 }
 
-.quick-win-card .task-title {
+.quick-win-body {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.quick-win-eyebrow {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-accent-warm);
+}
+
+.quick-win-card .task-title {
+  flex: none;
 }
 
 /* Hero-Ring statt schmalem Balken — der Tagesfortschritt ist der "geschafft"-Moment des Tages und
@@ -894,41 +959,67 @@ body.has-bg-image .task-item {
   margin-top: 2px;
 }
 
-.streak-flame {
+/* Rechts-Cluster der eingeklappten Habit-Zeile: 7-Tage-Completion-Heatmap + Streak-Badge. */
+.habit-metrics {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.habit-heatmap {
+  display: flex;
+  gap: 3px;
+}
+
+.habit-heat-cell {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: var(--color-border);
+}
+
+/* erledigt = gefüllt (success), fällig-aber-offen = umrandet, nicht fällig = blasse Grundfläche. */
+.habit-heat-cell.done {
+  background: var(--color-success);
+}
+
+.habit-heat-cell.due {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--color-text-subtle) 60%, transparent);
+}
+
+.habit-heat-cell.off {
+  background: color-mix(in srgb, var(--color-border) 55%, transparent);
+}
+
+/* Prominenter Streak-Badge (Flamme + Zahl) — der Motivations-Kern, jetzt rechtsbündig statt klein
+   im Frequenz-Text vergraben. */
+.habit-streak-badge {
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--color-accent-warm) 16%, transparent);
   color: var(--color-accent-warm);
-  font-weight: 600;
+  font-weight: 700;
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
 }
 
-.streak-flame svg {
-  width: 13px;
-  height: 13px;
+.habit-streak-badge svg {
+  width: 14px;
+  height: 14px;
   fill: var(--color-accent-warm);
   stroke: none;
   flex-shrink: 0;
 }
 
-.habit-dotrow {
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.habit-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: var(--radius-full);
-  background: var(--color-border);
-}
-
-.habit-dot.active {
-  background: var(--color-accent);
-}
-
-.habit-dot.is-today.active {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 35%, transparent);
+.habit-streak-badge.is-total {
+  background: color-mix(in srgb, var(--color-success) 16%, transparent);
+  color: var(--color-success);
 }
 
 .habit-body .habit-expanded {
@@ -1139,6 +1230,43 @@ body.has-bg-image .task-item {
   border-color: currentColor;
 }
 
+/* Segmentierter Liste/Kanban-Umschalter — der aktive Modus ist als gefüllter Chip markiert. */
+.view-mode-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.view-mode-opt {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 34px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-full);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.view-mode-opt svg {
+  width: 15px;
+  height: 15px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.view-mode-opt.is-active {
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
 .filter-count {
   display: inline-flex;
   align-items: center;
@@ -1294,6 +1422,216 @@ body.has-bg-image .task-item {
 }
 
 .tx-amount-income.input {
+  font-weight: 600;
+}
+
+/* Beträge tabellarisch für Kassenbon-Lesbarkeit (gleiche Ziffernbreite, sauber untereinander). */
+.tx-line-amount .input {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Kompakte Finanz-Verwalten-Zeilen (Fixkosten/Verpflichtende/Schulden) mit Summe rechts. */
+.finance-manage {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding-block: var(--space-1);
+}
+
+.finance-manage-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--touch-target);
+  padding: var(--space-2) 0;
+  color: var(--color-text);
+}
+
+.finance-manage-row + .finance-manage-row {
+  border-top: 1px solid var(--color-border);
+}
+
+.fm-label {
+  flex: 1;
+  font-weight: 600;
+}
+
+.fm-sum {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+.fm-sum.is-danger {
+  color: var(--color-danger);
+}
+
+.fm-chevron svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+  stroke: var(--color-text-subtle);
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Rezept-Karten-Grid (statt flacher Task-Liste) — Icon-Cover, Meta-Chips, Kochbar-Badge. */
+.recipe-grid {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.recipe-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.recipe-cover {
+  aspect-ratio: 16 / 10;
+  display: grid;
+  place-items: center;
+  font-size: 2rem;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--color-accent-warm) 22%, var(--color-surface)), var(--color-surface));
+}
+
+.recipe-card-body {
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.recipe-card-title {
+  font-weight: 600;
+}
+
+.recipe-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.recipe-chip {
+  font-size: 0.7rem;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.recipe-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.recipe-badge.is-ready {
+  background: var(--color-success);
+}
+
+.recipe-badge.is-missing {
+  background: var(--color-warning);
+}
+
+/* Kühlschrank nach Kategorie gruppiert — Icon-Überschrift je Abschnitt (Farbe = Kategoriefarbe). */
+.pantry-group + .pantry-group {
+  margin-top: var(--space-4);
+}
+
+.pantry-group-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-1);
+  border-bottom: 2px solid color-mix(in srgb, var(--c, var(--color-border)) 45%, var(--color-border));
+  font-weight: 700;
+  font-size: var(--font-size-sm);
+}
+
+.pantry-group-icon {
+  font-size: 1.1rem;
+}
+
+.pantry-group-title {
+  flex: 1;
+  color: var(--c, var(--color-text));
+}
+
+.pantry-name {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Menge als kompakte Pille (rechtsbündig, feste Breite) — bleibt editierbar, sieht aber nicht mehr
+   wie ein volles Eingabefeld in der Zeile aus. */
+.pantry-amount.input {
+  flex-shrink: 0;
+  width: 84px;
+  text-align: right;
+  border-radius: var(--radius-full);
+  background: var(--color-bg);
+  font-size: var(--font-size-sm);
+}
+
+/* Gaming-Backlog: Stat-Leiste, hervorgehobene "Spiele gerade"-Zeile, Plattform-Badge. */
+.games-stats {
+  display: flex;
+  gap: var(--space-5);
+  padding: var(--space-2) 0 var(--space-4);
+  margin-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.games-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.games-stat b {
+  font-size: var(--font-size-xl);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.games-stat small {
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+}
+
+.game-item.is-playing {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--color-success) 12%, var(--color-surface)), var(--color-surface));
+  border-color: color-mix(in srgb, var(--color-success) 45%, var(--color-border));
+  border-left-width: 4px;
+}
+
+.game-platform {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
   font-weight: 600;
 }
 
@@ -1590,9 +1928,62 @@ body.has-bg-image .task-item {
 /* Plan view */
 
 .plan-budget {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.plan-budget-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.plan-budget-head strong {
+  color: var(--color-text);
+}
+
+.plan-budget-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-budget-nums.is-over {
+  color: var(--color-danger);
+  font-weight: 700;
+}
+
+.plan-budget-bar {
+  display: flex;
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.plan-budget-fill {
+  height: 100%;
+  transition: width var(--transition-base);
+}
+
+.plan-budget-fill.committed {
+  background: var(--color-accent);
+}
+
+.plan-budget-fill.suggested {
+  background: var(--color-accent-warm);
+}
+
+.plan-budget-bar.is-over .plan-budget-fill.committed,
+.plan-budget-bar.is-over .plan-budget-fill.suggested {
+  background: var(--color-danger);
+}
+
+.plan-budget-legend {
+  font-size: 0.72rem;
 }
 
 .plan-date {
@@ -1990,14 +2381,34 @@ body.has-bg-image .task-item {
 
 .watchlist-active-card {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
+  align-items: stretch;
+  gap: var(--space-3);
   padding: var(--space-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface-raised);
   box-shadow: var(--shadow-sm);
   cursor: pointer;
+}
+
+/* Cover-Kachel (Typ-Icon auf getöntem Verlauf) — gibt der Aktiv-Karte eine posterartige Präsenz,
+   solange es kein echtes Cover-Bild-Feld gibt. */
+.watchlist-cover {
+  flex-shrink: 0;
+  width: 46px;
+  border-radius: var(--radius-sm);
+  display: grid;
+  place-items: center;
+  font-size: 1.5rem;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--b) 32%, var(--color-surface)), var(--color-surface));
+}
+
+.watchlist-active-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
 .watchlist-active-top {
@@ -2008,8 +2419,26 @@ body.has-bg-image .task-item {
 }
 
 .watchlist-active-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
   color: var(--color-text-subtle);
   font-size: 0.9rem;
+}
+
+/* Farbige Typ-Badge (Serie/Anime/Film/Doku/YouTube) — gleiche Farbcodierung wie die Filter-Chips. */
+.wl-type-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--b, var(--color-accent)) 16%, transparent);
+  color: var(--b, var(--color-accent));
+  font-size: 0.72rem;
+  font-weight: 700;
+  vertical-align: middle;
+  margin-right: var(--space-2);
 }
 
 .watchlist-filter-chips {
@@ -2045,6 +2474,28 @@ body.has-bg-image .task-item {
   flex: 1;
   font-weight: 600;
   cursor: pointer;
+}
+
+/* Mini-Fortschrittsbalken im Bereichs-Header (erledigt/gesamt) — Füllfarbe = Bereichsfarbe. */
+.area-progress {
+  width: 44px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.area-progress[hidden] {
+  display: none;
+}
+
+.area-progress-fill {
+  display: block;
+  height: 100%;
+  width: calc(var(--pct, 0) * 1%);
+  background: var(--area-color, var(--color-success));
+  transition: width var(--transition-base);
 }
 
 .tree-toggle {
