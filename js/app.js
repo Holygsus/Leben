@@ -6844,6 +6844,20 @@ function buildBookItem(book) {
       await deleteBook(book.id);
       await reloadBooks();
     });
+    showToast(`„${book.title}" entfernt.`, false, {
+      label: "Rückgängig",
+      onClick: () =>
+        withErrorToast(async () => {
+          await createBook({
+            title: book.title,
+            author: book.author,
+            totalPages: book.total_pages,
+            status: book.status,
+            genre: book.genre,
+          });
+          await reloadBooks();
+        }),
+    });
   });
 
   li.append(title, statusSelect, pageInput, meta, addPages, deleteBtn);
