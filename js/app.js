@@ -5559,9 +5559,17 @@ function renderWatchlistWeek() {
         return `<li class="task-item"><span class="task-title">${label} — <span class="status-message">frei</span></span></li>`;
       }
       const item = itemsById.get(task.watchlist_item_id);
+      const titleText = `${label} — ${escapeHtml(item ? item.title : task.title)}${buildCurrentEpisodeLabel(item)}`;
+      // Bereits abgeschlossene Slots: als erledigt zeigen, keine Aktionen mehr. Watchlist-Tasks
+      // erscheinen seit der Governance-Entscheidung 2026-07-25 nicht mehr in Heute, daher wird die
+      // Folge hier im Tab abgeschlossen (siehe wissensdatenbank/features/watchlist-fernsehprogramm.md).
+      if (task.status === "done") {
+        return `<li class="task-item watchlist-slot-done"><span class="task-title">✓ ${titleText}</span></li>`;
+      }
       return `
         <li class="task-item">
-          <span class="task-title">${label} — ${escapeHtml(item ? item.title : task.title)}${buildCurrentEpisodeLabel(item)}</span>
+          <span class="task-title">${titleText}</span>
+          <button type="button" class="icon-btn watchlist-watched-btn" data-task-id="${task.id}" aria-label="Als geschaut abschließen">✓</button>
           <button type="button" class="icon-btn watchlist-swap-btn" data-task-id="${task.id}" aria-label="Tauschen">⇄</button>
         </li>`;
     })
@@ -5570,6 +5578,22 @@ function renderWatchlistWeek() {
 
   list.querySelectorAll(".watchlist-swap-btn").forEach((btn) => {
     btn.addEventListener("click", () => openWatchlistSwapPicker(btn.dataset.taskId));
+  });
+  list.querySelectorAll(".watchlist-watched-btn").forEach((btn) => {
+    btn.addEventListener("click", () => completeWatchlistSlot(btn.dataset.taskId));
+  });
+}
+
+// Schließt einen verplanten Watchlist-Slot direkt im Fernsehprogramm-Tab ab: Sichtung + Bewertung
+// über den bestehenden Rating-Dialog loggen (schiebt current_episode weiter), Task auf done setzen.
+// Ersatz für den früheren Heute-Checkbox-Pfad, seit Watchlist-Tasks nicht mehr in Heute auftauchen.
+async function completeWatchlistSlot(taskId) {
+  const task = watchlistViewState.allTasks.find((t) => t.id === taskId);
+  if (!task) return;
+  await withErrorToast(async () => {
+    await promptWatchlistRating(task);
+    await completeTaskCascade(task, watchlistViewState.allTasks);
+    await renderFernsehprogrammView();
   });
 }
 
@@ -6654,6 +6678,21 @@ const GAME_STATUS_META = {
   abandoned: { color: "var(--color-danger)", order: 5 },
 };
 
+// Priorität pro Titel (nullable) — Label + Sortierrang (hoch zuerst, "keine" zuletzt).
+const GAME_PRIORITY_LABELS = { high: "Hoch", medium: "Mittel", low: "Niedrig" };
+const GAME_PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
+const gamePriorityRank = (p) => GAME_PRIORITY_ORDER[p] ?? 3;
+
+// Vergleicht zwei Spiele in der Anzeige-Reihenfolge innerhalb eines Status: Priorität, dann
+// manuelle sort_order, dann Titel. Status-Rang (Spiele-gerade oben) sitzt in renderGamesList davor.
+function compareGamesInStatus(a, b) {
+  return (
+    gamePriorityRank(a.priority) - gamePriorityRank(b.priority) ||
+    (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
+    a.title.localeCompare(b.title)
+  );
+}
+
 const gamesState = { games: [], showFinished: false };
 
 async function renderGamesView() {
@@ -6711,11 +6750,12 @@ function renderGamesList() {
     ? gamesState.games
     : gamesState.games.filter((g) => g.status !== "done" && g.status !== "abandoned");
 
-  // "Spiele gerade" nach oben, danach nach Status-Rang, innerhalb gleich nach Titel.
+  // "Spiele gerade" nach oben, danach nach Status-Rang, innerhalb eines Status nach Priorität →
+  // manueller Reihenfolge (sort_order) → Titel.
   const sorted = [...visible].sort((a, b) => {
     const oa = GAME_STATUS_META[a.status]?.order ?? 9;
     const ob = GAME_STATUS_META[b.status]?.order ?? 9;
-    return oa - ob || a.title.localeCompare(b.title);
+    return oa - ob || compareGamesInStatus(a, b);
   });
   sorted.forEach((game) => list.appendChild(buildGameItem(game)));
 }
@@ -6792,6 +6832,41 @@ function buildGameItem(game) {
     meta.textContent = game.platform;
   }
 
+  // Priorität pro Titel (Weekly-Muster "Priorisierung zwischen aktiven Titeln"). Leerwert = keine.
+  const prioritySelect = document.createElement("select");
+  prioritySelect.className = "select";
+  prioritySelect.setAttribute("aria-label", "Priorität");
+  prioritySelect.innerHTML =
+    `<option value="">Prio —</option>` +
+    Object.entries(GAME_PRIORITY_LABELS)
+      .map(([value, label]) => `<option value="${value}"${game.priority === value ? " selected" : ""}>${label}</option>`)
+      .join("");
+  prioritySelect.addEventListener("change", async () => {
+    await withErrorToast(async () => {
+      await updateGame(game.id, { priority: prioritySelect.value || null });
+      await reloadGamesList();
+    });
+  });
+
+  // Manuelle Warteschlangen-Reihenfolge innerhalb desselben Status (Feinjustierung innerhalb einer
+  // Prioritätsstufe) über sort_order-Tausch mit dem Nachbarn in der Anzeige-Reihenfolge.
+  const sameStatusSorted = gamesState.games.filter((g) => g.status === game.status).sort(compareGamesInStatus);
+  const idxInStatus = sameStatusSorted.findIndex((g) => g.id === game.id);
+  const upBtn = document.createElement("button");
+  upBtn.type = "button";
+  upBtn.className = "icon-btn";
+  upBtn.textContent = "↑";
+  upBtn.setAttribute("aria-label", "Nach oben");
+  upBtn.disabled = idxInStatus <= 0;
+  upBtn.addEventListener("click", () => moveGameInStatus(game, -1));
+  const downBtn = document.createElement("button");
+  downBtn.type = "button";
+  downBtn.className = "icon-btn";
+  downBtn.textContent = "↓";
+  downBtn.setAttribute("aria-label", "Nach unten");
+  downBtn.disabled = idxInStatus === -1 || idxInStatus >= sameStatusSorted.length - 1;
+  downBtn.addEventListener("click", () => moveGameInStatus(game, 1));
+
   const deleteBtn = document.createElement("button");
   deleteBtn.type = "button";
   deleteBtn.className = "icon-btn icon-btn-danger";
@@ -6812,14 +6887,35 @@ function buildGameItem(game) {
             platform: game.platform,
             releaseDate: game.release_date,
             priority: game.priority,
+            sortOrder: game.sort_order,
           });
           await reloadGamesList();
         }),
     });
   });
 
-  li.append(title, statusSelect, progressInput, meta, deleteBtn);
+  li.append(title, statusSelect, prioritySelect, progressInput, meta, upBtn, downBtn, deleteBtn);
   return li;
+}
+
+// Tauscht sort_order des Spiels mit dem Nachbarn (dir -1 = hoch, +1 = runter) in der Anzeige-
+// Reihenfolge desselben Status. Nutzt effektive sort_order-Werte (Fallback 0) und stellt sicher,
+// dass sich die beiden Werte tatsächlich unterscheiden, sonst bleibt die Reihenfolge unverändert.
+async function moveGameInStatus(game, dir) {
+  const group = gamesState.games.filter((g) => g.status === game.status).sort(compareGamesInStatus);
+  const idx = group.findIndex((g) => g.id === game.id);
+  const neighbor = group[idx + dir];
+  if (!neighbor) return;
+  const a = game.sort_order ?? 0;
+  const b = neighbor.sort_order ?? 0;
+  // Bei gleichem sort_order (z.B. beide Default 0) einen Versatz erzeugen, damit der Tausch greift.
+  const newGameOrder = a === b ? b + dir : b;
+  const newNeighborOrder = a === b ? a : a;
+  await withErrorToast(async () => {
+    await updateGame(game.id, { sort_order: newGameOrder });
+    if (a !== b) await updateGame(neighbor.id, { sort_order: newNeighborOrder });
+    await reloadGamesList();
+  });
 }
 
 function wireGamesQuickAddForm() {
@@ -6835,10 +6931,13 @@ function wireGamesQuickAddForm() {
     submitBtn.disabled = true;
     try {
       await withErrorToast(async () => {
+        // Neue Titel ans Ende der Warteschlange (max sort_order + 1), nicht auf den kollidierenden 0.
+        const maxSort = gamesState.games.reduce((max, g) => Math.max(max, g.sort_order ?? 0), 0);
         await createGame({
           title,
           status: statusSelect.value,
           platform: platformInput.value.trim() || null,
+          sortOrder: maxSort + 1,
         });
         showToast(`„${title}" angelegt.`);
         titleInput.value = "";

@@ -13,11 +13,11 @@ export async function listGames() {
   return data;
 }
 
-export async function createGame({ title, status = "backlog", platform = null, releaseDate = null, priority = null }) {
+export async function createGame({ title, status = "backlog", platform = null, releaseDate = null, priority = null, sortOrder = 0 }) {
   const userId = await getCurrentUserId();
   const { data, error } = await supabase
     .from("game_backlog_items")
-    .insert({ user_id: userId, title, status, platform, release_date: releaseDate, priority })
+    .insert({ user_id: userId, title, status, platform, release_date: releaseDate, priority, sort_order: sortOrder })
     .select()
     .single();
   if (error) throw error;

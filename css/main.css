@@ -344,6 +344,12 @@ body {
   font-size: var(--font-size-sm);
 }
 
+/* Abgeschlossener Watchlist-Wochen-Slot (im Tab abgehakt) — gedämpft statt aktionsfähig. */
+.watchlist-slot-done .task-title {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+
 /* Today view */
 
 .today-greeting-row {
