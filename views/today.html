@@ -55,6 +55,7 @@
   <span class="quick-win-body">
     <span class="quick-win-eyebrow">Quick Win</span>
     <span class="task-title" id="quick-win-title"></span>
+    <span class="quick-win-meta" id="quick-win-meta" hidden></span>
   </span>
   <button type="button" class="icon-btn" id="quick-win-reroll" aria-label="Neuen Quick Win würfeln">⟳</button>
 </div>
@@ -78,6 +79,10 @@
     <button type="button" class="priority-chip" data-priority="medium" data-active="true">Mittel</button>
     <button type="button" class="priority-chip" data-priority="high">Hoch</button>
   </div>
+  <label class="checkbox-label">
+    <input type="checkbox" id="brainstorm-is-event" />
+    Ist ein Termin
+  </label>
   <div class="quick-capture-actions">
     <button class="btn" type="submit">Hinzufügen</button>
     <button class="btn btn-secondary" type="button" id="quick-add-cancel">Abbrechen</button>

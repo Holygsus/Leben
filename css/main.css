@@ -515,6 +515,24 @@ body {
   flex: none;
 }
 
+/* Kontext-Zeile unter dem Quick-Win-Titel: Bereichs-Dot + -Name, plus optional die Mutteraufgabe
+   zur Zuordnung. Bewusst klein/gedämpft, damit der Titel die Karte trägt. */
+.quick-win-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-size: 0.75rem;
+  color: var(--color-text-subtle);
+}
+
+.quick-win-parent {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Hero-Ring statt schmalem Balken — der Tagesfortschritt ist der "geschafft"-Moment des Tages und
    verdient mehr Gewicht als ein dünner Strich zwischen den Widgets. */
 .progress-ring {

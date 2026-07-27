@@ -1148,6 +1148,7 @@ function hasUnsavedOverviewInput() {
 const todayViewState = {
   allTasks: [],
   areaColorById: {},
+  areaNameById: {},
   birthdays: [],
 };
 
@@ -1174,6 +1175,7 @@ async function renderTodayView() {
     listBirthdays(),
   ]);
   todayViewState.areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
+  todayViewState.areaNameById = Object.fromEntries(areas.map((a) => [a.id, a.name]));
   todayViewState.birthdays = birthdays;
   const today = todayISO();
 
@@ -1822,6 +1824,35 @@ function renderQuickWin(allTasks, tasks, today) {
   card.hidden = false;
   document.getElementById("quick-win-title").textContent = task.title;
 
+  // Bereichs-Zuordnung (Dot + Name) wie in den normalen Task-Zeilen, plus — falls die Aufgabe eine
+  // Unteraufgabe ist — ein dezenter Hinweis auf die Mutteraufgabe zur Einordnung. Ohne beides stand
+  // der Quick Win kontextlos da (z.B. „Groben Reisezeitraum 2027 festlegen" ohne erkennbaren Bereich).
+  const metaEl = document.getElementById("quick-win-meta");
+  metaEl.innerHTML = "";
+  const areaColor = todayViewState.areaColorById[task.area_id];
+  const areaName = todayViewState.areaNameById[task.area_id];
+  const parent = task.parent_task_id ? allTasks.find((t) => t.id === task.parent_task_id) : null;
+  if (areaName || parent) {
+    if (areaName) {
+      const dot = document.createElement("span");
+      dot.className = "task-area-dot";
+      dot.style.background = areaColor || "var(--color-text-subtle)";
+      metaEl.appendChild(dot);
+      const nameEl = document.createElement("span");
+      nameEl.textContent = areaName;
+      metaEl.appendChild(nameEl);
+    }
+    if (parent) {
+      const parentEl = document.createElement("span");
+      parentEl.className = "quick-win-parent";
+      parentEl.textContent = `↳ ${parent.title}`;
+      metaEl.appendChild(parentEl);
+    }
+    metaEl.hidden = false;
+  } else {
+    metaEl.hidden = true;
+  }
+
   const checkbox = document.getElementById("quick-win-checkbox");
   checkbox.dataset.checked = "false";
   checkbox.onclick = async () => {
@@ -1903,6 +1934,7 @@ function wireQuickCapture(areas, onAdded) {
   const areaSelect = document.getElementById("brainstorm-area");
   const effortGroup = document.getElementById("brainstorm-effort");
   const priorityGroup = document.getElementById("brainstorm-priority");
+  const isEventCheckbox = document.getElementById("brainstorm-is-event");
 
   areaSelect.innerHTML =
     `<option value="">Bereich (optional)</option>` +
@@ -1940,6 +1972,7 @@ function wireQuickCapture(areas, onAdded) {
     selectedEffort = DEFAULT_EFFORT;
     syncEffortChips();
     setPriority("medium");
+    isEventCheckbox.checked = false;
   };
 
   toggleBtn.addEventListener("click", () => {
@@ -1971,6 +2004,7 @@ function wireQuickCapture(areas, onAdded) {
           effort: selectedEffort,
           priority: selectedPriority,
           isBrainstorm: !areaId,
+          isEvent: isEventCheckbox.checked,
           plannedDate: todayISO(),
           status: "planned",
         });
