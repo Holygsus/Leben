@@ -63,6 +63,7 @@ import {
 import {
   WEEKDAY_CODES,
   isHabitTask,
+  findHabitsDueToday,
   autoplanDueHabits,
   weekdayCodeFromIso,
   RECURRENCE_LABEL,
@@ -125,6 +126,7 @@ const app = document.getElementById("app");
 
 const routes = {
   today: renderTodayView,
+  cockpit: renderCockpitView,
   overview: renderOverviewView,
   plan: renderPlanView,
   habits: renderHabitsView,
@@ -900,6 +902,11 @@ function updateNavBadge(count) {
 // als aktiv markiert wird (aktuelle Route liegt hinter dem Menü statt direkt in der Leiste).
 const MORE_ROUTES = [
   {
+    route: "cockpit",
+    label: "Cockpit",
+    icon: `<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>`,
+  },
+  {
     route: "plan",
     label: "Plan",
     icon: `<path d="M7 3v3M17 3v3M4 9h16M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z"/>`,
@@ -1150,6 +1157,70 @@ function hasUnsavedOverviewInput() {
     if (input.value.trim()) return true;
   }
   return false;
+}
+
+/* ---------- Cockpit ---------- */
+
+// Ruhige Kachel-Eingangs-Ebene (wissensdatenbank/features/bento-os-vision.md, Bau-Schritt 2). V1:
+// read-only, EIN Blick pro Kachel, Klick springt in den jeweiligen Tab. Nur auf heute vorhandenen
+// Daten (Habits/Tasks/Watchlist/Gaming). Bewusst kein Default-Landing — hängt vorerst im "Mehr"-
+// Menü, kann später via MORE_ROUTES/currentRoute nach vorne gezogen werden.
+async function renderCockpitView() {
+  const myGeneration = renderGeneration;
+  const container = document.getElementById("view-content");
+  const res = await fetch("views/cockpit.html");
+  if (myGeneration !== renderGeneration) return;
+  container.innerHTML = await res.text();
+
+  const today = todayISO();
+  const [allTasks, games, watchlistItems] = await Promise.all([listTasks(), listGames(), listWatchlistItems()]);
+  if (myGeneration !== renderGeneration) return;
+
+  // Habits: heute fällig + wie viele davon schon erledigt.
+  const dueHabits = findHabitsDueToday(allTasks, today);
+  const doneHabits = dueHabits.filter((t) => t.status === "done").length;
+  const habitsGlance = dueHabits.length ? `${doneHabits} / ${dueHabits.length} heute` : "nichts fällig";
+
+  // Aufgaben: offen heute (Top-Level, ohne Watchlist-Zeilen).
+  const openToday = allTasks.filter(
+    (t) => t.planned_date === today && t.status !== "done" && !t.parent_task_id && !isWatchlistTask(t)
+  ).length;
+  const tasksGlance = openToday ? `${openToday} offen` : "alles erledigt";
+
+  // Watchlist: heutiges Fernsehprogramm (verplanter Eintrag von heute), sonst "—".
+  const itemsById = new Map(watchlistItems.map((i) => [i.id, i]));
+  const todayWatch = allTasks.find((t) => isWatchlistTask(t) && t.planned_date === today);
+  const watchItem = todayWatch ? itemsById.get(todayWatch.watchlist_item_id) : null;
+  const watchGlance = todayWatch ? `${watchItem ? watchItem.title : todayWatch.title}${buildCurrentEpisodeLabel(watchItem)}` : "—";
+
+  // Gaming: aktuell gespieltes Spiel, sonst "—".
+  const playing = games.find((g) => g.status === "playing");
+  const gamingGlance = playing ? playing.title : "—";
+
+  const grid = document.getElementById("cockpit-grid");
+  grid.append(
+    buildCockpitTile("Habits", habitsGlance, "habits"),
+    buildCockpitTile("Aufgaben", tasksGlance, "today"),
+    buildCockpitTile("Watchlist", watchGlance, "fernsehprogramm"),
+    buildCockpitTile("Gaming", gamingGlance, "games")
+  );
+}
+
+function buildCockpitTile(label, glance, targetRoute) {
+  const tile = document.createElement("button");
+  tile.type = "button";
+  tile.className = "cockpit-tile";
+  const labelEl = document.createElement("span");
+  labelEl.className = "cockpit-tile-label";
+  labelEl.textContent = label;
+  const glanceEl = document.createElement("span");
+  glanceEl.className = "cockpit-tile-glance";
+  glanceEl.textContent = glance;
+  tile.append(labelEl, glanceEl);
+  tile.addEventListener("click", () => {
+    location.hash = `#/${targetRoute}`;
+  });
+  return tile;
 }
 
 /* ---------- Today ---------- */

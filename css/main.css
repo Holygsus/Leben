@@ -533,6 +533,59 @@ body {
   white-space: nowrap;
 }
 
+/* Cockpit — ruhige Kachel-Eingangs-Ebene (wissensdatenbank/features/bento-os-vision.md). Ein Blick
+   pro Kachel, read-only. Flache Glaskacheln, viel Weißraum; auf Mobile 2 Spalten. */
+.cockpit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.cockpit-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-start;
+  text-align: left;
+  min-height: 96px;
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  cursor: pointer;
+  transition: border-color var(--transition-base), transform var(--transition-base);
+}
+
+.cockpit-tile:hover {
+  border-color: var(--color-accent);
+  transform: translateY(-1px);
+}
+
+.cockpit-tile-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-subtle);
+}
+
+.cockpit-tile-glance {
+  font-size: 1.1rem;
+  font-weight: 600;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (min-width: 600px) {
+  .cockpit-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
 /* Gehalts-Einspiel-Modal: Wasserfall-Zeilen (wissensdatenbank/features/gehalt-einspielen.md). */
 .salary-waterfall {
   display: flex;
