@@ -52,6 +52,18 @@ export function computeBudgetTrend({ freiheitBudget, openReservationsMonthly, da
   return { dailyBudget, avgRecent };
 }
 
+// Wasserfall-Verteilung eines Netto-Gehalts auf die Töpfe (wissensdatenbank/features/
+// gehalt-einspielen.md, War Room 2026-07-28): feste/berechnete Beträge, Rest zu Freiheit — KEINE
+// Prozentsätze. Reine Funktion, kein DB-Zugriff. Wachstum bleibt bewusst außen vor (erst Phase 3).
+// freiheit darf negativ werden (Aufrufer sperrt dann das Bestätigen); Reihenfolge = Priorität.
+export function computeSalaryWaterfall({ netto, fixSum, sicherheitRate, debtPayment = 0 }) {
+  const fixkosten = Math.max(0, fixSum || 0);
+  const sicherheit = Math.max(0, sicherheitRate || 0);
+  const schulden = Math.max(0, debtPayment || 0);
+  const freiheit = (netto || 0) - fixkosten - sicherheit - schulden;
+  return { fixkosten, sicherheit, schulden, freiheit };
+}
+
 export async function updateTransaction(id, updates) {
   const { data, error } = await supabase.from("transactions").update(updates).eq("id", id).select().single();
   if (error) throw error;

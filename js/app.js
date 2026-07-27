@@ -46,8 +46,10 @@ import {
   clearTransactionCategory,
   slugifyCategoryKey,
   getFinanceModuleSettings,
+  updateFinanceModuleSettings,
   computeCategoryBreakdown,
   computeBudgetTrend,
+  computeSalaryWaterfall,
 } from "./finance.js";
 import {
   listWishlistItems,
@@ -4357,6 +4359,152 @@ async function renderFinanceView() {
   wireFinanceFilters();
   wireWishlistForm();
   wireTransactionQuickCapture();
+  document.getElementById("salary-distribute-open").addEventListener("click", openSalaryDistributionModal);
+}
+
+// Geführter Gehalts-Einspiel-Workflow (wissensdatenbank/features/gehalt-einspielen.md): eine Eingabe
+// (Netto) → live berechnete Wasserfall-Vorschau (Beträge überschreibbar) → Bestätigen aktiviert
+// Phase 2, setzt die Töpfe-Settings und bucht Sicherheit/Schulden. Fixkosten laufen unabhängig über
+// fixed_costs, Freiheit ist reines Monatsbudget (settings.pots.freiheit) — beide ohne eigene
+// Transaktion. Modal-Muster wie openSettingsPanel().
+function openSalaryDistributionModal() {
+  const root = document.getElementById("modal-root");
+  document.body.style.overflow = "hidden";
+
+  const fixSum = financeState.fixedCosts.reduce((sum, c) => sum + monthlyAmount(c), 0);
+  const openDebts = (financeState.debts || []).filter((d) => Number(d.remaining_amount || 0) > 0);
+  const debtTotal = openDebts.reduce((sum, d) => sum + Number(d.remaining_amount || 0), 0);
+  const hasDebts = openDebts.length > 0;
+
+  const close = () => {
+    root.innerHTML = "";
+    document.body.style.overflow = "";
+    document.removeEventListener("keydown", onKeydown);
+    closeActiveModal = null;
+  };
+  const onKeydown = (e) => {
+    if (e.key === "Escape") close();
+  };
+  document.addEventListener("keydown", onKeydown);
+  closeActiveModal = close;
+
+  root.innerHTML = `
+    <div class="modal-backdrop" id="salary-backdrop">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-label="Gehalt einspielen">
+        <h2>Gehalt einspielen</h2>
+        <label class="modal-label">
+          Netto-Gehalt (€)
+          <input class="input" type="number" id="salary-netto" step="0.01" min="0" inputmode="decimal" placeholder="z. B. 2400" />
+        </label>
+        <div class="salary-waterfall">
+          <div class="salary-row">
+            <span class="salary-row-label"><span class="task-area-dot" style="background: var(--color-text-subtle)"></span>Fixkosten</span>
+            <output class="salary-row-amount" id="salary-out-fix">${formatEuro(fixSum)}</output>
+          </div>
+          <label class="salary-row">
+            <span class="salary-row-label"><span class="task-area-dot" style="background: var(--color-accent)"></span>Sicherheit</span>
+            <input class="input salary-row-input" type="number" id="salary-in-sicherheit" step="1" min="0" inputmode="decimal" value="50" />
+          </label>
+          ${
+            hasDebts
+              ? `<label class="salary-row">
+            <span class="salary-row-label"><span class="task-area-dot" style="background: var(--color-danger)"></span>Schulden tilgen</span>
+            <input class="input salary-row-input" type="number" id="salary-in-schulden" step="1" min="0" max="${debtTotal}" inputmode="decimal" value="0" />
+          </label>`
+              : ""
+          }
+          <div class="salary-row salary-row-freiheit">
+            <span class="salary-row-label"><span class="task-area-dot" style="background: var(--color-accent-warm)"></span>Freiheit (Rest)</span>
+            <output class="salary-row-amount" id="salary-out-freiheit">${formatEuro(0)}</output>
+          </div>
+        </div>
+        <p class="salary-warning" id="salary-warning" hidden>Die Verteilung übersteigt das Gehalt.</p>
+        <p class="salary-hint">Bestätigen aktiviert Phase 2 und setzt die Topf-Ziele. Fixkosten laufen über deine erfassten Fixkosten, Freiheit ist dein Monatsbudget.</p>
+        <div class="modal-actions">
+          <button class="btn" type="button" id="salary-confirm" disabled>Bestätigen</button>
+          <button class="btn btn-secondary" type="button" id="salary-close">Abbrechen</button>
+        </div>
+      </div>
+    </div>`;
+
+  const nettoInput = document.getElementById("salary-netto");
+  const sicherheitInput = document.getElementById("salary-in-sicherheit");
+  const schuldenInput = document.getElementById("salary-in-schulden");
+  const freiheitOut = document.getElementById("salary-out-freiheit");
+  const warning = document.getElementById("salary-warning");
+  const confirmBtn = document.getElementById("salary-confirm");
+
+  const recompute = () => {
+    const netto = Number(nettoInput.value) || 0;
+    const sicherheitRate = Number(sicherheitInput.value) || 0;
+    const debtPayment = schuldenInput ? Number(schuldenInput.value) || 0 : 0;
+    const { freiheit } = computeSalaryWaterfall({ netto, fixSum, sicherheitRate, debtPayment });
+    freiheitOut.textContent = formatEuro(freiheit);
+    const invalid = netto <= 0 || freiheit < 0;
+    warning.hidden = !(netto > 0 && freiheit < 0);
+    confirmBtn.disabled = invalid;
+  };
+
+  nettoInput.addEventListener("input", recompute);
+  sicherheitInput.addEventListener("input", recompute);
+  if (schuldenInput) schuldenInput.addEventListener("input", recompute);
+  recompute();
+
+  document.getElementById("salary-backdrop").addEventListener("click", (e) => {
+    if (e.target.id === "salary-backdrop") close();
+  });
+  document.getElementById("salary-close").addEventListener("click", close);
+
+  confirmBtn.addEventListener("click", async () => {
+    const netto = Number(nettoInput.value) || 0;
+    const sicherheitRate = Number(sicherheitInput.value) || 0;
+    const debtPayment = schuldenInput ? Number(schuldenInput.value) || 0 : 0;
+    const { sicherheit, schulden, freiheit } = computeSalaryWaterfall({ netto, fixSum, sicherheitRate, debtPayment });
+    if (netto <= 0 || freiheit < 0) return;
+    confirmBtn.disabled = true;
+    await withErrorToast(async () => {
+      // 1. Phase 2 aktivieren + Töpfe/Notgroschen-Ziel setzen (Wachstum erst Phase 3).
+      await updateFinanceModuleSettings({
+        phase: 2,
+        pots: { fixkosten: fixSum, sicherheit, wachstum: null, freiheit },
+        notgroschen_target: 4 * fixSum,
+        notgroschen_basis: fixSum,
+      });
+      // 2. Sicherheits-Rate als Einzahlung buchen (Pot-Grid liest Notgroschen aus expense pot=sicherheit).
+      if (sicherheit > 0) {
+        await createTransaction({
+          direction: "expense",
+          pot: "sicherheit",
+          amount: sicherheit,
+          note: "Gehalts-Einspiel — Sicherheit",
+          occurredAt: todayISO(),
+        });
+      }
+      // 3. Schuldentilgung: älteste offene Schuld(en) der Reihe nach auffüllen.
+      let remainingPayment = schulden;
+      for (const debt of openDebts) {
+        if (remainingPayment <= 0) break;
+        const rest = Number(debt.remaining_amount || 0);
+        const pay = Math.min(rest, remainingPayment);
+        if (pay <= 0) continue;
+        await updateDebt(debt.id, { remaining_amount: Math.max(0, rest - pay) });
+        await createTransaction({
+          direction: "expense",
+          pot: null,
+          amount: pay,
+          note: `Gehalts-Einspiel — Schuldentilgung ${debt.name}`,
+          occurredAt: todayISO(),
+        });
+        remainingPayment -= pay;
+      }
+      // 4. Gehalt als Einnahme fürs Kassenbuch.
+      await createTransaction({ direction: "income", pot: null, amount: netto, note: "Gehalt", occurredAt: todayISO() });
+      close();
+      await reloadFinance();
+      showToast("Gehalt eingespielt — Phase 2 aktiv.");
+    });
+    confirmBtn.disabled = false;
+  });
 }
 
 async function loadFinanceData() {

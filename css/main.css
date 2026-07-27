@@ -533,6 +533,58 @@ body {
   white-space: nowrap;
 }
 
+/* Gehalts-Einspiel-Modal: Wasserfall-Zeilen (wissensdatenbank/features/gehalt-einspielen.md). */
+.salary-waterfall {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
+
+.salary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.salary-row-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.salary-row-input {
+  width: 7rem;
+  text-align: right;
+}
+
+.salary-row-amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.salary-row-freiheit {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-2);
+}
+
+.salary-row-freiheit .salary-row-amount {
+  color: var(--color-accent-warm);
+}
+
+.salary-warning {
+  color: var(--color-danger);
+  font-size: 0.85rem;
+  margin: 0 0 var(--space-2);
+}
+
+.salary-hint {
+  color: var(--color-text-subtle);
+  font-size: 0.8rem;
+  margin: 0 0 var(--space-3);
+}
+
 /* Hero-Ring statt schmalem Balken — der Tagesfortschritt ist der "geschafft"-Moment des Tages und
    verdient mehr Gewicht als ein dünner Strich zwischen den Widgets. */
 .progress-ring {
