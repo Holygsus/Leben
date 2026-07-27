@@ -2376,6 +2376,33 @@ body.has-bg-image .task-item {
   margin: var(--space-2) 0;
 }
 
+/* Erledigt-Spalte als Frische-Fenster: ältere erledigte Karten hinter einer dezenten Zeile
+   einklappen (War Room 2026-07-26). */
+.kanban-older-toggle {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: var(--space-1) 0;
+  color: var(--color-text-subtle);
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.kanban-older-toggle:hover {
+  color: var(--color-text);
+}
+
+.kanban-older {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.kanban-older[hidden] {
+  display: none;
+}
+
 /* Watchlist-Übersicht: nach status gruppiert, Aktiv als reichere Karte (War Room 2026-07-25). */
 .watchlist-group {
   margin-bottom: var(--space-4);
@@ -2501,25 +2528,17 @@ body.has-bg-image .task-item {
 }
 
 /* Mini-Fortschrittsbalken im Bereichs-Header (erledigt/gesamt) — Füllfarbe = Bereichsfarbe. */
-.area-progress {
-  width: 44px;
-  height: 6px;
-  border-radius: var(--radius-full);
-  background: var(--color-border);
-  overflow: hidden;
+/* Ruhiger Wochen-Ist-Snapshot pro Bereich statt Füllstand-Balken (War Room 2026-07-26). Dezent
+   gehalten — reine Aktivitätszahl, kein Ziel-Vergleich. */
+.area-week-activity {
+  font-size: 0.75rem;
+  color: var(--color-text-subtle);
+  white-space: nowrap;
   flex-shrink: 0;
 }
 
-.area-progress[hidden] {
+.area-week-activity[hidden] {
   display: none;
-}
-
-.area-progress-fill {
-  display: block;
-  height: 100%;
-  width: calc(var(--pct, 0) * 1%);
-  background: var(--area-color, var(--color-success));
-  transition: width var(--transition-base);
 }
 
 .tree-toggle {

@@ -486,6 +486,17 @@ function tomorrowISO() {
   return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 10);
 }
 
+// Montag der laufenden Woche als YYYY-MM-DD (lokal). Basis für "diese Woche"-Vergleiche gegen den
+// Datumsanteil von updated_at (der tasks_updated_at-Trigger hält updated_at bei jeder Änderung
+// aktuell, für erledigte Aufgaben also ~ Erledigungszeitpunkt).
+function weekStartISO() {
+  const d = new Date();
+  const mondayOffset = (d.getDay() + 6) % 7; // Sonntag(0) -> 6, Montag(1) -> 0, ...
+  d.setDate(d.getDate() - mondayOffset);
+  const offset = d.getTimezoneOffset();
+  return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 10);
+}
+
 function isoDatePlusDays(days) {
   const d = new Date();
   d.setDate(d.getDate() + days);
@@ -2363,7 +2374,46 @@ function renderKanbanBoard() {
 
     const cards = document.createElement("div");
     cards.className = "kanban-cards";
-    if (tasksInCol.length === 0) {
+
+    if (col.status === "done") {
+      // Frische-Fenster (War Room 2026-07-26): die Erledigt-Spalte ist "was habe ich gerade
+      // geschafft", kein Archiv. Nur diese Woche erledigte Karten stehen offen, Älteres klappt hinter
+      // einer dezenten Zeile ein. Header-Count zeigt entsprechend die frische Anzahl.
+      const weekStart = weekStartISO();
+      const fresh = tasksInCol.filter((t) => (t.updated_at || "").slice(0, 10) >= weekStart);
+      const older = tasksInCol.filter((t) => (t.updated_at || "").slice(0, 10) < weekStart);
+      count.textContent = String(fresh.length);
+
+      if (fresh.length === 0 && older.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "kanban-empty";
+        empty.textContent = "—";
+        cards.appendChild(empty);
+      } else {
+        fresh.forEach((task) => cards.appendChild(buildKanbanCard(task)));
+        if (older.length > 0) {
+          const olderWrap = document.createElement("div");
+          olderWrap.className = "kanban-older";
+          olderWrap.hidden = true;
+          older.forEach((task) => olderWrap.appendChild(buildKanbanCard(task)));
+
+          const toggle = document.createElement("button");
+          toggle.type = "button";
+          toggle.className = "kanban-older-toggle";
+          const setLabel = () => {
+            toggle.textContent = olderWrap.hidden
+              ? `… und ${older.length} früher erledigt`
+              : "Früher erledigte ausblenden";
+          };
+          setLabel();
+          toggle.addEventListener("click", () => {
+            olderWrap.hidden = !olderWrap.hidden;
+            setLabel();
+          });
+          cards.append(toggle, olderWrap);
+        }
+      }
+    } else if (tasksInCol.length === 0) {
       const empty = document.createElement("p");
       empty.className = "kanban-empty";
       empty.textContent = "—";
@@ -2371,6 +2421,7 @@ function renderKanbanBoard() {
     } else {
       tasksInCol.forEach((task) => cards.appendChild(buildKanbanCard(task)));
     }
+
     column.appendChild(cards);
     board.appendChild(column);
   }
@@ -2456,19 +2507,20 @@ function buildAreaSection(area) {
 
   const openCount = overviewState.tasks.filter((t) => t.area_id === area.id && t.status !== "done").length;
 
-  // Mini-Fortschrittsbalken pro Bereich (erledigt/gesamt) — macht auf einen Blick lesbar, wie weit
-  // ein Bereich ist, statt nur die Zahl offener Aufgaben zu zeigen. Füllfarbe = Bereichsfarbe.
-  const totalCount = allAreaTasks.length;
-  const doneCount = totalCount - openCount;
-  const progress = document.createElement("span");
-  progress.className = "area-progress";
-  progress.hidden = totalCount === 0;
-  progress.style.setProperty("--pct", totalCount ? Math.round((doneCount / totalCount) * 100) : 0);
-  progress.title = `${doneCount} von ${totalCount} erledigt`;
-  progress.setAttribute("aria-label", progress.title);
-  const progressFill = document.createElement("span");
-  progressFill.className = "area-progress-fill";
-  progress.appendChild(progressFill);
+  // Ruhige Wochen-Aktivitätszahl statt Füllstand-Balken (War Room 2026-07-26): ein Lebensbereich
+  // wird nie "fertig", ein erledigt/gesamt-Balken erzeugt darum ein Dauer-Defizit-Gefühl. Stattdessen
+  // ein nach-oben-offener Ist-Snapshot "N diese Woche" — bewusst OHNE Soll-/Ziel-Vergleich. Bei 0
+  // gar nicht anzeigen (kein "0 diese Woche", das brächte den Defizit-Effekt zurück).
+  const weekStart = weekStartISO();
+  const weekDone = allAreaTasks.filter(
+    (t) => t.status === "done" && (t.updated_at || "").slice(0, 10) >= weekStart
+  ).length;
+  const weekActivity = document.createElement("span");
+  weekActivity.className = "area-week-activity";
+  weekActivity.hidden = weekDone === 0;
+  weekActivity.textContent = `${weekDone} diese Woche`;
+  weekActivity.title = `${weekDone} diese Woche erledigt`;
+  weekActivity.setAttribute("aria-label", weekActivity.title);
 
   const count = document.createElement("span");
   count.className = "count";
@@ -2497,7 +2549,7 @@ function buildAreaSection(area) {
   toggle.addEventListener("click", toggleFn);
   name.addEventListener("click", toggleFn);
 
-  header.append(toggle, dot, name, progress, count, addBtn);
+  header.append(toggle, dot, name, weekActivity, count, addBtn);
   section.appendChild(header);
 
   // Body steckt immer im DOM (in einem grid-rows-Wrapper) statt bei "collapsed" ganz zu
