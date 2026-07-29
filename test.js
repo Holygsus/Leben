@@ -10,7 +10,7 @@ import {
   planMissingSlots,
   buildSwapOperations,
 } from "./js/watchlist.js";
-import { findHabitsDueToday } from "./js/habits.js";
+import { findHabitsDueToday, sumCounterForDate, weekAverageCounter } from "./js/habits.js";
 import { computeBudgetTrend, computeCategoryBreakdown, slugifyCategoryKey } from "./js/finance.js";
 import { formatIngredientsForShoppingList } from "./js/recipes.js";
 import { sumPagesInMonth, sumChaptersInMonth } from "./js/books.js";
@@ -218,6 +218,22 @@ function assertEqual(actual, expected, label) {
   ];
   assertEqual(sumChaptersInMonth(log, "2026-07"), 5, "sumChaptersInMonth: summiert nur Kapitel des Zielmonats");
   assertEqual(sumChaptersInMonth(log, "2026-05"), 0, "sumChaptersInMonth: Monat ohne Einträge ergibt 0");
+}
+
+// ---------- sumCounterForDate / weekAverageCounter (Zähl-Habits) ----------
+{
+  const log = [
+    { task_id: "w", date: "2026-07-27", amount: 2 }, // Montag (Wochenstart)
+    { task_id: "w", date: "2026-07-29", amount: 4 }, // heute (Mittwoch)
+    { task_id: "w", date: "2026-07-29", amount: 3 }, // zweiter Tap heute
+    { task_id: "w", date: "2026-07-26", amount: 100 }, // Sonntag = Vorwoche, zählt nicht mit
+    { task_id: "x", date: "2026-07-29", amount: 9 }, // anderes Habit
+  ];
+  assertEqual(sumCounterForDate(log, "w", "2026-07-29"), 7, "sumCounterForDate: summiert alle Taps des Tages für dieses Habit");
+  assertEqual(sumCounterForDate(log, "w", "2026-07-28"), 0, "sumCounterForDate: Tag ohne Taps ergibt 0");
+  // Wochensumme Mo–Mi = 2 + 4 + 3 = 9, verstrichene Tage = 3 -> Ø 3.0 (Vorwochen-/Fremd-Taps raus)
+  assertEqual(weekAverageCounter(log, "w", "2026-07-29"), 3, "weekAverageCounter: Wochensumme seit Montag ÷ verstrichene Tage");
+  assertEqual(weekAverageCounter(log, "leer", "2026-07-29"), 0, "weekAverageCounter: Habit ohne Taps ergibt 0");
 }
 
 // ---------- computeCategoryBreakdown (frei editierbare Kategorien) ----------

@@ -89,6 +89,10 @@ create table if not exists tasks (
   -- Letzter Tag, an dem dieses Habit tatsächlich fällig wurde (Anker für die Intervall-Berechnung
   -- oben) — null = noch nie fällig geworden. Wird nur von autoplanDueHabits() geschrieben.
   habit_last_due_date date,
+  -- Gesetzt = Zähl-Habit (mengen-basiert, migration-026): speichert das Einheiten-Label
+  -- (z. B. "Glas"/"Zigarette"). Erfassung über habit_counter_log, nicht über planned/done — ein
+  -- Zähl-Habit läuft nie über den Tagesplan (siehe findHabitsDueToday in js/habits.js).
+  habit_unit text,
   -- Brücke zum Watchlist/Fernsehprogramm-Feature: eine Zeile mit gesetztem watchlist_item_id IST
   -- der Termin im Fernsehprogramm (planned_date = geplanter Tag), siehe js/watchlist.js. effort
   -- bleibt bei solchen Zeilen immer NULL — der effort-Check (5/10/30/60) passt nicht zu den
@@ -341,6 +345,20 @@ create table if not exists habit_completions (
 
 create index if not exists habit_completions_task_id_idx on habit_completions (task_id);
 
+-- Zähl-Habits (mengen-basierte Habits, migration-026): eigene Log-Tabelle OHNE unique(task_id,date),
+-- weil ein Zähl-Habit mehrere Taps/Zeilen pro Tag hat (habit_completions bleibt den binären Habits
+-- vorbehalten). tasks.habit_unit markiert ein Zähl-Habit + hält das Einheiten-Label.
+create table if not exists habit_counter_log (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users not null,
+  task_id uuid references tasks(id) on delete cascade not null,
+  date date not null,
+  amount numeric not null default 1,
+  created_at timestamptz default now()
+);
+
+create index if not exists habit_counter_log_task_id_idx on habit_counter_log (task_id);
+
 -- Geburtstage: eigener, simpler Datensatz statt Sonderfall von tasks/areas, da ein Geburtstag
 -- jedes Jahr wiederkehrt und selbst nie "geplant/erledigt" ist. year optional (nur Altersanzeige).
 create table if not exists birthdays (
@@ -408,6 +426,7 @@ alter table task_comments enable row level security;
 alter table watchlist_items enable row level security;
 alter table watchlist_viewing_log enable row level security;
 alter table habit_completions enable row level security;
+alter table habit_counter_log enable row level security;
 alter table birthdays enable row level security;
 alter table daily_reflections enable row level security;
 alter table pantry_items enable row level security;
@@ -477,6 +496,9 @@ create policy "watchlist_viewing_log: own data" on watchlist_viewing_log for all
 
 drop policy if exists "habit_completions: own data" on habit_completions;
 create policy "habit_completions: own data" on habit_completions for all using (auth.uid() = user_id);
+
+drop policy if exists "habit_counter_log: own data" on habit_counter_log;
+create policy "habit_counter_log: own data" on habit_counter_log for all using (auth.uid() = user_id);
 
 drop policy if exists "birthdays: own data" on birthdays;
 create policy "birthdays: own data" on birthdays for all using (auth.uid() = user_id);

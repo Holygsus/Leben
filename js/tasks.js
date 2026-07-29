@@ -53,6 +53,7 @@ export async function createTask({
   priority = "medium",
   isEvent = false,
   habitWeekdays = null,
+  habitUnit = null,
 }) {
   const userId = await getCurrentUserId();
   const { data, error } = await supabase
@@ -70,6 +71,7 @@ export async function createTask({
       priority,
       is_event: isEvent,
       habit_weekdays: habitWeekdays,
+      habit_unit: habitUnit,
     })
     .select()
     .single();

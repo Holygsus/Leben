@@ -63,12 +63,18 @@ import {
 import {
   WEEKDAY_CODES,
   isHabitTask,
+  isCounterHabit,
   findHabitsDueToday,
   autoplanDueHabits,
   weekdayCodeFromIso,
   RECURRENCE_LABEL,
   listAllHabitCompletions,
   computeHabitStreak,
+  logCounterTap,
+  deleteCounterEntry,
+  listAllCounterLog,
+  sumCounterForDate,
+  weekAverageCounter,
 } from "./habits.js";
 import {
   listWatchlistItems,
@@ -84,12 +90,12 @@ import {
   computeAverageRating,
   filterWatchlistItems,
   currentWeekDates,
-  // autoplanWatchlistForDates: bewusst nicht mehr importiert/aufgerufen. Die automatische
-  // Tagesplan-Einplanung von Watchlist-Einträgen ist per Governance-Entscheidung 2026-07-25
-  // deaktiviert (wissensdatenbank/features/watchlist-fernsehprogramm.md, Abschnitt "Zugang &
-  // Grundmechanik"). Die Funktion bleibt in watchlist.js erhalten — zum Reaktivieren hier wieder
-  // importieren und die beiden markierten Aufrufe (renderTodayView / renderFernsehprogrammView)
-  // einkommentieren.
+  // autoplanWatchlistForDates: seit 2026-07-29 wieder aktiv, aber NUR im Fernsehprogramm-Tab
+  // (renderFernsehprogrammView), nicht in der Heute-Ansicht. Aktive Watchlist-Einträge füllen die
+  // Woche automatisch; renderTodayView filtert die entstehenden Watchlist-tasks-Zeilen weiterhin aus
+  // (siehe dortiger Filter), damit sie nur im TV-Tab und nicht in Heute/Tagesplan auftauchen. Details:
+  // wissensdatenbank/features/watchlist-fernsehprogramm.md, Abschnitt "Zugang & Grundmechanik".
+  autoplanWatchlistForDates,
   applyWatchlistSwap,
 } from "./watchlist.js";
 import { listBirthdays, createBirthday, updateBirthday, deleteBirthday, daysUntilNextOccurrence, nextOccurrence } from "./birthdays.js";
@@ -4175,7 +4181,7 @@ const financeState = {
 
 /* ---------- Habits ---------- */
 
-const habitsViewState = { allTasks: [], areaColorById: {}, completions: [] };
+const habitsViewState = { allTasks: [], areaColorById: {}, completions: [], counterLog: [] };
 
 async function renderHabitsView() {
   const myGeneration = renderGeneration;
@@ -4183,10 +4189,16 @@ async function renderHabitsView() {
   const res = await fetch("views/habits.html");
   if (myGeneration !== renderGeneration) return;
   container.innerHTML = await res.text();
-  const [tasks, areas, completions] = await Promise.all([listTasks(), listAreas(), listAllHabitCompletions()]);
+  const [tasks, areas, completions, counterLog] = await Promise.all([
+    listTasks(),
+    listAreas(),
+    listAllHabitCompletions(),
+    listAllCounterLog(),
+  ]);
   habitsViewState.allTasks = tasks;
   habitsViewState.areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
   habitsViewState.completions = completions;
+  habitsViewState.counterLog = counterLog;
   renderHabitList();
   wireHabitQuickAddForm();
 }
@@ -4203,12 +4215,24 @@ function wireHabitQuickAddForm() {
   const form = document.getElementById("habit-quick-form");
   const titleInput = document.getElementById("habit-quick-title");
   const subtaskInput = document.getElementById("habit-quick-subtask");
+  const counterCheckbox = document.getElementById("habit-quick-counter");
+  const unitInput = document.getElementById("habit-quick-unit");
   const cancelBtn = document.getElementById("habit-quick-cancel");
   const submitBtn = form.querySelector('button[type="submit"]');
+
+  // Zähl-Habit-Toggle blendet das Einheit-Feld ein und das (dann sinnlose) Pool-Kind-Feld aus —
+  // ein Zähl-Habit hat keinen Aufgaben-Pool.
+  const syncCounterFields = () => {
+    const on = counterCheckbox.checked;
+    unitInput.hidden = !on;
+    subtaskInput.hidden = on;
+  };
+  counterCheckbox.addEventListener("change", syncCounterFields);
 
   const closeForm = () => {
     form.hidden = true;
     form.reset();
+    syncCounterFields();
   };
 
   toggleBtn.addEventListener("click", () => {
@@ -4226,12 +4250,23 @@ function wireHabitQuickAddForm() {
     if (submitBtn.disabled) return;
     const title = titleInput.value.trim();
     if (!title) return;
+    const isCounter = counterCheckbox.checked;
+    const unit = unitInput.value.trim();
+    if (isCounter && !unit) {
+      unitInput.focus();
+      return;
+    }
     const subtaskTitle = subtaskInput.value.trim();
     submitBtn.disabled = true;
     try {
       await withErrorToast(async () => {
-        const mother = await createTask({ title, habitWeekdays: [] });
-        if (subtaskTitle) await createTask({ title: subtaskTitle, parentTaskId: mother.id });
+        if (isCounter) {
+          // Zähl-Habit: habit_weekdays: [] (bleibt isHabitTask, aber nie im Tagesplan), kein Pool-Kind.
+          await createTask({ title, habitWeekdays: [], habitUnit: unit });
+        } else {
+          const mother = await createTask({ title, habitWeekdays: [] });
+          if (subtaskTitle) await createTask({ title: subtaskTitle, parentTaskId: mother.id });
+        }
         closeForm();
         await renderHabitsView();
       });
@@ -4294,6 +4329,27 @@ function updateHabitWeekdayChips(li, task, todayCode) {
 // Rendert die Liste der Habit-Aufgaben. Jede Zeile startet im Kompakt-Zustand (Punktreihe) und
 // klappt per Tap auf die editierbaren Mo-So-Chips auf — analog td-subtask-list im Detail-Modal
 // nutzt auch das hier nur einen delegierten Klick-Handler auf #habit-list statt pro Zeile.
+// Zähl-Habit-Zeile (mengen-basiert): ruhig, kein Tagesurteil — großer +-Button plus
+// "heute: N · Ø diese Woche M". Keine Wochentags-/Streak-/Heatmap-Elemente (die gelten nur für
+// geplante binäre Habits).
+function buildCounterHabitRow(t) {
+  const areaColor = habitsViewState.areaColorById[t.area_id];
+  const today = sumCounterForDate(habitsViewState.counterLog, t.id, todayISO());
+  const avg = weekAverageCounter(habitsViewState.counterLog, t.id, todayISO());
+  const unit = escapeHtml(t.habit_unit);
+  return `
+    <li class="task-item habit-item counter-habit-row" data-habit-id="${t.id}" style="${
+      areaColor ? `border-left-color:${areaColor};--task-area-color:${areaColor};` : ""
+    }">
+      <span class="task-area-dot" style="background:${areaColor || "var(--color-text-subtle)"}"></span>
+      <div class="counter-body">
+        <span class="task-title">${escapeHtml(t.title)}<span class="habit-freq">${unit}</span></span>
+        <span class="counter-metric">heute: <b>${today}</b> · Ø diese Woche ${avg}</span>
+      </div>
+      <button type="button" class="counter-add-btn" data-counter-id="${t.id}" aria-label="Eine Einheit hinzufügen">+</button>
+    </li>`;
+}
+
 function renderHabitList() {
   const habitTasks = habitsViewState.allTasks.filter(isHabitTask);
   const list = document.getElementById("habit-list");
@@ -4309,6 +4365,7 @@ function renderHabitList() {
 
   list.innerHTML = habitTasks
     .map((t) => {
+      if (isCounterHabit(t)) return buildCounterHabitRow(t);
       const areaColor = habitsViewState.areaColorById[t.area_id];
       const recurrence = t.habit_recurrence || "weekly";
       const freqLabel =
@@ -4351,6 +4408,27 @@ function renderHabitList() {
     .join("");
 
   list.onclick = async (e) => {
+    const counterBtn = e.target.closest(".counter-add-btn");
+    if (counterBtn) {
+      const taskId = counterBtn.dataset.counterId;
+      const task = habitsViewState.allTasks.find((t) => t.id === taskId);
+      await withErrorToast(async () => {
+        const entry = await logCounterTap({ taskId });
+        habitsViewState.counterLog.push(entry);
+        renderHabitList();
+        showToast(`+1 ${task ? task.habit_unit : ""}`.trim(), false, {
+          label: "Rückgängig",
+          onClick: () =>
+            withErrorToast(async () => {
+              await deleteCounterEntry(entry.id);
+              habitsViewState.counterLog = habitsViewState.counterLog.filter((c) => c.id !== entry.id);
+              renderHabitList();
+            }),
+        });
+      });
+      return;
+    }
+
     const chip = e.target.closest(".weekday-chip");
     if (chip) {
       const li = chip.closest("[data-habit-id]");
@@ -5818,16 +5896,17 @@ async function renderFernsehprogrammView() {
   showLoading("watchlist-week-list");
 
   const [items, allTasks, logEntries] = await Promise.all([listWatchlistItems(), listTasks(), listAllViewingLogEntries()]);
-  // Governance-Entscheidung 2026-07-25 (wissensdatenbank/features/watchlist-fernsehprogramm.md,
-  // Abschnitt "Zugang & Grundmechanik"): keine automatische Tagesplan-Einplanung mehr. Früher wurde
-  // hier die ganze Woche mit autoplanWatchlistForDates aufgefüllt, damit der Wochenüberblick nicht
-  // erst nach 7 Tagen Heute-Besuchen vollständig wird. Das ist deaktiviert — es werden keine neuen
-  // Watchlist-tasks-Zeilen mehr erzeugt. Der Wochenüberblick zeigt jetzt nur noch bereits vorhandene
-  // Watchlist-Zeilen (aus früheren Läufen oder manuell per Swap gesetzt); freie Tage bleiben "frei".
-  // Die Auto-Befüllung bleibt in watchlist.js erhalten und lässt sich durch Reaktivieren dieses
-  // Aufrufs (siehe Import-Kommentar oben) zurückholen.
+  // Update 2026-07-29, Nutzer-Entscheidung (kippt die Governance-Entscheidung 2026-07-25, siehe
+  // wissensdatenbank/features/watchlist-fernsehprogramm.md, Abschnitt "Zugang & Grundmechanik"):
+  // aktive Watchlist-Einträge sollen wieder automatisch die Woche füllen — aber NUR hier im
+  // Fernsehprogramm-Tab, nicht in Heute (renderTodayView filtert Watchlist-tasks-Zeilen weiterhin
+  // aus). autoplanWatchlistForDates legt für jeden Wochentag ohne bestehende Watchlist-Zeile eine an
+  // (garantierter erster Slot pro Tag + zweiter Slot bei Budget-Kapazität, siehe planMissingSlots)
+  // und liest die tatsächlichen tasks direkt aus der DB — die neu entstandenen Zeilen mergen wir in
+  // allTasks, damit renderWatchlistWeek sie ohne zweiten Round-Trip sieht.
+  const newSlots = await autoplanWatchlistForDates(items, currentWeekDates(todayISO()));
   watchlistViewState.items = items;
-  watchlistViewState.allTasks = allTasks;
+  watchlistViewState.allTasks = [...allTasks, ...newSlots];
   watchlistViewState.logEntries = logEntries;
 
   renderWatchlistWeek();
@@ -5871,10 +5950,11 @@ function renderWatchlistWeek() {
       if (task.status === "done") {
         return `<li class="task-item watchlist-slot-done"><span class="task-title">✓ ${titleText}</span></li>`;
       }
+      // Klick auf den Eintrag selbst löst Sichtung + Bewertung aus (wie früher der Aufgaben-Abschluss
+      // in Heute) — der Titel ist der Button, kein separates ✓ mehr. Tausch-Button bleibt daneben.
       return `
         <li class="task-item">
-          <span class="task-title">${titleText}</span>
-          <button type="button" class="icon-btn watchlist-watched-btn" data-task-id="${task.id}" aria-label="Als geschaut abschließen">✓</button>
+          <button type="button" class="task-title task-title-btn watchlist-watched-btn" data-task-id="${task.id}" aria-label="Als geschaut abschließen und bewerten">${titleText}</button>
           <button type="button" class="icon-btn watchlist-swap-btn" data-task-id="${task.id}" aria-label="Tauschen">⇄</button>
         </li>`;
     })

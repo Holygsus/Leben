@@ -11,6 +11,11 @@
 <form class="quick-capture-panel" id="habit-quick-form" hidden>
   <input type="text" class="input" id="habit-quick-title" placeholder="Titel (z.B. Gym)" autocomplete="off" required />
   <input type="text" class="input" id="habit-quick-subtask" placeholder="Erste Aufgabe (optional, z.B. Stunde Elden Ring)" autocomplete="off" />
+  <label class="checkbox-label">
+    <input type="checkbox" id="habit-quick-counter" />
+    Zähl-Habit (per + hochzählen statt abhaken)
+  </label>
+  <input type="text" class="input" id="habit-quick-unit" placeholder="Einheit (z.B. Glas, Zigarette)" autocomplete="off" hidden />
   <div class="quick-capture-actions">
     <button class="btn" type="submit">Anlegen</button>
     <button class="btn btn-secondary" type="button" id="habit-quick-cancel">Abbrechen</button>

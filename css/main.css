@@ -533,6 +533,38 @@ body {
   white-space: nowrap;
 }
 
+/* Zähl-Habit-Zeile (mengen-basiert, wissensdatenbank/features/habit-tracker.md): großer +-Button,
+   ruhige Ist-Metrik, kein Tagesurteil. */
+.counter-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.counter-metric {
+  font-size: 0.85rem;
+  color: var(--color-text-subtle);
+}
+
+.counter-add-btn {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-full);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent) 14%, var(--color-surface));
+  color: var(--color-accent);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.counter-add-btn:hover {
+  background: color-mix(in srgb, var(--color-accent) 24%, var(--color-surface));
+}
+
 /* Cockpit — ruhige Kachel-Eingangs-Ebene (wissensdatenbank/features/bento-os-vision.md). Ein Blick
    pro Kachel, read-only. Flache Glaskacheln, viel Weißraum; auf Mobile 2 Spalten. */
 .cockpit-grid {

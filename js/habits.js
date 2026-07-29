@@ -1,4 +1,5 @@
 import { supabase } from "./supabase.js";
+import { getCurrentUserId } from "./auth.js";
 
 export const WEEKDAY_CODES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
@@ -17,6 +18,12 @@ export function weekdayCodeFromIso(isoDateString) {
 
 export function isHabitTask(task) {
   return task.habit_weekdays != null;
+}
+
+// Zähl-Habit (mengen-basiert, wissensdatenbank/features/habit-tracker.md): habit_unit gesetzt.
+// Läuft NICHT über planned/done — Erfassung per +-Tap in habit_counter_log, Auswertung als Trend.
+export function isCounterHabit(task) {
+  return isHabitTask(task) && !!task.habit_unit;
 }
 
 const RECURRENCE_MIN_DAYS = { biweekly: 14, monthly: 30 };
@@ -54,7 +61,7 @@ function pickOpenChild(openChildren) {
 export function findHabitsDueToday(allTasks, todayIso) {
   const todayCode = weekdayCodeFromIso(todayIso);
   const dueMothers = allTasks.filter(
-    (t) => isHabitTask(t) && t.habit_weekdays.includes(todayCode) && isRecurrenceDue(t, todayIso)
+    (t) => isHabitTask(t) && !t.habit_unit && t.habit_weekdays.includes(todayCode) && isRecurrenceDue(t, todayIso)
   );
 
   const results = [];
@@ -163,4 +170,55 @@ function toLocalIso(date) {
 
 function localTodayIso() {
   return toLocalIso(new Date());
+}
+
+// ---------- Zähl-Habits (mengen-basiert) ----------
+
+// Ein Tap = eine datierte Zeile (Default amount 1). Bewusst keine unique(task_id,date)-Idempotenz —
+// mehrere Taps/Tag sind der Normalfall. Gibt die angelegte Zeile zurück (für den Undo-Toast).
+export async function logCounterTap({ taskId, amount = 1, date = localTodayIso() }) {
+  const userId = await getCurrentUserId();
+  const { data, error } = await supabase
+    .from("habit_counter_log")
+    .insert({ user_id: userId, task_id: taskId, date, amount })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// Rückgängig für einen einzelnen Tap (Undo-Toast unmittelbar nach dem Tippen).
+export async function deleteCounterEntry(id) {
+  const { error } = await supabase.from("habit_counter_log").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// Batch-Fetch aller Zähl-Log-Zeilen (Muster listAllHabitCompletions) — ein Request für den Habit-Tab.
+export async function listAllCounterLog() {
+  const { data, error } = await supabase.from("habit_counter_log").select("*");
+  if (error) throw error;
+  return data;
+}
+
+// Summe amount an genau einem Tag für ein Zähl-Habit. Reine Funktion, kein DB-Zugriff.
+export function sumCounterForDate(log, taskId, iso) {
+  return log
+    .filter((e) => e.task_id === taskId && e.date === iso)
+    .reduce((sum, e) => sum + Number(e.amount), 0);
+}
+
+// Ø diese Woche: Summe der laufenden Kalenderwoche (Montag–heute) ÷ verstrichene Tage, auf eine
+// Nachkommastelle gerundet. Reine Funktion. "diese Woche" = seit Montag, damit die Zahl früh in der
+// Woche nicht durch sieben geteilt kleingerechnet wird.
+export function weekAverageCounter(log, taskId, todayIso) {
+  const today = new Date(todayIso + "T00:00:00");
+  const mondayOffset = today.getDay() === 0 ? 6 : today.getDay() - 1; // Mo=0 … So=6
+  const daysElapsed = mondayOffset + 1;
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - mondayOffset);
+  const mondayIso = toLocalIso(monday);
+  const weekSum = log
+    .filter((e) => e.task_id === taskId && e.date >= mondayIso && e.date <= todayIso)
+    .reduce((sum, e) => sum + Number(e.amount), 0);
+  return Math.round((weekSum / daysElapsed) * 10) / 10;
 }
