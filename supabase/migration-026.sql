@@ -1,5 +1,6 @@
 -- Leben OS — Migration 026
--- NOCH NICHT angewendet — im Supabase SQL Editor / via MCP ausführen, danach diesen Kopf aktualisieren.
+-- Update 2026-07-29: via Supabase-MCP angewendet, live in der Produktions-DB verifiziert
+-- (tasks.habit_unit + Tabelle habit_counter_log inkl. RLS-Policy) — nicht erneut ausführen.
 --
 -- Zähl-Habits / mengen-basierte Habits (wissensdatenbank/features/habit-tracker.md,
 -- War-Room-Update 2026-07-28). Neben dem binären Ja/Nein-Habit ein zweiter Typ "Zähler":
