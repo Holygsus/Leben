@@ -105,6 +105,7 @@ import { listGames, createGame, updateGame, deleteGame } from "./games.js";
 import { listBooks, createBook, updateBook, deleteBook, listReadingLog, logReadingSession, sumPagesInMonth, sumChaptersInMonth } from "./books.js";
 import { listComments, listAllCommentedTaskIds, createComment, deleteComment } from "./comments.js";
 import { getReflectionForDate, createReflection } from "./reflections.js";
+import { listOpenFollowupGroups, countOpenFollowups, resolveFollowupGroup } from "./followups.js";
 import {
   getStoredTheme,
   applyTheme,
@@ -1012,6 +1013,7 @@ function renderShell() {
   wireNavMoreMenu();
   routes[route]();
   maybeShowReflectionPopup();
+  maybeShowFollowupPopup();
 }
 
 // "Mehr"-Menü: Klick auf den Button öffnet/schließt ein Dropdown mit den restlichen Routen, Klick
@@ -1155,6 +1157,106 @@ function openReflectionPopup(date) {
   document.getElementById("reflection-dismiss").addEventListener("click", dismiss);
 }
 
+/* ---------- Folgeaufgaben-Vorschläge ---------- */
+// wissensdatenbank/features/folgeaufgaben-vorschlaege.md. Der manuell ausgelöste Skill schreibt
+// Vorschläge in die DB; die App zeigt sie hier im "Neue Vorschläge"-Popup (Auswahl 0–5 + Bestätigen).
+
+let followupPopupOpen = false;
+// In-Memory-Snooze: klickt der Nutzer das Popup weg, ohne zu entscheiden, poppt es nicht bei jedem
+// Re-Render erneut auf — bleibt aber über die Cockpit-Kachel und beim nächsten App-Start erreichbar.
+let followupPopupSnoozed = false;
+
+async function maybeShowFollowupPopup() {
+  if (followupPopupOpen || followupPopupSnoozed) return;
+  // Kein zweites Modal über ein bereits offenes (z. B. die Tagesreflexion) legen.
+  if (closeActiveModal) return;
+  const groups = await listOpenFollowupGroups().catch(() => []);
+  if (!groups.length) return;
+  openFollowupPopup(groups);
+}
+
+function openFollowupPopup(groups) {
+  followupPopupOpen = true;
+  const root = document.getElementById("modal-root");
+  document.body.style.overflow = "hidden";
+
+  const close = () => {
+    root.innerHTML = "";
+    document.body.style.overflow = "";
+    document.removeEventListener("keydown", onKeydown);
+    closeActiveModal = null;
+    followupPopupOpen = false;
+  };
+  const snooze = () => {
+    followupPopupSnoozed = true;
+    close();
+  };
+  const onKeydown = (e) => {
+    if (e.key === "Escape") snooze();
+  };
+  document.addEventListener("keydown", onKeydown);
+  closeActiveModal = snooze;
+
+  root.innerHTML = `
+    <div class="modal-backdrop" id="followup-backdrop">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-label="Neue Folgeaufgaben-Vorschläge">
+        <h2>Neue Vorschläge</h2>
+        <p class="followup-intro">Welche nächsten Schritte willst du übernehmen?</p>
+        ${groups
+          .map(
+            (group) => `
+          <div class="followup-group" data-source-id="${escapeHtml(group.sourceTask.id)}">
+            <h3 class="followup-source-title">${escapeHtml(group.sourceTask.title)}</h3>
+            ${group.suggestions
+              .map(
+                (s) => `
+              <label class="checkbox-label followup-option">
+                <input type="checkbox" data-suggestion-id="${escapeHtml(s.id)}" />
+                ${s.frame ? `<span class="followup-frame">${escapeHtml(s.frame)}</span>` : ""}
+                <span class="followup-title">${escapeHtml(s.title)}</span>
+              </label>`
+              )
+              .join("")}
+          </div>`
+          )
+          .join("")}
+        <div class="modal-actions">
+          <button class="btn" type="button" id="followup-confirm">Bestätigen</button>
+          <button class="btn btn-secondary" type="button" id="followup-later">Später</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById("followup-backdrop").addEventListener("click", (e) => {
+    if (e.target.id === "followup-backdrop") snooze();
+  });
+  document.getElementById("followup-later").addEventListener("click", snooze);
+
+  document.getElementById("followup-confirm").addEventListener("click", async () => {
+    await withErrorToast(async () => {
+      let created = 0;
+      for (const group of groups) {
+        const groupEl = document.querySelector(`.followup-group[data-source-id="${cssEscapeAttr(group.sourceTask.id)}"]`);
+        const acceptedIds = groupEl
+          ? [...groupEl.querySelectorAll("input[type=checkbox]:checked")].map((c) => c.dataset.suggestionId)
+          : [];
+        created += acceptedIds.length;
+        // Jede angezeigte Aufgabe wird bewusst geschlossen (auch bei 0 Auswahl → nie wieder Vorschläge).
+        await resolveFollowupGroup(group, acceptedIds);
+      }
+      close();
+      showToast(created ? `${created} Folgeaufgabe(n) übernommen.` : "Vorschläge geschlossen.");
+      renderShell();
+    });
+  });
+}
+
+// Attribut-sichere Variante der Ursprungs-ID für den Selektor oben (UUIDs sind unkritisch, aber so
+// bleibt der Selektor auch bei künftigen ID-Formen robust).
+function cssEscapeAttr(value) {
+  return String(value).replace(/["\\]/g, "\\$&");
+}
+
 // Prüft auf offene, unbestätigte Eingaben in der Übersicht (Inline-Anlegen-Formulare) —
 // Grundlage für die Nachfrage vorm Verlassen der Ansicht per Nav-Klick.
 function hasUnsavedOverviewInput() {
@@ -1203,6 +1305,11 @@ async function renderCockpitView() {
   const playing = games.find((g) => g.status === "playing");
   const gamingGlance = playing ? playing.title : "—";
 
+  // Folgevorschläge: Kachel nur zeigen, wenn welche offen sind. Klick öffnet direkt das Popup
+  // (kein eigener Tab/Route), siehe wissensdatenbank/features/folgeaufgaben-vorschlaege.md.
+  const openFollowups = await countOpenFollowups().catch(() => 0);
+  if (myGeneration !== renderGeneration) return;
+
   const grid = document.getElementById("cockpit-grid");
   grid.append(
     buildCockpitTile("Habits", habitsGlance, "habits"),
@@ -1210,6 +1317,14 @@ async function renderCockpitView() {
     buildCockpitTile("Watchlist", watchGlance, "fernsehprogramm"),
     buildCockpitTile("Gaming", gamingGlance, "games")
   );
+  if (openFollowups > 0) {
+    const tile = buildCockpitTile("Folgevorschläge", `${openFollowups} offen`, null);
+    tile.addEventListener("click", async () => {
+      followupPopupSnoozed = false;
+      openFollowupPopup(await listOpenFollowupGroups());
+    });
+    grid.append(tile);
+  }
 }
 
 function buildCockpitTile(label, glance, targetRoute) {
@@ -1223,9 +1338,13 @@ function buildCockpitTile(label, glance, targetRoute) {
   glanceEl.className = "cockpit-tile-glance";
   glanceEl.textContent = glance;
   tile.append(labelEl, glanceEl);
-  tile.addEventListener("click", () => {
-    location.hash = `#/${targetRoute}`;
-  });
+  // targetRoute null = Kachel ohne Tab-Ziel (der Aufrufer hängt einen eigenen Click-Handler an,
+  // z. B. die Folgevorschläge-Kachel, die stattdessen das Popup öffnet).
+  if (targetRoute) {
+    tile.addEventListener("click", () => {
+      location.hash = `#/${targetRoute}`;
+    });
+  }
   return tile;
 }
 

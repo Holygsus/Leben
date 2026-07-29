@@ -98,12 +98,21 @@ create table if not exists tasks (
   -- bleibt bei solchen Zeilen immer NULL — der effort-Check (5/10/30/60) passt nicht zu den
   -- Watchlist-Dauern (45/20/90 Min.), die stattdessen auf watchlist_items.duration_minutes leben.
   watchlist_item_id uuid references watchlist_items(id) on delete cascade,
+  -- Folgeaufgaben-Skill (migration-027, wissensdatenbank/features/folgeaufgaben-vorschlaege.md):
+  -- Steuer-Flag ('pending' wartet auf Analyse / 'suggested' hat offene Vorschläge / 'closed' nie
+  -- wieder), NULL = normal. Wird beim Abhaken der abgehakten Wurzel gesetzt (js/tasks.js).
+  followup_status text check (followup_status in ('pending', 'suggested', 'closed')),
+  -- Lineage der Folgeaufgaben-Kette, bewusst getrennt von parent_task_id (eine Folgeaufgabe ist eine
+  -- echte Top-Level-Aufgabe, kein Subtask) — der Skill rekonstruiert darüber den Familienbaum.
+  followup_source_id uuid references tasks(id) on delete set null,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
 
 create index if not exists tasks_parent_task_id_idx on tasks (parent_task_id);
 create index if not exists tasks_watchlist_item_id_idx on tasks (watchlist_item_id);
+create index if not exists tasks_followup_source_id_idx on tasks (followup_source_id);
+create index if not exists tasks_followup_status_idx on tasks (followup_status);
 
 -- Notizen/Kommentare zu Aufgaben (siehe wissensdatenbank/features/task-comments.md, Variante B) —
 -- spontane Gedanken beim erneuten Betrachten einer Aufgabe, kein eigenes Bearbeitungsfeld.
@@ -116,6 +125,37 @@ create table if not exists task_comments (
 );
 
 create index if not exists task_comments_task_id_idx on task_comments (task_id);
+
+-- Folgeaufgaben-Vorschläge (migration-027, wissensdatenbank/features/folgeaufgaben-vorschlaege.md):
+-- aktuell offene Vorschläge zur Anzeige im "Neue Vorschläge"-Popup, bei jedem Skill-Lauf frisch
+-- erzeugt (kein wiederkehrender Vorrat). effort mitführen → übernommene Aufgabe ist plan-tauglich.
+create table if not exists task_followup_suggestions (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users not null,
+  source_task_id uuid references tasks(id) on delete cascade not null,
+  area_id uuid references areas on delete set null,
+  title text not null,
+  frame text,
+  effort integer check (effort in (5, 10, 30, 60)),
+  status text default 'open' check (status in ('open', 'accepted', 'dismissed')),
+  created_at timestamptz default now()
+);
+
+create index if not exists task_followup_suggestions_source_task_id_idx
+  on task_followup_suggestions (source_task_id);
+create index if not exists task_followup_suggestions_user_status_idx
+  on task_followup_suggestions (user_id, status);
+
+-- Weicher Themen-Dämpfer: wie oft ein Vorschlags-Thema angeboten-und-nie-gewählt wurde. Kein
+-- Zähler, der Wiederholungen erzwingt — nur Dämpfer-Eingabe für den Skill. Nur der Skill greift zu.
+create table if not exists followup_topic_tally (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users not null,
+  topic text not null,
+  offered_count integer default 0,
+  last_offered_at timestamptz,
+  unique (user_id, topic)
+);
 
 -- Tagespläne
 create table if not exists daily_plans (
@@ -423,6 +463,8 @@ alter table wishlist_items enable row level security;
 alter table savings_pot_entries enable row level security;
 alter table recipes enable row level security;
 alter table task_comments enable row level security;
+alter table task_followup_suggestions enable row level security;
+alter table followup_topic_tally enable row level security;
 alter table watchlist_items enable row level security;
 alter table watchlist_viewing_log enable row level security;
 alter table habit_completions enable row level security;
@@ -439,6 +481,12 @@ create policy "tasks: own data" on tasks for all using (auth.uid() = user_id);
 
 drop policy if exists "task_comments: own data" on task_comments;
 create policy "task_comments: own data" on task_comments for all using (auth.uid() = user_id);
+
+drop policy if exists "task_followup_suggestions: own data" on task_followup_suggestions;
+create policy "task_followup_suggestions: own data" on task_followup_suggestions for all using (auth.uid() = user_id);
+
+drop policy if exists "followup_topic_tally: own data" on followup_topic_tally;
+create policy "followup_topic_tally: own data" on followup_topic_tally for all using (auth.uid() = user_id);
 
 drop policy if exists "daily_plans: own data" on daily_plans;
 create policy "daily_plans: own data" on daily_plans for all using (auth.uid() = user_id);

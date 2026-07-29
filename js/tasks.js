@@ -54,6 +54,7 @@ export async function createTask({
   isEvent = false,
   habitWeekdays = null,
   habitUnit = null,
+  followupSourceId = null,
 }) {
   const userId = await getCurrentUserId();
   const { data, error } = await supabase
@@ -72,6 +73,7 @@ export async function createTask({
       is_event: isEvent,
       habit_weekdays: habitWeekdays,
       habit_unit: habitUnit,
+      followup_source_id: followupSourceId,
     })
     .select()
     .single();
@@ -181,6 +183,18 @@ export async function completeTaskCascade(rootTask, allTasks) {
   const { error } = await supabase.from("tasks").update({ status: "done" }).in("id", ids);
   if (error) throw error;
 
+  // Folgeaufgaben-Flag: nur die vom Nutzer tatsächlich abgehakte Wurzel für den (manuell
+  // ausgelösten) Folgeaufgaben-Skill markieren — nicht die mitkaskadierten Unteraufgaben. Habits
+  // ausnehmen: ein täglich abgehaktes Habit soll keine Folgevorschläge erzeugen. Siehe
+  // wissensdatenbank/features/folgeaufgaben-vorschlaege.md.
+  if (!isHabitTask(rootTask)) {
+    const { error: flagError } = await supabase
+      .from("tasks")
+      .update({ followup_status: "pending" })
+      .eq("id", rootTask.id);
+    if (flagError) throw flagError;
+  }
+
   const habitTaskId = resolveHabitTaskId(rootTask, allTasks);
   if (habitTaskId) {
     const userId = await getCurrentUserId();
@@ -215,6 +229,14 @@ export async function reopenTaskCascade(rootTask, allTasks) {
     const { error } = await supabase.from("tasks").update({ status: "open" }).in("id", idsWithoutDate);
     if (error) throw error;
   }
+
+  // Folgeaufgaben-Flag zurücknehmen: eine wieder geöffnete Aufgabe ist nicht mehr abgeschlossen und
+  // darf nicht als "pending"/"closed" beim Folgeaufgaben-Skill hängen bleiben.
+  const { error: flagError } = await supabase
+    .from("tasks")
+    .update({ followup_status: null })
+    .eq("id", rootTask.id);
+  if (flagError) throw flagError;
 
   const habitTaskId = resolveHabitTaskId(rootTask, allTasks);
   if (habitTaskId) {
