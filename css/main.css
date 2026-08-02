@@ -1203,6 +1203,66 @@ body.has-bg-image .task-item {
   gap: 3px;
 }
 
+/* Wochen-Ziel-Ring: erledigte vs. fällige Habit-Tage der laufenden Woche als Mini-Fortschrittsring.
+   Füllung via conic-gradient über --ring-pct; bei Zielerreichung wird der Rest-Bogen grün getönt. */
+.habit-week-ring {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  background: conic-gradient(var(--color-accent) calc(var(--ring-pct, 0) * 1%), var(--color-border) 0);
+}
+
+.habit-week-ring.is-complete {
+  background: conic-gradient(var(--color-success) calc(var(--ring-pct, 0) * 1%), var(--color-border) 0);
+}
+
+.habit-week-ring > span {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--color-surface);
+  display: grid;
+  place-items: center;
+  font-size: 0.62rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Monats-Konstanz-Balken unter der Habit-Zeile — dezenter Langzeit-Snapshot (erledigt/fällig im
+   laufenden Monat), ohne die kompakte Zeile zu dominieren. */
+.habit-month {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: 4px;
+}
+
+.habit-month-label {
+  font-size: 0.68rem;
+  color: var(--color-text-subtle);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.habit-month-bar {
+  flex: 1;
+  height: 3px;
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.habit-month-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--color-success) 70%, var(--color-accent));
+}
+
 .habit-heat-cell {
   width: 14px;
   height: 14px;

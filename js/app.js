@@ -4606,6 +4606,28 @@ function buildHabitHeatmap(task, completions, todayIso) {
   return `<span class="habit-heatmap" aria-hidden="true">${cells.join("")}</span>`;
 }
 
+// Kurzer Monatsname für das Konstanz-Balken-Label (z.B. "August"). Einmal berechnet — die
+// Habits-Ansicht wird ohnehin bei jedem Öffnen frisch gerendert.
+const HABIT_MONTH_LABEL = new Date().toLocaleDateString("de-DE", { month: "long" });
+
+// Erledigte vs. fällige Habit-Tage im laufenden Monat bis einschließlich heute. "Fällig" = der
+// Wochentag steht in habit_weekdays (gleiche Logik wie die Heatmap). Basis für den Konstanz-Balken.
+function habitMonthProgress(task, completions, todayIso) {
+  const [y, m] = todayIso.split("-").map(Number);
+  const todayDay = Number(todayIso.slice(8, 10));
+  const done = new Set(completions.filter((c) => c.task_id === task.id).map((c) => c.date));
+  let due = 0;
+  let hit = 0;
+  for (let d = 1; d <= todayDay; d++) {
+    const iso = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    if (task.habit_weekdays.includes(weekdayCodeFromIso(iso))) {
+      due++;
+      if (done.has(iso)) hit++;
+    }
+  }
+  return { due, hit, pct: due ? Math.round((hit / due) * 100) : 0 };
+}
+
 function buildHabitChips(task, todayCode) {
   return WEEKDAY_CODES.map((code) => {
     const active = task.habit_weekdays.includes(code);
@@ -4697,6 +4719,25 @@ function renderHabitList() {
             ? `<span class="habit-streak-badge" title="${streak.count} Tage in Folge">${STREAK_ICON_FLAME}${streak.count}</span>`
             : `<span class="habit-streak-badge is-total" title="${streak.count}× erledigt">${streak.count}×</span>`;
       const heatmap = buildHabitHeatmap(t, habitsViewState.completions, todayISO());
+      // Wochen-Ziel-Ring: bei wöchentlichen Habits ist die Zahl der gewählten Tage das Wochensoll.
+      // Zeigt "erledigt diese Woche / Soll" als kleiner Ring, ergänzend zu Streak (langfristig) und
+      // Heatmap (letzte 7 Tage).
+      const weekGoal = recurrence === "weekly" ? t.habit_weekdays.length : 0;
+      let weekRing = "";
+      if (weekGoal > 0) {
+        const weekStart = weekStartISO();
+        const weekDone = habitsViewState.completions.filter(
+          (c) => c.task_id === t.id && c.date >= weekStart && c.date <= todayISO()
+        ).length;
+        const pct = Math.min(100, Math.round((weekDone / weekGoal) * 100));
+        weekRing = `<span class="habit-week-ring${weekDone >= weekGoal ? " is-complete" : ""}" style="--ring-pct:${pct}" title="${weekDone} von ${weekGoal} diese Woche" aria-label="${weekDone} von ${weekGoal} diese Woche"><span>${weekDone}/${weekGoal}</span></span>`;
+      }
+      // Monats-Konstanz-Balken: erledigte vs. fällige Tage im laufenden Monat bis heute.
+      const month = habitMonthProgress(t, habitsViewState.completions, todayISO());
+      const monthBar =
+        month.due > 0
+          ? `<div class="habit-month"><span class="habit-month-label">${HABIT_MONTH_LABEL} ${month.pct}%</span><span class="habit-month-bar"><i style="width:${month.pct}%"></i></span></div>`
+          : "";
       return `
       <li class="task-item habit-item" data-habit-id="${t.id}" data-expanded="false" style="${
         areaColor ? `border-left-color:${areaColor};--task-area-color:${areaColor};` : ""
@@ -4705,8 +4746,9 @@ function renderHabitList() {
         <div class="habit-body">
           <button type="button" class="habit-toggle" aria-expanded="false">
             <span class="task-title">${escapeHtml(t.title)}<span class="habit-freq">${freqLabel}</span></span>
-            <span class="habit-metrics">${heatmap}${streakBadge}</span>
+            <span class="habit-metrics">${weekRing}${heatmap}${streakBadge}</span>
           </button>
+          ${monthBar}
           <div class="habit-expanded" hidden>
             <div class="habit-weekday-presets" role="group" aria-label="Wochentage-Voreinstellungen">
               <button type="button" class="chip-btn habit-preset-btn" data-preset="workdays">Mo–Fr</button>
