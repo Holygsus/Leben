@@ -7149,10 +7149,15 @@ function buildRecipeCard(recipe, pantryNames) {
       const n = ing.name.toLowerCase().trim();
       return !pantryNames.some((p) => p.includes(n) || n.includes(p));
     }).length;
-    badge =
-      missing === 0
-        ? `<span class="recipe-badge is-ready">✓ kochbar</span>`
-        : `<span class="recipe-badge is-missing">${missing} fehlt${missing === 1 ? "" : "en"}</span>`;
+    if (missing === 0) {
+      badge = `<span class="recipe-badge is-ready">✓ kochbar</span>`;
+    } else {
+      // Verfügbarkeits-Ring statt reiner Fehlzahl: zeigt, WIE NAH ein fast-kochbares Rezept ist
+      // (vorhandene / gesamte Zutaten), nicht nur dass etwas fehlt.
+      const have = ingredients.length - missing;
+      const pct = Math.round((have / ingredients.length) * 100);
+      badge = `<span class="recipe-avail-ring" style="--ring-pct:${pct}" title="${have} von ${ingredients.length} Zutaten da" aria-label="${have} von ${ingredients.length} Zutaten vorhanden"><span>${have}/${ingredients.length}</span></span>`;
+    }
   }
 
   const chips = [`<span class="recipe-chip">${ingredients.length} Zutat${ingredients.length === 1 ? "" : "en"}</span>`];
