@@ -1290,7 +1290,13 @@ async function renderCockpitView() {
   container.innerHTML = await res.text();
 
   const today = todayISO();
-  const [allTasks, games, watchlistItems] = await Promise.all([listTasks(), listGames(), listWatchlistItems()]);
+  const [allTasks, games, watchlistItems, transactions, pantryItems] = await Promise.all([
+    listTasks(),
+    listGames(),
+    listWatchlistItems(),
+    listTransactions(),
+    listPantryItems(),
+  ]);
   if (myGeneration !== renderGeneration) return;
 
   // Habits: heute fällig + wie viele davon schon erledigt.
@@ -1314,6 +1320,17 @@ async function renderCockpitView() {
   const playing = games.find((g) => g.status === "playing");
   const gamingGlance = playing ? playing.title : "—";
 
+  // Finanzen: Summe der Ausgaben im laufenden Kalendermonat — leichtgewichtiger Glance ohne die
+  // volle Topf-/Budget-Logik des Finanzen-Tabs (die bleibt Quelle der Wahrheit dort).
+  const monthIso = today.slice(0, 7);
+  const monthExpenses = transactions
+    .filter((t) => t.direction === "expense" && typeof t.occurred_at === "string" && t.occurred_at.slice(0, 7) === monthIso)
+    .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+  const financeGlance = `${monthExpenses.toFixed(0)} € diesen Monat`;
+
+  // Kühlschrank: Anzahl erfasster Zutaten auf einen Blick.
+  const pantryGlance = pantryItems.length ? `${pantryItems.length} Zutaten` : "leer";
+
   // Folgevorschläge: Kachel nur zeigen, wenn welche offen sind. Klick öffnet direkt das Popup
   // (kein eigener Tab/Route), siehe wissensdatenbank/features/folgeaufgaben-vorschlaege.md.
   const openFollowups = await countOpenFollowups().catch(() => 0);
@@ -1324,7 +1341,9 @@ async function renderCockpitView() {
     buildCockpitTile("Habits", habitsGlance, "habits"),
     buildCockpitTile("Aufgaben", tasksGlance, "today"),
     buildCockpitTile("Watchlist", watchGlance, "fernsehprogramm"),
-    buildCockpitTile("Gaming", gamingGlance, "games")
+    buildCockpitTile("Gaming", gamingGlance, "games"),
+    buildCockpitTile("Finanzen", financeGlance, "finance"),
+    buildCockpitTile("Kühlschrank", pantryGlance, "kuehlschrank")
   );
   if (openFollowups > 0) {
     const tile = buildCockpitTile("Folgevorschläge", `${openFollowups} offen`, null);
@@ -2390,6 +2409,8 @@ function updateFilterCountBadge() {
   const count = countActiveOverviewFilters();
   badge.hidden = count === 0;
   badge.textContent = String(count);
+  const resetBtn = document.getElementById("filter-reset");
+  if (resetBtn) resetBtn.hidden = count === 0;
 }
 
 // Filterleiste bleibt standardmäßig eingeklappt (Muster wie die Schnellerfassung) — waren beim
@@ -2451,6 +2472,26 @@ function wireOverviewFilters() {
     renderAreaTree();
     renderNoAreaSection();
   });
+
+  // Ein-Klick-Reset aller aktiven Filter — sonst muss man vier Controls einzeln zurückstellen, um zu
+  // verstehen, warum Aufgaben fehlen. Button ist nur sichtbar, wenn überhaupt Filter aktiv sind.
+  const resetBtn = document.getElementById("filter-reset");
+  if (resetBtn) {
+    resetBtn.addEventListener("click", () => {
+      overviewState.filters.effort = "";
+      overviewState.filters.status = "";
+      overviewState.filters.search = "";
+      overviewState.showDone = false;
+      effortSelect.value = "";
+      statusSelect.value = "";
+      searchInput.value = "";
+      showDoneCheckbox.checked = false;
+      saveStoredFilters();
+      updateFilterCountBadge();
+      renderAreaTree();
+      renderNoAreaSection();
+    });
+  }
 }
 
 // ----- Angeheftete Aufgaben (schnell auffindbar) -----
@@ -5926,9 +5967,26 @@ function wireTransactionQuickCapture() {
     notgroschenToggle.hidden = true;
   };
 
+  // Letzte Ausgaben-Wahl (Topf + Kategorie) merken und beim nächsten Öffnen vorbelegen — spart bei
+  // wiederkehrenden Ausgaben Klicks. Die Kategorie→Topf-Automatik bleibt aktiv, sobald der Nutzer die
+  // Kategorie wechselt (potTouchedManually bleibt false).
+  const TX_DEFAULT_KEY = "leben-os:tx-quick-default";
+  const restoreLastTxDefault = () => {
+    try {
+      const raw = localStorage.getItem(TX_DEFAULT_KEY);
+      if (!raw) return;
+      const { pot, category } = JSON.parse(raw);
+      if (category) categoryGroup.value = category;
+      if (pot) setPot(pot);
+    } catch {
+      /* defekter/leerer Eintrag ignorieren, Standard-Default (Freiheit) greift */
+    }
+  };
+
   toggleBtn.addEventListener("click", () => {
     if (form.hidden) {
       form.hidden = false;
+      restoreLastTxDefault();
       amountInput.focus();
     } else {
       closeForm();
@@ -5952,6 +6010,14 @@ function wireTransactionQuickCapture() {
           note: noteInput.value.trim() || null,
         });
         showToast(`${formatEuro(amount)} erfasst.`);
+        // Nur bei Ausgaben merken (Einnahmen haben weder Topf noch Kategorie).
+        if (selectedDirection === "expense") {
+          try {
+            localStorage.setItem(TX_DEFAULT_KEY, JSON.stringify({ pot: selectedPot, category: categoryGroup.value || null }));
+          } catch {
+            /* localStorage nicht verfügbar — Merkfunktion still überspringen */
+          }
+        }
         closeForm();
         await reloadFinance();
       });
