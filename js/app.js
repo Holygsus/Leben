@@ -4781,6 +4781,7 @@ function openSalaryDistributionModal() {
             <output class="salary-row-amount" id="salary-out-freiheit">${formatEuro(0)}</output>
           </div>
         </div>
+        <div class="salary-preview-bar" id="salary-preview-bar" hidden aria-hidden="true"></div>
         <p class="salary-warning" id="salary-warning" hidden>Die Verteilung übersteigt das Gehalt.</p>
         <p class="salary-hint">Bestätigen aktiviert Phase 2 und setzt die Topf-Ziele. Fixkosten laufen über deine erfassten Fixkosten, Freiheit ist dein Monatsbudget.</p>
         <div class="modal-actions">
@@ -4797,15 +4798,36 @@ function openSalaryDistributionModal() {
   const warning = document.getElementById("salary-warning");
   const confirmBtn = document.getElementById("salary-confirm");
 
+  const previewBar = document.getElementById("salary-preview-bar");
   const recompute = () => {
     const netto = Number(nettoInput.value) || 0;
     const sicherheitRate = Number(sicherheitInput.value) || 0;
     const debtPayment = schuldenInput ? Number(schuldenInput.value) || 0 : 0;
-    const { freiheit } = computeSalaryWaterfall({ netto, fixSum, sicherheitRate, debtPayment });
+    const { sicherheit, schulden, freiheit } = computeSalaryWaterfall({ netto, fixSum, sicherheitRate, debtPayment });
     freiheitOut.textContent = formatEuro(freiheit);
     const invalid = netto <= 0 || freiheit < 0;
     warning.hidden = !(netto > 0 && freiheit < 0);
     confirmBtn.disabled = invalid;
+
+    // Visuelle Vorschau: gestapelter Balken zeigt live, wie sich das Netto auf die Töpfe aufteilt —
+    // greifbarer als vier Einzelzahlen. Nur bei gültigem, aufgehendem Gehalt sichtbar.
+    if (netto > 0 && freiheit >= 0) {
+      const segments = [
+        { label: "Fixkosten", value: fixSum, color: "var(--color-text-subtle)" },
+        { label: "Sicherheit", value: sicherheit, color: "var(--color-accent)" },
+        { label: "Schulden", value: schulden, color: "var(--color-danger)" },
+        { label: "Freiheit", value: freiheit, color: "var(--color-accent-warm)" },
+      ].filter((s) => s.value > 0);
+      previewBar.innerHTML = segments
+        .map((s) => {
+          const pct = Math.round((s.value / netto) * 100);
+          return `<span class="salary-preview-seg" style="flex-grow:${s.value};background:${s.color}" title="${s.label}: ${formatEuro(s.value)} (${pct}%)">${pct >= 8 ? `${pct}%` : ""}</span>`;
+        })
+        .join("");
+      previewBar.hidden = false;
+    } else {
+      previewBar.hidden = true;
+    }
   };
 
   nettoInput.addEventListener("input", recompute);
@@ -7053,6 +7075,16 @@ async function renderRecipeDetailCard(recipeId, close, mode) {
   });
 }
 
+// Fehlende Zutaten eines Rezepts relativ zum Vorrat — gleiche Fuzzy-Teilstring-Logik wie der
+// "kochbar"-Badge in buildRecipeCard. Reine Funktion, von der "Fehlende einkaufen"-Aktion genutzt.
+function computeMissingIngredients(ingredients, pantryNames) {
+  return ingredients.filter((ing) => {
+    const n = (ing.name || "").toLowerCase().trim();
+    if (!n) return false;
+    return !pantryNames.some((p) => p.includes(n) || n.includes(p));
+  });
+}
+
 function renderRecipeViewCard(recipe, card, close) {
   const ingredients = recipe.ingredients?.filter((i) => i.name) || [];
   const ingredientsHtml = ingredients.length
@@ -7072,6 +7104,7 @@ function renderRecipeViewCard(recipe, card, close) {
 
     <div class="modal-actions">
       <button class="btn" type="button" id="rd-edit">Bearbeiten</button>
+      <button class="btn btn-secondary" type="button" id="rd-shopping-tasks">🛒 Fehlende einkaufen</button>
       <button class="btn btn-secondary" type="button" id="rd-shopping-list">Einkaufsliste kopieren</button>
       <button class="btn btn-secondary" type="button" id="rd-close">Schließen</button>
     </div>
@@ -7092,6 +7125,42 @@ function renderRecipeViewCard(recipe, card, close) {
       status.textContent = "In die Zwischenablage kopiert.";
     } catch {
       status.textContent = text;
+    }
+  });
+  // Fehlende Zutaten (Abgleich mit Kühlschrank) als echte Einkaufs-Aufgaben anlegen — verbindet
+  // Rezepte-, Kühlschrank- und Aufgaben-Tab. Bewusst als bereichslose Backlog-Aufgaben (is_brainstorm),
+  // landen so in "Ohne Bereich" der Übersicht. Rückgängig entfernt die gerade angelegten wieder.
+  document.getElementById("rd-shopping-tasks").addEventListener("click", async () => {
+    const status = document.getElementById("rd-status");
+    const btn = document.getElementById("rd-shopping-tasks");
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try {
+      const pantryItems = await listPantryItems();
+      const pantryNames = pantryItems.map((p) => (p.name || "").toLowerCase()).filter(Boolean);
+      const missing = computeMissingIngredients(ingredients, pantryNames);
+      if (missing.length === 0) {
+        status.textContent = "Alles da — nichts einzukaufen.";
+        return;
+      }
+      await withErrorToast(async () => {
+        const created = [];
+        for (const ing of missing) {
+          const label = `Einkaufen: ${ing.amount ? `${ing.amount} ` : ""}${ing.name}`.trim();
+          created.push(await createTask({ title: label, effort: 5, isBrainstorm: true }));
+        }
+        status.textContent = `${created.length} Einkaufs-Aufgabe${created.length === 1 ? "" : "n"} angelegt.`;
+        showToast(`${created.length} Einkaufs-Aufgabe${created.length === 1 ? "" : "n"} angelegt.`, false, {
+          label: "Rückgängig",
+          onClick: () =>
+            withErrorToast(async () => {
+              for (const t of created) await deleteTask(t.id);
+              showToast("Rückgängig gemacht.");
+            }),
+        });
+      });
+    } finally {
+      btn.disabled = false;
     }
   });
 }
