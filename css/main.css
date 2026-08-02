@@ -1984,6 +1984,24 @@ body.has-bg-image .task-item {
   flex-basis: 100%;
 }
 
+.pantry-item {
+  flex-wrap: wrap;
+}
+.pantry-expires {
+  max-width: 150px;
+}
+.pantry-expiry-badge {
+  flex-basis: 100%;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.pantry-soon .pantry-expiry-badge {
+  color: var(--color-warning);
+}
+.pantry-expired .pantry-expiry-badge {
+  color: var(--color-danger);
+}
+
 .wish-fund-bar {
   height: 6px;
   border-radius: var(--radius-full);

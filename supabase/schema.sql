@@ -423,6 +423,7 @@ create table if not exists pantry_items (
   name text not null,
   amount text,
   category text,
+  expires_at date,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );

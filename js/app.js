@@ -548,6 +548,18 @@ function shiftIsoDay(dateIso, delta) {
   return isoFromLocalDate(new Date(y, m - 1, d + delta));
 }
 
+// Ganze Tage von fromIso bis toIso (toIso - fromIso); negativ, wenn toIso in der Vergangenheit liegt.
+// Über lokale Mitternacht gerechnet, damit Sommerzeit-Sprünge das Ergebnis nicht verschieben.
+function isoDayDiff(fromIso, toIso) {
+  if (typeof fromIso !== "string" || typeof toIso !== "string") return null;
+  const [fy, fm, fd] = fromIso.split("-").map(Number);
+  const [ty, tm, td] = toIso.split("-").map(Number);
+  if ([fy, fm, fd, ty, tm, td].some(Number.isNaN)) return null;
+  const from = new Date(fy, fm - 1, fd);
+  const to = new Date(ty, tm - 1, td);
+  return Math.round((to - from) / 86400000);
+}
+
 // [ersterIso, letzterIso] aller sichtbaren Grid-Zellen (inkl. Padding-Tage aus Nachbarmonaten) —
 // so ist die Auslastungs-Färbung (data-load) auch für ausgegraute Tage korrekt.
 function monthRange(monthIso) {
@@ -1328,8 +1340,14 @@ async function renderCockpitView() {
     .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
   const financeGlance = `${monthExpenses.toFixed(0)} € diesen Monat`;
 
-  // Kühlschrank: Anzahl erfasster Zutaten auf einen Blick.
-  const pantryGlance = pantryItems.length ? `${pantryItems.length} Zutaten` : "leer";
+  // Kühlschrank: kritische Zutaten (abgelaufen oder läuft bald ab) haben Vorrang vor der reinen
+  // Bestandszahl — das ist der eigentlich handlungsrelevante Blick.
+  const pantryCritical = pantryItems.filter((p) => pantryExpiryStatus(p.expires_at, today)).length;
+  const pantryGlance = pantryCritical
+    ? `${pantryCritical} ${pantryCritical === 1 ? "läuft" : "laufen"} bald ab`
+    : pantryItems.length
+      ? `${pantryItems.length} Zutaten`
+      : "leer";
 
   // Folgevorschläge: Kachel nur zeigen, wenn welche offen sind. Klick öffnet direkt das Popup
   // (kein eigener Tab/Route), siehe wissensdatenbank/features/folgeaufgaben-vorschlaege.md.
@@ -7170,9 +7188,21 @@ async function renderPantryList() {
 // Menge direkt editierbar (Blur committet) — gleiches Muster wie buildTransactionItem's Notiz-Feld.
 // "Best effort"-Bestand (siehe kochen-rezepte-kuehlschrank.md): kein exaktes Inventar, daher reicht
 // ein Freitext-Feld statt einer Zahl+Einheit-Erfassung.
+// Ablauf-Status einer Zutat relativ zu heute: "expired" (MHD vorbei), "soon" (heute bis in 3 Tagen),
+// sonst null. Reine Funktion — auch von der Cockpit-Kachel genutzt.
+const PANTRY_EXPIRY_SOON_DAYS = 3;
+function pantryExpiryStatus(expiresAt, todayIso) {
+  if (!expiresAt) return null;
+  const days = isoDayDiff(todayIso, expiresAt);
+  if (days == null) return null;
+  if (days < 0) return { state: "expired", days };
+  if (days <= PANTRY_EXPIRY_SOON_DAYS) return { state: "soon", days };
+  return null;
+}
+
 function buildPantryItem(item) {
   const li = document.createElement("li");
-  li.className = "task-item tx-item";
+  li.className = "task-item tx-item pantry-item";
 
   const nameSpan = document.createElement("span");
   nameSpan.className = "task-title pantry-name";
@@ -7209,6 +7239,21 @@ function buildPantryItem(item) {
     });
   });
 
+  // Haltbar-bis, inline editierbar. Leeren des Feldes entfernt das MHD wieder.
+  const expiresInput = document.createElement("input");
+  expiresInput.type = "date";
+  expiresInput.className = "input pantry-expires";
+  expiresInput.value = item.expires_at || "";
+  expiresInput.setAttribute("aria-label", "Haltbar bis");
+  expiresInput.addEventListener("change", async () => {
+    const value = expiresInput.value || null;
+    if (value === (item.expires_at || null)) return;
+    await withErrorToast(async () => {
+      await updatePantryItem(item.id, { expires_at: value });
+      await renderPantryList();
+    });
+  });
+
   const deleteBtn = document.createElement("button");
   deleteBtn.type = "button";
   deleteBtn.className = "icon-btn icon-btn-danger";
@@ -7223,13 +7268,31 @@ function buildPantryItem(item) {
       label: "Rückgängig",
       onClick: () =>
         withErrorToast(async () => {
-          await createPantryItem({ name: item.name, amount: item.amount, category: item.category });
+          await createPantryItem({ name: item.name, amount: item.amount, category: item.category, expiresAt: item.expires_at });
           await renderPantryList();
         }),
     });
   });
 
-  li.append(nameSpan, amountInput, categorySelect, deleteBtn);
+  li.append(nameSpan, amountInput, expiresInput, categorySelect, deleteBtn);
+
+  // Ablauf-Badge (volle Breite unter der Zeile): "abgelaufen" bzw. "läuft bald ab" macht kritische
+  // Zutaten beim Scrollen sofort erkennbar, ohne jedes Datum einzeln zu lesen.
+  const expiry = pantryExpiryStatus(item.expires_at, todayISO());
+  if (expiry) {
+    li.classList.add(expiry.state === "expired" ? "pantry-expired" : "pantry-soon");
+    const badge = document.createElement("span");
+    badge.className = "pantry-expiry-badge";
+    badge.textContent =
+      expiry.state === "expired"
+        ? "abgelaufen"
+        : expiry.days === 0
+          ? "läuft heute ab"
+          : expiry.days === 1
+            ? "läuft morgen ab"
+            : `läuft in ${expiry.days} Tagen ab`;
+    li.append(badge);
+  }
   return li;
 }
 
@@ -7238,6 +7301,7 @@ function wirePantryQuickAddForm() {
   const form = document.getElementById("pantry-quick-form");
   const nameInput = document.getElementById("pantry-quick-name");
   const amountInput = document.getElementById("pantry-quick-amount");
+  const expiresInput = document.getElementById("pantry-quick-expires");
   const categorySelect = document.getElementById("pantry-quick-category");
   const cancelBtn = document.getElementById("pantry-quick-cancel");
 
@@ -7261,7 +7325,12 @@ function wirePantryQuickAddForm() {
     const name = nameInput.value.trim();
     if (!name) return;
     await withErrorToast(async () => {
-      await createPantryItem({ name, amount: amountInput.value.trim() || null, category: categorySelect.value || null });
+      await createPantryItem({
+        name,
+        amount: amountInput.value.trim() || null,
+        category: categorySelect.value || null,
+        expiresAt: expiresInput.value || null,
+      });
       closeForm();
       await renderPantryList();
     });

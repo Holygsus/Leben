@@ -7,11 +7,11 @@ export async function listPantryItems() {
   return data;
 }
 
-export async function createPantryItem({ name, amount = null, category = null }) {
+export async function createPantryItem({ name, amount = null, category = null, expiresAt = null }) {
   const userId = await getCurrentUserId();
   const { data, error } = await supabase
     .from("pantry_items")
-    .insert({ user_id: userId, name, amount, category })
+    .insert({ user_id: userId, name, amount, category, expires_at: expiresAt })
     .select()
     .single();
   if (error) throw error;
