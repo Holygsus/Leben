@@ -93,6 +93,7 @@ create table if not exists tasks (
   -- (z. B. "Glas"/"Zigarette"). Erfassung über habit_counter_log, nicht über planned/done — ein
   -- Zähl-Habit läuft nie über den Tagesplan (siehe findHabitsDueToday in js/habits.js).
   habit_unit text,
+  habit_daily_goal numeric,
   -- Brücke zum Watchlist/Fernsehprogramm-Feature: eine Zeile mit gesetztem watchlist_item_id IST
   -- der Termin im Fernsehprogramm (planned_date = geplanter Tag), siehe js/watchlist.js. effort
   -- bleibt bei solchen Zeilen immer NULL — der effort-Check (5/10/30/60) passt nicht zu den

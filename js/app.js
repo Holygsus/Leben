@@ -4418,14 +4418,16 @@ function wireHabitQuickAddForm() {
   const subtaskInput = document.getElementById("habit-quick-subtask");
   const counterCheckbox = document.getElementById("habit-quick-counter");
   const unitInput = document.getElementById("habit-quick-unit");
+  const goalInput = document.getElementById("habit-quick-goal");
   const cancelBtn = document.getElementById("habit-quick-cancel");
   const submitBtn = form.querySelector('button[type="submit"]');
 
-  // Zähl-Habit-Toggle blendet das Einheit-Feld ein und das (dann sinnlose) Pool-Kind-Feld aus —
-  // ein Zähl-Habit hat keinen Aufgaben-Pool.
+  // Zähl-Habit-Toggle blendet Einheit- und (optionales) Tagesziel-Feld ein und das (dann sinnlose)
+  // Pool-Kind-Feld aus — ein Zähl-Habit hat keinen Aufgaben-Pool.
   const syncCounterFields = () => {
     const on = counterCheckbox.checked;
     unitInput.hidden = !on;
+    goalInput.hidden = !on;
     subtaskInput.hidden = on;
   };
   counterCheckbox.addEventListener("change", syncCounterFields);
@@ -4463,7 +4465,9 @@ function wireHabitQuickAddForm() {
       await withErrorToast(async () => {
         if (isCounter) {
           // Zähl-Habit: habit_weekdays: [] (bleibt isHabitTask, aber nie im Tagesplan), kein Pool-Kind.
-          await createTask({ title, habitWeekdays: [], habitUnit: unit });
+          const goalRaw = goalInput.value.trim();
+          const goal = goalRaw === "" ? null : Math.max(1, Number(goalRaw));
+          await createTask({ title, habitWeekdays: [], habitUnit: unit, habitDailyGoal: goal });
         } else {
           const mother = await createTask({ title, habitWeekdays: [] });
           if (subtaskTitle) await createTask({ title: subtaskTitle, parentTaskId: mother.id });
@@ -4538,14 +4542,23 @@ function buildCounterHabitRow(t) {
   const today = sumCounterForDate(habitsViewState.counterLog, t.id, todayISO());
   const avg = weekAverageCounter(habitsViewState.counterLog, t.id, todayISO());
   const unit = escapeHtml(t.habit_unit);
+  // Tagesziel (optional): "heute X / Ziel" plus ein Fortschrittsbalken. Ohne Ziel bleibt es beim
+  // offenen Zähler wie bisher.
+  const goal = Number(t.habit_daily_goal);
+  const hasGoal = goal > 0;
+  const todayLabel = hasGoal ? `<b>${today}</b> / ${goal}` : `<b>${today}</b>`;
+  const goalBar = hasGoal
+    ? `<span class="wish-fund-bar counter-goal-bar"><span class="wish-fund-fill${today >= goal ? " is-reached" : ""}" style="width:${Math.min(100, Math.round((today / goal) * 100))}%"></span></span>`
+    : "";
   return `
-    <li class="task-item habit-item counter-habit-row" data-habit-id="${t.id}" style="${
+    <li class="task-item habit-item counter-habit-row${hasGoal ? " has-goal" : ""}" data-habit-id="${t.id}" style="${
       areaColor ? `border-left-color:${areaColor};--task-area-color:${areaColor};` : ""
     }">
       <span class="task-area-dot" style="background:${areaColor || "var(--color-text-subtle)"}"></span>
       <div class="counter-body">
         <span class="task-title">${escapeHtml(t.title)}<span class="habit-freq">${unit}</span></span>
-        <span class="counter-metric">heute: <b>${today}</b> · Ø diese Woche ${avg}</span>
+        <span class="counter-metric">heute: ${todayLabel} · Ø diese Woche ${avg}</span>
+        ${goalBar}
       </div>
       <button type="button" class="counter-add-btn" data-counter-id="${t.id}" aria-label="Eine Einheit hinzufügen">+</button>
     </li>`;

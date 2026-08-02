@@ -54,6 +54,7 @@ export async function createTask({
   isEvent = false,
   habitWeekdays = null,
   habitUnit = null,
+  habitDailyGoal = null,
   followupSourceId = null,
 }) {
   const userId = await getCurrentUserId();
@@ -73,6 +74,7 @@ export async function createTask({
       is_event: isEvent,
       habit_weekdays: habitWeekdays,
       habit_unit: habitUnit,
+      habit_daily_goal: habitDailyGoal,
       followup_source_id: followupSourceId,
     })
     .select()
