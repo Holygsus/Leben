@@ -182,11 +182,11 @@ export async function listExpenseCategories() {
   return data;
 }
 
-export async function createExpenseCategory({ key, name, color, sortOrder = 0 }) {
+export async function createExpenseCategory({ key, name, color, sortOrder = 0, monthlyBudget = null }) {
   const userId = await getCurrentUserId();
   const { data, error } = await supabase
     .from("expense_categories")
-    .insert({ user_id: userId, key, name, color, sort_order: sortOrder })
+    .insert({ user_id: userId, key, name, color, sort_order: sortOrder, monthly_budget: monthlyBudget })
     .select()
     .single();
   if (error) throw error;

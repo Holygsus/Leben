@@ -5732,7 +5732,14 @@ async function renderExpenseCategoriesView() {
 }
 
 async function reloadExpenseCategories() {
-  financeState.expenseCategories = await listExpenseCategories();
+  const monthIso = todayISO().slice(0, 7);
+  const [categories, monthTx] = await Promise.all([
+    listExpenseCategories(),
+    listTransactions({ from: `${monthIso}-01`, to: todayISO() }),
+  ]);
+  financeState.expenseCategories = categories;
+  // Ausgaben je Kategorie-Key im laufenden Monat — Basis für die Budget-Ampel.
+  financeState.categorySpendThisMonth = computeCategoryBreakdown(monthTx);
   renderExpenseCategoriesList();
 }
 
@@ -5786,6 +5793,32 @@ function buildExpenseCategoryItem(cat) {
     if (e.key === "Enter") name.blur();
   });
 
+  // Monatsbudget (€/Monat), inline editierbar. Leeren entfernt das Budget (und damit die Ampel).
+  const budgetInput = document.createElement("input");
+  budgetInput.type = "number";
+  budgetInput.min = "0";
+  budgetInput.step = "1";
+  budgetInput.className = "input";
+  budgetInput.style.maxWidth = "90px";
+  budgetInput.placeholder = "€/Mon.";
+  budgetInput.value = cat.monthly_budget ?? "";
+  budgetInput.setAttribute("aria-label", "Monatsbudget");
+  budgetInput.addEventListener("blur", async () => {
+    const raw = budgetInput.value.trim();
+    const value = raw === "" ? null : Math.max(0, Number(raw));
+    if (value === (cat.monthly_budget ?? null)) {
+      budgetInput.value = cat.monthly_budget ?? "";
+      return;
+    }
+    await withErrorToast(async () => {
+      await updateExpenseCategory(cat.id, { monthly_budget: value });
+      await reloadExpenseCategories();
+    });
+  });
+  budgetInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") budgetInput.blur();
+  });
+
   const deleteBtn = document.createElement("button");
   deleteBtn.type = "button";
   deleteBtn.className = "icon-btn icon-btn-danger";
@@ -5802,13 +5835,33 @@ function buildExpenseCategoryItem(cat) {
       label: "Rückgängig",
       onClick: () =>
         withErrorToast(async () => {
-          await createExpenseCategory({ key: cat.key, name: cat.name, color: cat.color, sortOrder: cat.sort_order });
+          await createExpenseCategory({
+            key: cat.key,
+            name: cat.name,
+            color: cat.color,
+            sortOrder: cat.sort_order,
+            monthlyBudget: cat.monthly_budget,
+          });
           await reloadExpenseCategories();
         }),
     });
   });
 
-  li.append(colorInput, name, deleteBtn);
+  li.append(colorInput, name, budgetInput, deleteBtn);
+
+  // Ampel + "X / Y €"-Label (volle Breite unter der Zeile), nur bei gesetztem Budget: grün < 80 %,
+  // gelb 80–100 %, rot darüber. Macht Budget-Überschreitungen beim Scrollen sofort sichtbar.
+  const budget = Number(cat.monthly_budget);
+  if (budget > 0) {
+    const spent = Number(financeState.categorySpendThisMonth?.[cat.key] || 0);
+    const ratio = spent / budget;
+    const state = ratio > 1 ? "over" : ratio >= 0.8 ? "warn" : "ok";
+    li.classList.add("category-item");
+    const label = document.createElement("span");
+    label.className = `category-budget-label category-budget-${state}`;
+    label.textContent = `${formatEuro(spent)} / ${formatEuro(budget)} diesen Monat`;
+    li.append(label);
+  }
   return li;
 }
 

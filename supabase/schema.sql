@@ -276,6 +276,7 @@ create table if not exists expense_categories (
   name text not null,
   color text not null,
   sort_order integer not null default 0,
+  monthly_budget numeric,
   created_at timestamptz default now(),
   unique (user_id, key)
 );

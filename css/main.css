@@ -2002,6 +2002,24 @@ body.has-bg-image .task-item {
   color: var(--color-danger);
 }
 
+.category-item {
+  flex-wrap: wrap;
+}
+.category-budget-label {
+  flex-basis: 100%;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.category-budget-ok {
+  color: var(--color-success);
+}
+.category-budget-warn {
+  color: var(--color-warning);
+}
+.category-budget-over {
+  color: var(--color-danger);
+}
+
 .wish-fund-bar {
   height: 6px;
   border-radius: var(--radius-full);
