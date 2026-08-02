@@ -438,7 +438,7 @@ Theme-Toggle oben rechts.</p>
   <h2>6 · Fernsehprogramm</h2>
 
   <div class="tip">
-    <h3>6.1 Serien-Fortschritt als Balken</h3>
+    <h3>6.1 Serien-Fortschritt als Balken <span class="d-badge" style="--b:var(--color-success)">✓ gebaut</span></h3>
     <p>Die aktive Karte hat schon ein Cover. Was fehlt: „Wo bin ich?" Ein Folgen-Balken (Staffel 2 · 4/10) zeigt den Serienfortschritt auf einen Blick.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
@@ -453,7 +453,7 @@ Theme-Toggle oben rechts.</p>
   </div>
 
   <div class="tip">
-    <h3>6.2 Wochen-Programm als Tages-Spalten</h3>
+    <h3>6.2 Wochen-Programm als Tages-Spalten <span class="d-badge" style="--b:var(--color-text-muted)">größeres Feature</span></h3>
     <p>Der verplante Wochen-Slot ist eine flache Liste. Als Mo–So-Streifen mit dem Eintrag am jeweiligen Tag wird das „Programm" zum Wochenplan.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
@@ -468,7 +468,7 @@ Theme-Toggle oben rechts.</p>
   </div>
 
   <div class="tip">
-    <h3>6.3 „Neu diese Woche"-Banderole</h3>
+    <h3>6.3 „Neu diese Woche"-Banderole <span class="d-badge" style="--b:var(--color-text-muted)">Semantik unklar</span></h3>
     <p>Neu erschienene Folgen/Staffeln gehen in der Liste unter. Eine Ecken-Banderole zieht den Blick auf das, was frisch verfügbar ist.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
@@ -563,8 +563,8 @@ Theme-Toggle oben rechts.</p>
   </div>
 
   <div class="tip">
-    <h3>8.3 Ablauf-/Frische-Signal <span class="muted" style="font-weight:400">(noch nicht baubar — Ablaufdatum fehlt im Datenmodell)</span></h3>
-    <p>Farbcodierung frisch → wird knapp → alt, gleiche Logik wie die <code>is-due-soon</code>/<code>is-overdue</code>-Task-States. Voraussetzung: ein Haltbarkeitsfeld an den Pantry-Items.</p>
+    <h3>8.3 Ablauf-/Frische-Signal <span class="d-badge" style="--b:var(--color-success)">✓ war schon gebaut</span></h3>
+    <p>Farbcodierung frisch → wird knapp → alt, gleiche Logik wie die <code>is-due-soon</code>/<code>is-overdue</code>-Task-States. <em>Korrektur: <code>pantry_items.expires_at</code> existiert längst, samt <code>pantryExpiryStatus</code>, Ablauf-Badge und <code>pantry-expired</code>/<code>pantry-soon</code>-Klassen — keine Migration nötig, war meine Fehleinschätzung.</em></p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
         <div class="frame"><div class="d-row"><span class="grow">Joghurt</span></div><div class="d-row"><span class="grow">Hack</span></div></div>

@@ -6378,6 +6378,27 @@ function buildEpisodeProgressLabel(item) {
   return buildCurrentEpisodeLabel(item).replace(/^ · /, "");
 }
 
+// Gesamt-Serienfortschritt als Balken: abgeschlossene Staffeln (voll) + aktuelle Folge, geteilt durch
+// die Summe aller bekannten Staffel-Folgenzahlen. Nur wenn Staffel/Folge und episode_counts_by_season
+// gepflegt sind — sonst leer (kein Balken).
+function buildEpisodeProgressBar(item) {
+  const counts = item && item.episode_counts_by_season;
+  if (!counts || typeof counts !== "object" || item.current_season == null || item.current_episode == null) return "";
+  const seasonTotal = counts[String(item.current_season)];
+  if (seasonTotal == null) return "";
+  let watched = 0;
+  let total = 0;
+  for (const [season, n] of Object.entries(counts)) {
+    const num = Number(n) || 0;
+    total += num;
+    if (Number(season) < item.current_season) watched += num;
+  }
+  watched += Math.min(item.current_episode, Number(seasonTotal) || 0);
+  if (total <= 0) return "";
+  const pct = Math.min(100, Math.round((watched / total) * 100));
+  return `<span class="watchlist-progress" aria-hidden="true" title="${watched} von ${total} Folgen"><span class="watchlist-progress-fill" style="width:${pct}%"></span></span>`;
+}
+
 // episode_counts_by_season (jsonb-Objekt { "1":10, "2":8 }) <-> Komma-Liste ("10, 8") fürs Textfeld.
 // Nach Staffelnummer sortiert formatiert; leere/ungültige Eingabe -> null.
 function formatEpisodeCounts(counts) {
@@ -6624,6 +6645,7 @@ function buildWatchlistActiveCard(item, avg) {
     `<div class="watchlist-active-body">` +
     `<div class="watchlist-active-top"><span class="task-title">${escapeHtml(item.title)}</span>${buildRatingStarsHtml(avg)}</div>` +
     `<div class="watchlist-active-meta">${buildWatchlistTypeBadge(item.type)}${meta.length ? `<span>${meta.join(" · ")}</span>` : ""}</div>` +
+    buildEpisodeProgressBar(item) +
     `</div>`;
   card.addEventListener("click", () => openWatchlistDetail(item.id));
   return card;

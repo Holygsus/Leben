@@ -2916,6 +2916,23 @@ body.has-bg-image .task-item {
   font-size: 0.9rem;
 }
 
+/* Serien-Fortschrittsbalken in der Aktiv-Karte: gesehene vs. bekannte Gesamt-Folgen. */
+.watchlist-progress {
+  display: block;
+  height: 5px;
+  margin-top: 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.watchlist-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+}
+
 /* Farbige Typ-Badge (Serie/Anime/Film/Doku/YouTube) — gleiche Farbcodierung wie die Filter-Chips. */
 .wl-type-badge {
   display: inline-flex;
