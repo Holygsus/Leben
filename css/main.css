@@ -1375,6 +1375,19 @@ body.has-bg-image .task-item {
   margin-top: var(--space-2);
 }
 
+.habit-delete-btn {
+  display: inline-block;
+  margin-top: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .weekday-chip {
   min-width: 40px;
   min-height: 40px;

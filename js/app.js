@@ -1648,9 +1648,11 @@ async function openSettingsPanel() {
   });
 }
 
-// tasks = für heute geplante Aufgaben (bestimmen die Fortschrittsanzeige), overdueTasks = nicht
-// erledigte Aufgaben mit Plandatum in der Vergangenheit (zählen bewusst NICHT in den
-// Tagesfortschritt hinein, werden aber oben in der Liste als "Überfällig" hervorgehoben).
+// tasks = für heute geplante Aufgaben, overdueTasks = nicht erledigte Aufgaben mit Plandatum in der
+// Vergangenheit. Beide zusammen bestimmen den Tagesfortschritt: überfällige, noch offene Top-Level-
+// Aufgaben zählen in den Nenner (und "offen") des Rings mit hinein — analog zur Nav-Badge-Logik
+// unten —, damit das Bild dem echten Pensum entspricht (sie stehen oben in der Liste ohnehin als
+// "Überfällig"). Erledigt können überfällige nie sein, also erhöhen sie nur den Nenner, nie den Zähler.
 // allTasks wird für die Mutteraufgaben-Gruppierung gebraucht: Kinder erben beim Einplanen
 // automatisch das Datum ihrer Mutter (siehe planTaskCascade), liegen also normalerweise mit im
 // today-Set — falls trotzdem nur eine Unteraufgabe einzeln eingeplant wurde, wird ihre Mutter aus
@@ -1666,15 +1668,19 @@ function renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById, onChange
   // alle Aufgaben inkl. Unteraufgaben.
   const topLevelTasks = tasks.filter((t) => !t.parent_task_id);
   const topLevelDoneCount = topLevelTasks.filter((t) => t.status === "done").length;
-  const pct = topLevelTasks.length ? Math.round((topLevelDoneCount / topLevelTasks.length) * 100) : 0;
-  const remaining = topLevelTasks.length - topLevelDoneCount;
-  document.getElementById("progress-text").textContent = `${topLevelDoneCount} von ${topLevelTasks.length} Aufgaben erledigt`;
+  // Überfällige, noch offene Top-Level-Aufgaben zählen mit in den Nenner (nie in den Zähler, da nie
+  // erledigt) — sonst zeigt der Ring "alles erledigt", obwohl oben noch Überfälliges in der Liste steht.
+  const overdueTopLevelOpen = overdueTasks.filter((t) => !t.parent_task_id && t.status !== "done").length;
+  const totalCount = topLevelTasks.length + overdueTopLevelOpen;
+  const pct = totalCount ? Math.round((topLevelDoneCount / totalCount) * 100) : 0;
+  const remaining = totalCount - topLevelDoneCount;
+  document.getElementById("progress-text").textContent = `${topLevelDoneCount} von ${totalCount} Aufgaben erledigt`;
   document.getElementById("progress-subtext").textContent =
-    topLevelTasks.length === 0 ? "" : remaining > 0 ? `Noch ${remaining} offen für heute.` : "Alles erledigt für heute.";
+    totalCount === 0 ? "" : remaining > 0 ? `Noch ${remaining} offen für heute.` : "Alles erledigt für heute.";
   document.getElementById("progress-ring-pct").textContent = `${pct}%`;
   const ring = document.getElementById("progress-ring");
   ring.style.setProperty("--pct", pct);
-  ring.classList.toggle("is-complete", topLevelTasks.length > 0 && topLevelDoneCount === topLevelTasks.length);
+  ring.classList.toggle("is-complete", totalCount > 0 && topLevelDoneCount === totalCount);
 
   // Aufwand-Leiste: aufsummierte Minuten der heute geplanten Top-Level-Aufgaben, Füllstand =
   // bereits erledigte Minuten. Ohne Aufwandsangaben (Summe 0) bleibt die Leiste ausgeblendet.
@@ -4787,6 +4793,7 @@ function renderHabitList() {
               Wiederholung
               <select class="select habit-recurrence-select" data-habit-recurrence>${buildRecurrenceOptions(t)}</select>
             </label>
+            <button type="button" class="habit-delete-btn" data-habit-delete>Habit löschen</button>
           </div>
         </div>
       </li>`;
@@ -4845,6 +4852,23 @@ function renderHabitList() {
         await updateTask(task.id, { habit_weekdays: nextDays });
         task.habit_weekdays = nextDays;
         updateHabitWeekdayChips(li, task, todayCode);
+      });
+      return;
+    }
+
+    const deleteBtn = e.target.closest("[data-habit-delete]");
+    if (deleteBtn) {
+      const li = deleteBtn.closest("[data-habit-id]");
+      const task = habitsViewState.allTasks.find((t) => t.id === li.dataset.habitId);
+      // Kein Undo-Toast wie bei normalen Aufgaben: restoreTaskSnapshot stellt die Habit-Felder
+      // (is_habit/habit_weekdays/habit_recurrence …) nicht wieder her, ein Undo würde den Habit
+      // still zu einer normalen Aufgabe degradieren. Darum bewusst das Rezept/Geburtstag-Muster
+      // (Bestätigung statt Undo). Pool-Kinder entfernt die DB per Cascade mit.
+      const ok = await showConfirm(`„${task.title}" wirklich löschen?`, { confirmLabel: "Löschen", danger: true });
+      if (!ok) return;
+      await withErrorToast(async () => {
+        await deleteTask(task.id);
+        await renderHabitsView();
       });
       return;
     }
