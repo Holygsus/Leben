@@ -2451,6 +2451,50 @@ function updateFilterCountBadge() {
   badge.textContent = String(count);
   const resetBtn = document.getElementById("filter-reset");
   if (resetBtn) resetBtn.hidden = count === 0;
+  updateActiveFilterChips();
+}
+
+const STATUS_FILTER_LABEL = { open: "Offen", planned: "Geplant", done: "Erledigt" };
+
+// Aktive Filter als sichtbare, einzeln entfernbare Chips — auch wenn die Filterleiste eingeklappt
+// ist. Der Zähler-Badge sagt nur "wie viele", die Chips sagen "welche" und lassen sich per Klick lösen.
+function updateActiveFilterChips() {
+  const wrap = document.getElementById("active-filter-chips");
+  if (!wrap) return;
+  const { effort, status, search } = overviewState.filters;
+  const chips = [];
+  if (search) chips.push({ key: "search", label: `„${search}"` });
+  if (effort) chips.push({ key: "effort", label: `${effort} Min` });
+  if (status) chips.push({ key: "status", label: STATUS_FILTER_LABEL[status] || status });
+  if (overviewState.showDone) chips.push({ key: "showDone", label: "Erledigte sichtbar" });
+  wrap.innerHTML = "";
+  wrap.hidden = chips.length === 0;
+  for (const c of chips) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "active-filter-chip";
+    chip.innerHTML = `${escapeHtml(c.label)} <span aria-hidden="true">✕</span>`;
+    chip.setAttribute("aria-label", `Filter entfernen: ${c.label}`);
+    chip.addEventListener("click", () => clearOverviewFilter(c.key));
+    wrap.appendChild(chip);
+  }
+}
+
+function clearOverviewFilter(key) {
+  if (key === "showDone") {
+    overviewState.showDone = false;
+    const cb = document.getElementById("filter-show-done");
+    if (cb) cb.checked = false;
+  } else {
+    overviewState.filters[key] = "";
+    const controlId = { search: "filter-search", effort: "filter-effort", status: "filter-status" }[key];
+    const el = document.getElementById(controlId);
+    if (el) el.value = "";
+  }
+  saveStoredFilters();
+  updateFilterCountBadge();
+  renderAreaTree();
+  renderNoAreaSection();
 }
 
 // Filterleiste bleibt standardmäßig eingeklappt (Muster wie die Schnellerfassung) — waren beim
@@ -2795,6 +2839,16 @@ function buildAreaSection(area) {
   dot.className = "task-area-dot";
   dot.style.background = area.color;
 
+  // Bereichs-Icon (falls gepflegt) vor dem Farbpunkt — schnellere Wiedererkennung beim Scrollen als
+  // Farbe allein. Rein dekorativ, daher aria-hidden.
+  let iconEl = null;
+  if (area.icon) {
+    iconEl = document.createElement("span");
+    iconEl.className = "area-section-icon";
+    iconEl.textContent = area.icon;
+    iconEl.setAttribute("aria-hidden", "true");
+  }
+
   const name = document.createElement("span");
   name.className = "area-section-name";
   name.textContent = area.name;
@@ -2843,8 +2897,12 @@ function buildAreaSection(area) {
   toggle.addEventListener("click", toggleFn);
   name.addEventListener("click", toggleFn);
 
-  header.append(toggle, dot, name, weekActivity, count, addBtn);
+  header.append(toggle, ...(iconEl ? [iconEl] : []), dot, name, weekActivity, count, addBtn);
   section.appendChild(header);
+
+  // Leere Bereiche (keine offenen Aufgaben) zurücknehmen, damit volle Bereiche hervortreten — nur
+  // gedämpft, nicht zwangsweise eingeklappt (die manuelle Zuklapp-Entscheidung des Nutzers bleibt).
+  section.classList.toggle("is-empty", openCount === 0 && !isAddingHere && !hasSearch);
 
   // Body steckt immer im DOM (in einem grid-rows-Wrapper) statt bei "collapsed" ganz zu
   // verschwinden — nur so lässt sich das Auf-/Zuklappen sanft animieren statt hart umzuschalten.

@@ -2823,6 +2823,60 @@ body.has-bg-image .task-item {
   display: none;
 }
 
+/* Bereichs-Icon im Header (optionales Emoji-Feld am Bereich) — vor dem Farbpunkt, rein zur
+   schnelleren Wiedererkennung. */
+.area-section-icon {
+  font-size: 1.05rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* Leerer Bereich (keine offenen Aufgaben): gedämpft, damit volle Bereiche optisch führen. Beim
+   Hovern/Fokussieren wieder voll sichtbar, damit er nicht "deaktiviert" wirkt. */
+.area-section.is-empty {
+  opacity: 0.5;
+  transition: opacity 0.2s ease;
+}
+
+.area-section.is-empty:hover,
+.area-section.is-empty:focus-within {
+  opacity: 1;
+}
+
+/* Aktive Filter als entfernbare Chips unter der Filterleiste — sichtbar auch bei eingeklappter Bar. */
+.active-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.active-filter-chips[hidden] {
+  display: none;
+}
+
+.active-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+.active-filter-chip:hover {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+.active-filter-chip span {
+  opacity: 0.7;
+  font-weight: 400;
+}
+
 .tree-toggle {
   width: 28px;
   height: 28px;
