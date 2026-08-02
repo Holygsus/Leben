@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Leben OS — Ideen Runde 2</title>
+<link rel="stylesheet" href="css/reset.css" />
+<link rel="stylesheet" href="css/variables.css" />
+<link rel="stylesheet" href="css/main.css" />
+<style>
+  body {
+    padding: var(--space-6) var(--space-4) var(--space-7);
+    max-width: 1040px;
+    margin: 0 auto;
+    text-align: left;
+  }
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+    position: sticky;
+    top: 0;
+    background: var(--color-bg);
+    padding: var(--space-2) 0;
+    z-index: 5;
+  }
+  .topbar h1 { font-size: var(--font-size-lg); }
+  .toggle {
+    min-height: 40px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-full);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-weight: 600;
+    font-size: var(--font-size-sm);
+  }
+  .intro { color: var(--color-text-muted); font-size: var(--font-size-sm); margin-bottom: var(--space-6); }
+
+  .tab { margin-bottom: var(--space-7); }
+  .tab > h2 {
+    font-size: var(--font-size-xl);
+    padding-bottom: var(--space-2);
+    border-bottom: 2px solid var(--color-border);
+    margin-bottom: var(--space-4);
+  }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
+  @media (max-width: 780px) { .cards { grid-template-columns: 1fr; } }
+
+  .card {
+    border: 1px solid var(--color-border);
+    border-top: 3px solid var(--accent, var(--color-accent));
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    background: var(--color-surface);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .card h3 { font-size: var(--font-size-base); }
+  .card p { color: var(--color-text-muted); font-size: var(--font-size-sm); flex: 1; }
+  .num { font-size: 0.72rem; font-weight: 700; color: var(--color-text-subtle); letter-spacing: 0.04em; }
+
+  .tag {
+    align-self: flex-start;
+    font-size: 0.66rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
+    padding: 2px 8px; border-radius: var(--radius-full);
+  }
+  .tag.optik { background: color-mix(in srgb, var(--color-success) 16%, transparent); color: var(--color-success); }
+  .tag.feld  { background: color-mix(in srgb, var(--color-accent-warm) 18%, transparent); color: var(--color-accent-warm); }
+  .tag.gross { background: color-mix(in srgb, var(--color-accent) 16%, transparent); color: var(--color-accent); }
+
+  .legend { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-6); font-size: var(--font-size-sm); color: var(--color-text-muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Leben OS — Ideen, Runde 2</h1>
+  <button class="toggle" id="theme-toggle" type="button">🌙 Dark Mode</button>
+</div>
+
+<p class="intro">33 <strong>neue</strong> visuelle Ideen (11 Tabs × 3) — jede diesmal gegen den aktuellen Code-Stand
+geprüft, sodass keine bereits gebaute oder abgedeckte Sache dabei ist. Jede Karte trägt einen Aufwands-Hinweis.</p>
+
+<div class="legend">
+  <span><span class="tag optik">Optik</span> rein CSS/JS, keine neuen Daten</span>
+  <span><span class="tag feld">Feld</span> braucht ein neues DB-Feld / Eingabe</span>
+  <span><span class="tag gross">Größer</span> eigenes Feature / Umbau</span>
+</div>
+
+<!-- 1 HEUTE -->
+<section class="tab">
+  <h2>1 · Heute</h2>
+  <div class="cards">
+    <div class="card" style="--accent:var(--color-accent)">
+      <span class="num">1.1</span><h3>Termine als Tages-Zeitleiste</h3>
+      <p>Die Termine-Widgetliste in eine vertikale Zeitleiste mit „Jetzt"-Marker verwandeln — man sieht auf einen Blick, was noch kommt und was vorbei ist.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+    <div class="card" style="--accent:var(--color-danger)">
+      <span class="num">1.2</span><h3>Überfällig-Sammelkopf</h3>
+      <p>Überfällige Aufgaben unter einem eigenen, rot getönten „Überfällig (3)"-Aufklappkopf bündeln, statt sie einzeln oben in die Liste zu mischen.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+    <div class="card" style="--accent:var(--color-accent-warm)">
+      <span class="num">1.3</span><h3>Abschluss-Feier bei 100 %</h3>
+      <p>Wenn alle Tagesaufgaben erledigt sind, kurz aufleuchtender Ring + Glückwunsch-Zeile statt nur „Alles erledigt" — belohnt den geschafften Tag sichtbar.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+  </div>
+</section>
+
+<!-- 2 ÜBERSICHT -->
+<section class="tab">
+  <h2>2 · Übersicht</h2>
+  <div class="cards">
+    <div class="card" style="--accent:var(--color-accent)">
+      <span class="num">2.1</span><h3>Prioritäts-Ampelpunkt an Aufgaben</h3>
+      <p>Jede Aufgabenzeile bekommt links einen kleinen Farbpunkt für hoch/mittel/niedrig — Priorität ist bisher nur im Bearbeiten-Formular sichtbar, nicht in der Liste.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+    <div class="card" style="--accent:var(--color-cat-gesundheit)">
+      <span class="num">2.2</span><h3>Vorschau eingeklappter Bereiche</h3>
+      <p>Ein zugeklappter Bereich zeigt die nächsten 1–2 Aufgabentitel blass als Teaser — man muss nicht aufklappen, um zu wissen, was drinsteckt.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+    <div class="card" style="--accent:var(--color-success)">
+      <span class="num">2.3</span><h3>Drag-Griff zum Sortieren der Bereiche</h3>
+      <p>Sichtbares Griff-Icon am Bereichsheader + Drag-and-drop, um die Reihenfolge der Lebensbereiche selbst festzulegen.</p>
+      <span class="tag gross">Größer</span>
+    </div>
+  </div>
+</section>
+
+<!-- 3 PLAN -->
+<section class="tab">
+  <h2>3 · Plan</h2>
+  <div class="cards">
+    <div class="card" style="--accent:var(--color-success)">
+      <span class="num">3.1</span><h3>Wochen-/Monats-Umschalter</h3>
+      <p>Neben dem Monatskalender eine kompakte Wochenansicht (7 Spalten, mehr Platz pro Tag) — umschaltbar, für die Feinplanung der aktuellen Woche.</p>
+      <span class="tag gross">Größer</span>
+    </div>
+    <div class="card" style="--accent:var(--color-accent)">
+      <span class="num">3.2</span><h3>Tageszeit-Slots im Vorschlag</h3>
+      <p>Den Tagesvorschlag optisch in Vormittag / Nachmittag / Abend gliedern, statt einer durchgehenden Liste — gibt dem Tag eine grobe Struktur.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+    <div class="card" style="--accent:var(--color-accent-warm)">
+      <span class="num">3.3</span><h3>„Von gestern übrig"-Banner</h3>
+      <p>Ein Hinweis-Banner mit den unerledigten Aufgaben von gestern und einem „Auf heute ziehen"-Button — nichts fällt still hinten runter.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+  </div>
+</section>
+
+<!-- 4 HABITS -->
+<section class="tab">
+  <h2>4 · Habits</h2>
+  <div class="cards">
+    <div class="card" style="--accent:var(--color-success)">
+      <span class="num">4.1</span><h3>Jahres-Heatmap (GitHub-Stil)</h3>
+      <p>Im aufgeklappten Habit ein Contribution-Grid übers Jahr — die 7-Tage-Heatmap zeigt nur die Woche, hier sieht man die große Konstanz-Landschaft.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+    <div class="card" style="--accent:var(--color-accent-warm)">
+      <span class="num">4.2</span><h3>Rekord-Streak-Badge</h3>
+      <p>Neben dem aktuellen Streak den persönlichen Bestwert („Rekord: 28") anzeigen — Ziel zum Schlagen, statt nur den laufenden Lauf zu sehen.</p>
+      <span class="tag feld">Feld</span>
+    </div>
+    <div class="card" style="--accent:var(--color-cat-gesundheit)">
+      <span class="num">4.3</span><h3>Habit-Gruppen mit Zwischenüberschriften</h3>
+      <p>Habits nach selbstvergebenen Gruppen (z.B. „Gesundheit", „Fokus") mit dezenten Überschriften bündeln, statt einer flachen Liste.</p>
+      <span class="tag feld">Feld</span>
+    </div>
+  </div>
+</section>
+
+<!-- 5 FINANZEN -->
+<section class="tab">
+  <h2>5 · Finanzen</h2>
+  <div class="cards">
+    <div class="card" style="--accent:var(--color-accent-warm)">
+      <span class="num">5.1</span><h3>Vormonats-Vergleich am Saldo</h3>
+      <p>Am Monats-Saldo ein ▲/▼ mit der Differenz zum Vormonat („+120 € ggü. Juli") — ordnet die Zahl ein, statt sie allein stehen zu lassen.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+    <div class="card" style="--accent:var(--color-danger)">
+      <span class="num">5.2</span><h3>Kategorie-Budget-Warnung</h3>
+      <p>Die vorhandenen Kategorie-Monatsbudgets als Balken mit Rot-Warnung bei Überschreitung visualisieren — das Feld gibt's, die Anzeige fehlt.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+    <div class="card" style="--accent:var(--color-accent)">
+      <span class="num">5.3</span><h3>Topf-Sparkline über Monate</h3>
+      <p>Eine kleine Verlaufskurve je Topf (Stand der letzten Monate) — zeigt Trend statt nur den heutigen Stichtag.</p>
+      <span class="tag gross">Größer</span>
+    </div>
+  </div>
+</section>
+
+<!-- 6 FERNSEHPROGRAMM -->
+<section class="tab">
+  <h2>6 · Fernsehprogramm</h2>
+  <div class="cards">
+    <div class="card" style="--accent:var(--color-cat-gesundheit)">
+      <span class="num">6.1</span><h3>Genre-Chips auf der Karte</h3>
+      <p>Die gepflegten Genres (Feld existiert bereits) als kleine Chips anzeigen — bisher nur intern, nicht sichtbar.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+    <div class="card" style="--accent:var(--color-accent-warm)">
+      <span class="num">6.2</span><h3>Countdown zur neuen Staffel</h3>
+      <p>Bei „wartet auf neue Staffel" das vorhandene Release-Datum als „in 12 Tagen"-Countdown-Badge anzeigen.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+    <div class="card" style="--accent:var(--color-accent)">
+      <span class="num">6.3</span><h3>Sichtbare Sortier-Chips</h3>
+      <p>Sortierung (nach Bewertung / Typ / zuletzt geschaut) als sichtbare, umschaltbare Chips über der Liste statt fester Reihenfolge.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+  </div>
+</section>
+
+<!-- 7 REZEPTE -->
+<section class="tab">
+  <h2>7 · Rezepte</h2>
+  <div class="cards">
+    <div class="card" style="--accent:var(--color-accent-warm)">
+      <span class="num">7.1</span><h3>Zutaten-Vorschau auf der Karte</h3>
+      <p>Die ersten 2–3 Zutaten als blasse Textzeile auf der Rezeptkarte — mehr Wiedererkennung als nur „5 Zutaten".</p>
+      <span class="tag optik">Optik</span>
+    </div>
+    <div class="card" style="--accent:var(--color-success)">
+      <span class="num">7.2</span><h3>Portionen-/Personen-Angabe</h3>
+      <p>Ein Portionen-Feld mit Personen-Icon auf der Karte — und optional Mengen-Umrechnung im Detail.</p>
+      <span class="tag feld">Feld</span>
+    </div>
+    <div class="card" style="--accent:var(--color-cat-sonstiges)">
+      <span class="num">7.3</span><h3>Schwierigkeitsgrad-Sterne</h3>
+      <p>Ein einfacher Schwierigkeitsgrad (1–3 Sterne/Punkte) je Rezept — hilft bei der Auswahl je nach Tagesform.</p>
+      <span class="tag feld">Feld</span>
+    </div>
+  </div>
+</section>
+
+<!-- 8 KÜHLSCHRANK -->
+<section class="tab">
+  <h2>8 · Kühlschrank</h2>
+  <div class="cards">
+    <div class="card" style="--accent:var(--color-accent)">
+      <span class="num">8.1</span><h3>Frische-Ampel-Kopf</h3>
+      <p>Ganz oben eine Stat-Zeile „X frisch · Y bald · Z abgelaufen" — der handlungsrelevante Gesamtblick, den die Kategorie-Zähler nicht geben.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+    <div class="card" style="--accent:var(--color-cat-wohnen)">
+      <span class="num">8.2</span><h3>Auto-Emoji je Zutat</h3>
+      <p>Aus dem Namen ein passendes Lebensmittel-Emoji ableiten (🥛 Milch, 🥚 Eier) — macht die Liste scanbar statt reiner Textzeilen.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+    <div class="card" style="--accent:var(--color-accent-warm)">
+      <span class="num">8.3</span><h3>Sortierung „läuft zuerst ab"</h3>
+      <p>Umschaltbare Sortierung nach Haltbarkeit statt nur nach Kategorie — was zuerst weg muss, steht oben.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+  </div>
+</section>
+
+<!-- 9 GAMING -->
+<section class="tab">
+  <h2>9 · Gaming</h2>
+  <div class="cards">
+    <div class="card" style="--accent:var(--color-accent)">
+      <span class="num">9.1</span><h3>Release-Countdown für Wunschliste</h3>
+      <p>Bei Wishlist-Spielen das vorhandene Release-Datum als „erscheint in 3 Wochen"-Badge — Vorfreude sichtbar machen.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+    <div class="card" style="--accent:var(--color-success)">
+      <span class="num">9.2</span><h3>„Als Nächstes dran"-Hervorhebung</h3>
+      <p>Das höchstpriorisierte Backlog-Spiel als markierten „Next up"-Kandidaten hervorheben — Priorität gibt's, die Betonung fehlt.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+    <div class="card" style="--accent:var(--color-accent-warm)">
+      <span class="num">9.3</span><h3>Backlog-Spielzeit-Schätzung</h3>
+      <p>Geschätzte Gesamt-Spielzeit je Titel + Backlog-Summe („~180 h Backlog") — realistische Einordnung der Halde.</p>
+      <span class="tag feld">Feld</span>
+    </div>
+  </div>
+</section>
+
+<!-- 10 COCKPIT -->
+<section class="tab">
+  <h2>10 · Cockpit</h2>
+  <div class="cards">
+    <div class="card" style="--accent:var(--color-accent)">
+      <span class="num">10.1</span><h3>Fokus-Zeile oben</h3>
+      <p>Über den Kacheln eine Satzzeile „3 Dinge brauchen heute Aufmerksamkeit" aus den kritischen Glances — ein sprechender Einstieg.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+    <div class="card" style="--accent:var(--color-cat-gesundheit)">
+      <span class="num">10.2</span><h3>Mini-Sparkline je Kachel</h3>
+      <p>Kleiner 7-Tage-Verlauf am Fuß jeder Kachel (z.B. Habits-Erfüllung, Ausgaben) — Trend statt nur Momentwert.</p>
+      <span class="tag gross">Größer</span>
+    </div>
+    <div class="card" style="--accent:var(--color-accent-warm)">
+      <span class="num">10.3</span><h3>Kacheln anordnen / ausblenden</h3>
+      <p>Reihenfolge der Cockpit-Kacheln per Drag festlegen und ungenutzte ausblenden — jeder baut sich sein Cockpit.</p>
+      <span class="tag gross">Größer</span>
+    </div>
+  </div>
+</section>
+
+<!-- 11 LESEN -->
+<section class="tab">
+  <h2>11 · Lesen</h2>
+  <div class="cards">
+    <div class="card" style="--accent:var(--color-accent-warm)">
+      <span class="num">11.1</span><h3>Lese-Streak</h3>
+      <p>Aus dem Lese-Log einen „Tage in Folge gelesen"-Streak mit Flamme ableiten — dieselbe Motivationslogik wie bei Habits.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+    <div class="card" style="--accent:var(--color-cat-gesundheit)">
+      <span class="num">11.2</span><h3>Genre-Tag je Buch</h3>
+      <p>Das vorhandene Genre-Feld als farbigen Tag auf der Buchzeile zeigen — bisher nur gespeichert, nicht sichtbar.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+    <div class="card" style="--accent:var(--color-success)">
+      <span class="num">11.3</span><h3>„Noch X bis fertig"-Rest</h3>
+      <p>Aus Stand und Gesamtwert die verbleibenden Kapitel/Seiten anzeigen („noch 4 Kapitel") — greifbarer als ein reiner Prozentbalken.</p>
+      <span class="tag optik">Optik</span>
+    </div>
+  </div>
+</section>
+
+<script>
+  const toggle = document.getElementById("theme-toggle");
+  toggle.addEventListener("click", () => {
+    const root = document.documentElement;
+    const isDark = root.dataset.theme === "dark";
+    root.dataset.theme = isDark ? "light" : "dark";
+    toggle.textContent = isDark ? "🌙 Dark Mode" : "☀️ Light Mode";
+  });
+</script>
+
+</body>
+</html>
