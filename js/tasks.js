@@ -178,21 +178,52 @@ function resolveHabitTaskId(rootTask, allTasks) {
 // Aufgabe (nicht der Erledigungszeitpunkt) — ein überfällig nachgeholtes Habit zählt so für den
 // eigentlich fälligen Tag, nicht für heute. Upsert mit ignoreDuplicates auf (task_id, date):
 // mehrfaches Erledigen am selben Tag ist ein No-op statt eines Fehlers.
+// Gibt true zurück, wenn beim Abschluss stumme Folgevorschläge sichtbar geschaltet wurden — der
+// Aufrufer (js/app.js) nutzt das, um das "Neue Vorschläge"-Popup sofort im Abschluss-Moment zu
+// öffnen, statt erst beim nächsten Seiten-Render.
 export async function completeTaskCascade(rootTask, allTasks) {
   const ids = [rootTask.id, ...collectDescendantIds(allTasks, rootTask.id)];
   const { error } = await supabase.from("tasks").update({ status: "done" }).in("id", ids);
   if (error) throw error;
+  let unmutedFollowups = false;
 
   // Folgeaufgaben-Flag: nur die vom Nutzer tatsächlich abgehakte Wurzel für den (manuell
   // ausgelösten) Folgeaufgaben-Skill markieren — nicht die mitkaskadierten Unteraufgaben. Habits
   // ausnehmen: ein täglich abgehaktes Habit soll keine Folgevorschläge erzeugen. Siehe
   // wissensdatenbank/features/folgeaufgaben-vorschlaege.md.
   if (!isHabitTask(rootTask)) {
-    const { error: flagError } = await supabase
-      .from("tasks")
-      .update({ followup_status: "pending" })
-      .eq("id", rootTask.id);
-    if (flagError) throw flagError;
+    // Hat der Skill für diese (zuvor offene) Aufgabe bereits stumme Vorschläge vorbereitet
+    // (status 'muted'), beim Abschluss sofort sichtbar schalten ('open') und die Aufgabe direkt
+    // auf 'suggested' setzen — kein Warten auf den nächsten Skill-Lauf. Nur wenn es keine stummen
+    // Vorschläge gibt, wie bisher auf 'pending' flaggen. Siehe
+    // wissensdatenbank/features/folgeaufgaben-vorschlaege.md.
+    const { data: muted, error: mutedError } = await supabase
+      .from("task_followup_suggestions")
+      .select("id")
+      .eq("source_task_id", rootTask.id)
+      .eq("status", "muted");
+    if (mutedError) throw mutedError;
+
+    if (muted && muted.length) {
+      const { error: unmuteError } = await supabase
+        .from("task_followup_suggestions")
+        .update({ status: "open" })
+        .eq("source_task_id", rootTask.id)
+        .eq("status", "muted");
+      if (unmuteError) throw unmuteError;
+      unmutedFollowups = true;
+      const { error: flagError } = await supabase
+        .from("tasks")
+        .update({ followup_status: "suggested" })
+        .eq("id", rootTask.id);
+      if (flagError) throw flagError;
+    } else {
+      const { error: flagError } = await supabase
+        .from("tasks")
+        .update({ followup_status: "pending" })
+        .eq("id", rootTask.id);
+      if (flagError) throw flagError;
+    }
   }
 
   const habitTaskId = resolveHabitTaskId(rootTask, allTasks);
@@ -206,6 +237,8 @@ export async function completeTaskCascade(rootTask, allTasks) {
       );
     if (logError) throw logError;
   }
+
+  return unmutedFollowups;
 }
 
 // Macht das Erledigen einer Aufgabe rückgängig: sie selbst und alle Unteraufgaben werden
@@ -229,6 +262,16 @@ export async function reopenTaskCascade(rootTask, allTasks) {
     const { error } = await supabase.from("tasks").update({ status: "open" }).in("id", idsWithoutDate);
     if (error) throw error;
   }
+
+  // Beim Abschluss sichtbar geschaltete Vorschläge wieder stummschalten: die Aufgabe ist erneut
+  // offen, ihre vorbereiteten Vorschläge gehören also zurück in den 'muted'-Zustand, damit sie beim
+  // nächsten Abschluss wieder auftauchen (bereits übernommene/verworfene bleiben unberührt).
+  const { error: remuteError } = await supabase
+    .from("task_followup_suggestions")
+    .update({ status: "muted" })
+    .eq("source_task_id", rootTask.id)
+    .eq("status", "open");
+  if (remuteError) throw remuteError;
 
   // Folgeaufgaben-Flag zurücknehmen: eine wieder geöffnete Aufgabe ist nicht mehr abgeschlossen und
   // darf nicht als "pending"/"closed" beim Folgeaufgaben-Skill hängen bleiben.

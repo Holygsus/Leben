@@ -137,7 +137,7 @@ create table if not exists task_followup_suggestions (
   title text not null,
   frame text,
   effort integer check (effort in (5, 10, 30, 60)),
-  status text default 'open' check (status in ('open', 'accepted', 'dismissed')),
+  status text default 'open' check (status in ('open', 'muted', 'accepted', 'dismissed')),
   created_at timestamptz default now()
 );
 

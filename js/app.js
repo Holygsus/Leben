@@ -1175,6 +1175,15 @@ async function maybeShowFollowupPopup() {
   openFollowupPopup(groups);
 }
 
+// Öffnet das "Neue Vorschläge"-Popup direkt im Abschluss-Moment, wenn completeTaskCascade beim
+// Abhaken stumme Vorschläge sichtbar geschaltet hat (Phase B, siehe js/tasks.js). Setzt ein evtl.
+// gesetztes Snooze zurück, damit ein frischer Abschluss trotzdem sofort auftaucht.
+async function triggerFollowupPopupAfterCompletion(unmuted) {
+  if (!unmuted) return;
+  followupPopupSnoozed = false;
+  await maybeShowFollowupPopup();
+}
+
 function openFollowupPopup(groups) {
   followupPopupOpen = true;
   const root = document.getElementById("modal-root");
@@ -1720,16 +1729,18 @@ function appendTaskRowContent(el, task, areaColorById, allTasks, onChange) {
   checkbox.addEventListener("click", async (e) => {
     e.stopPropagation();
     await withErrorToast(async () => {
+      let unmutedFollowups = false;
       if (task.status === "done") {
         await reopenTaskCascade(task, allTasks);
       } else {
-        await completeTaskCascade(task, allTasks);
+        unmutedFollowups = await completeTaskCascade(task, allTasks);
         // Nur in der Heute-Ansicht (dieser Checkbox-Pfad ist ihr einziger Aufrufer) — Bewertung
         // direkt beim Abhaken abfragen, nicht erst später im Fernsehprogramm-Tab (Spec-Vorgabe).
         const ratingLogId = isWatchlistTask(task) ? await promptWatchlistRating(task) : null;
         showCompleteUndoToast(task, allTasks, onChange, ratingLogId);
       }
       onChange();
+      await triggerFollowupPopupAfterCompletion(unmutedFollowups);
     });
   });
 
@@ -2219,7 +2230,11 @@ function wireQuickCapture(areas, onAdded) {
         });
         const areaName = areaId ? areas.find((a) => a.id === areaId)?.name : null;
         showToast(areaName ? `„${title}" zu ${areaName} hinzugefügt.` : `„${title}" hinzugefügt.`);
-        closeForm();
+        // Panel offen lassen für schnelles Mehrfacherfassen: nur Titel/Termin-Flag leeren,
+        // Bereich/Aufwand/Priorität bleiben als bequemer Default für den nächsten Eintrag stehen.
+        input.value = "";
+        isEventCheckbox.checked = false;
+        input.focus();
         onAdded();
       });
     } finally {
@@ -2807,13 +2822,15 @@ function buildTaskNodeEl(node, area, depth) {
   checkbox.addEventListener("click", async (e) => {
     e.stopPropagation();
     await withErrorToast(async () => {
+      let unmutedFollowups = false;
       if (node.status === "done") {
         await reopenTaskCascade(node, overviewState.tasks);
       } else {
-        await completeTaskCascade(node, overviewState.tasks);
+        unmutedFollowups = await completeTaskCascade(node, overviewState.tasks);
         showCompleteUndoToast(node, overviewState.tasks, reloadOverview);
       }
       reloadOverview();
+      await triggerFollowupPopupAfterCompletion(unmutedFollowups);
     });
   });
 
@@ -3834,6 +3851,12 @@ async function renderPlanView() {
   });
   document.getElementById("plan-date-tomorrow").addEventListener("click", async () => {
     planState.targetDate = tomorrowISO();
+    dateInput.value = planState.targetDate;
+    updatePlanDateLabel();
+    await jumpCalendarToTargetDate(dateInput);
+  });
+  document.getElementById("plan-date-day-after").addEventListener("click", async () => {
+    planState.targetDate = shiftIsoDay(todayISO(), 2);
     dateInput.value = planState.targetDate;
     updatePlanDateLabel();
     await jumpCalendarToTargetDate(dateInput);
@@ -7518,7 +7541,7 @@ function renderBooksList() {
 
 function buildBookItem(book) {
   const li = document.createElement("li");
-  li.className = "task-item tx-item";
+  li.className = "task-item tx-item book-item";
 
   const title = document.createElement("input");
   title.type = "text";
@@ -7643,6 +7666,19 @@ function buildBookItem(book) {
   });
 
   li.append(title, statusSelect, progressInput, meta, addProgress, deleteBtn);
+
+  // Visueller Fortschrittsbalken (volle Breite unter der Zeile) — nur wenn ein Gesamtwert bekannt
+  // ist, sonst gäbe es keinen sinnvollen Bezug. Style wiederverwendet aus der Wunschlisten-Leiste.
+  if (totalValue && totalValue > 0) {
+    const pct = Math.min(100, Math.round((currentValue / totalValue) * 100));
+    const bar = document.createElement("div");
+    bar.className = "wish-fund-bar book-progress-bar";
+    const fill = document.createElement("div");
+    fill.className = "wish-fund-fill";
+    fill.style.width = `${pct}%`;
+    bar.appendChild(fill);
+    li.appendChild(bar);
+  }
   return li;
 }
 
