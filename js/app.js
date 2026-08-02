@@ -5077,6 +5077,7 @@ async function seedExpenseCategoriesIfEmpty(existing) {
 async function reloadFinance() {
   await loadFinanceData();
   renderCategoryQuickOptions();
+  renderMonthSaldo();
   renderPotGrid();
   renderBudgetTrend();
   renderCategoryDonut();
@@ -5102,6 +5103,40 @@ function renderFinanceManageSummary() {
   const debtEl = document.getElementById("fm-debts");
   debtEl.textContent = debtSum > 0 ? formatEuro(debtSum) : "—";
   debtEl.classList.toggle("is-danger", debtSum > 0);
+}
+
+// Monats-Saldo-Kopf: Einnahmen/Ausgaben/Saldo des laufenden Kalendermonats plus ein Zwei-Ton-Balken
+// (Anteil Einnahmen vs. Ausgaben). Gibt dem Screen einen Anker "wie lief der Monat", ergänzend zu den
+// stichtagsbezogenen Topf-Ständen. Ohne Bewegung im Monat ausgeblendet.
+function renderMonthSaldo() {
+  const el = document.getElementById("month-saldo");
+  if (!el) return;
+  const monthIso = todayISO().slice(0, 7);
+  let income = 0;
+  let expense = 0;
+  for (const t of financeState.transactions) {
+    if (typeof t.occurred_at !== "string" || t.occurred_at.slice(0, 7) !== monthIso) continue;
+    if (t.direction === "income") income += Number(t.amount) || 0;
+    else if (t.direction === "expense") expense += Number(t.amount) || 0;
+  }
+  if (income === 0 && expense === 0) {
+    el.hidden = true;
+    return;
+  }
+  const saldo = income - expense;
+  const total = income + expense;
+  const incPct = total ? Math.round((income / total) * 100) : 0;
+  el.hidden = false;
+  el.innerHTML = `
+    <div class="month-saldo-head">
+      <h2>Dieser Monat</h2>
+      <span class="month-saldo-total ${saldo >= 0 ? "is-income" : "is-expense"}">${saldo >= 0 ? "+" : ""}${formatEuro(saldo)}</span>
+    </div>
+    <div class="month-saldo-stats">
+      <div><b class="is-income">${formatEuro(income)}</b><small>Einnahmen</small></div>
+      <div><b class="is-expense">${formatEuro(expense)}</b><small>Ausgaben</small></div>
+    </div>
+    <div class="month-saldo-bar"><i class="is-income" style="width:${incPct}%"></i><i class="is-expense" style="width:${100 - incPct}%"></i></div>`;
 }
 
 function buildPotCard(label, color, amountText, pct, celebrateAtFull = false) {

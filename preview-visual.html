@@ -387,7 +387,7 @@ Theme-Toggle oben rechts.</p>
   <h2>5 · Finanzen</h2>
 
   <div class="tip">
-    <h3>5.1 Monats-Saldo-Kopf</h3>
+    <h3>5.1 Monats-Saldo-Kopf <span class="d-badge" style="--b:var(--color-success)">✓ gebaut</span></h3>
     <p>Die Töpfe stehen für sich, aber „wie lief der Monat" fehlt als Anker. Ein Kopf mit Einnahmen / Ausgaben / Saldo und Zwei-Ton-Balken fasst den Monat in einer Zeile.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
@@ -402,8 +402,8 @@ Theme-Toggle oben rechts.</p>
   </div>
 
   <div class="tip">
-    <h3>5.2 Topf-Ziel-Countdown</h3>
-    <p>Ein Topf zeigt Füllstand, aber nicht „wie weit noch". Eine Badge „noch 180 € · ~2 Monate" macht das Sparziel greifbar und motivierend.</p>
+    <h3>5.2 Topf-Ziel-Countdown <span class="d-badge" style="--b:var(--color-warning)">braucht DB-Feld</span></h3>
+    <p>Ein Topf zeigt Füllstand, aber nicht „wie weit noch". Eine Badge „noch 180 € · ~2 Monate" macht das Sparziel greifbar und motivierend. <em>Zurückgestellt — die vier Töpfe (fixkosten/sicherheit/wachstum/freiheit) haben im Schema kein Ziel-/Target-Feld; braucht erst eine Migration.</em></p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
         <div class="frame"><div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3)">
@@ -420,8 +420,8 @@ Theme-Toggle oben rechts.</p>
   </div>
 
   <div class="tip">
-    <h3>5.3 Wiederkehrende Ausgaben markieren</h3>
-    <p>Fixe/monatliche Buchungen sehen aus wie einmalige. Ein dezenter ↻-Marker trennt „kommt jeden Monat" von spontanen Ausgaben.</p>
+    <h3>5.3 Wiederkehrende Ausgaben markieren <span class="d-badge" style="--b:var(--color-warning)">braucht DB-Feld</span></h3>
+    <p>Fixe/monatliche Buchungen sehen aus wie einmalige. Ein dezenter ↻-Marker trennt „kommt jeden Monat" von spontanen Ausgaben. <em>Zurückgestellt — Transaktionen haben kein Recurring-Flag; wiederkehrende Kosten liegen bereits als separate <code>fixed_costs</code> vor. Ein Marker in der Transaktionsliste bräuchte erst ein neues Feld.</em></p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
         <div class="frame"><div class="d-row"><span class="grow">Netflix</span><span class="d-pill" style="color:var(--color-danger)">−12,99 €</span></div><div class="d-row"><span class="grow">Rewe Einkauf</span><span class="d-pill" style="color:var(--color-danger)">−32,40 €</span></div></div>

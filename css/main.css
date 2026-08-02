@@ -1932,6 +1932,78 @@ body.has-bg-image .task-item {
   margin-bottom: var(--space-5);
 }
 
+/* Monats-Saldo-Kopf: Einnahmen/Ausgaben/Saldo des laufenden Monats + Zwei-Ton-Balken. */
+.month-saldo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.month-saldo[hidden] {
+  display: none;
+}
+
+.month-saldo-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.month-saldo-total {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.month-saldo-stats {
+  display: flex;
+  gap: var(--space-5);
+}
+
+.month-saldo-stats div {
+  display: flex;
+  flex-direction: column;
+}
+
+.month-saldo-stats b {
+  font-size: var(--font-size-base);
+  font-variant-numeric: tabular-nums;
+}
+
+.month-saldo-stats small {
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+}
+
+.month-saldo .is-income {
+  color: var(--color-success);
+}
+
+.month-saldo .is-expense {
+  color: var(--color-danger);
+}
+
+.month-saldo-bar {
+  display: flex;
+  height: 8px;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  background: var(--color-border);
+}
+
+.month-saldo-bar > i {
+  height: 100%;
+}
+
+.month-saldo-bar > i.is-income {
+  background: var(--color-success);
+}
+
+.month-saldo-bar > i.is-expense {
+  background: color-mix(in srgb, var(--color-danger) 80%, transparent);
+}
+
 .pot-card {
   display: flex;
   align-items: center;
