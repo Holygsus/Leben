@@ -1971,6 +1971,14 @@ body.has-bg-image .task-item {
 
 /* Zeigt den Finanzierungsfortschritt schon, bevor ein Wunsch komplett gedeckt ist — die
    Berechnung (Spartopf-Stand vs. Preis) speist sonst nur das separate "Kaufbereit"-Widget. */
+.book-item {
+  flex-wrap: wrap;
+}
+.book-progress-bar {
+  flex-basis: 100%;
+  margin-top: var(--space-2);
+}
+
 .wish-fund-bar {
   height: 6px;
   border-radius: var(--radius-full);

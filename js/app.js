@@ -7238,6 +7238,18 @@ async function renderGamesView() {
       renderGamesList();
     });
   }
+  // Zufallspicker: würfelt einen Titel aus Backlog/pausiert aus (analog zum Quick-Win-Würfel auf
+  // "Heute") — nimmt die Qual der Wahl aus einem gewachsenen Backlog.
+  const randomPick = document.getElementById("games-random-pick");
+  if (randomPick) {
+    randomPick.addEventListener("click", () => {
+      const pool = gamesState.games.filter((g) => g.status === "backlog" || g.status === "paused");
+      if (pool.length === 0) return;
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      const platform = pick.platform ? ` (${pick.platform})` : "";
+      showToast(`🎲 Zock doch: „${pick.title}"${platform}`);
+    });
+  }
 }
 
 async function reloadGamesList() {
@@ -7271,6 +7283,11 @@ function renderGamesList() {
   const finishedCount = gamesState.games.filter((g) => g.status === "done" || g.status === "abandoned").length;
   const finishedRow = document.getElementById("games-show-finished-row");
   const finishedToggle = document.getElementById("games-show-finished");
+  const randomPick = document.getElementById("games-random-pick");
+  if (randomPick) {
+    const pickable = gamesState.games.some((g) => g.status === "backlog" || g.status === "paused");
+    randomPick.hidden = !pickable;
+  }
   if (finishedRow) finishedRow.hidden = finishedCount === 0;
   if (finishedToggle) finishedToggle.checked = gamesState.showFinished;
   const visible = gamesState.showFinished
