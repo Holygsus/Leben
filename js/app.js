@@ -3714,6 +3714,18 @@ function updatePlanDateLabel() {
     month: "long",
   });
   document.getElementById("plan-date").textContent = label;
+
+  // Aktiven Schnellwahl-Chip (Heute/Morgen/Übermorgen) markieren, damit der gewählte Tag ablesbar
+  // ist statt drei gleich aussehender Chips. Passt keiner (freies Datum), ist keiner aktiv.
+  const chipDates = {
+    "plan-date-today": todayISO(),
+    "plan-date-tomorrow": tomorrowISO(),
+    "plan-date-day-after": shiftIsoDay(todayISO(), 2),
+  };
+  for (const [id, iso] of Object.entries(chipDates)) {
+    const el = document.getElementById(id);
+    if (el) el.dataset.active = String(iso === planState.targetDate);
+  }
 }
 
 // Baut den Monatskalender (planState.calendarMonth) inkl. Padding-Tagen aus dem Vor-/Folgemonat,
@@ -3748,8 +3760,21 @@ function renderMonthCalendar(monthTasks, dateInput) {
     btn.dataset.today = String(cell.iso === today);
     btn.dataset.load = count === 0 ? "0" : count <= 2 ? "1" : count <= 4 ? "2" : count <= 6 ? "3" : "heavy";
     btn.dataset.selected = String(cell.iso === planState.targetDate);
-    btn.setAttribute("aria-label", localDate.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" }));
-    btn.textContent = String(cd);
+    const ariaBase = localDate.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" });
+    btn.setAttribute("aria-label", count > 0 ? `${ariaBase} · ${count} geplant` : ariaBase);
+    // Tageszahl + (bei Belegung) kleine Anzahl-Ziffer in der Ecke — die Färbung (data-load) gibt das
+    // Gefühl, die Ziffer die Präzision.
+    const dayNum = document.createElement("span");
+    dayNum.className = "month-day-num";
+    dayNum.textContent = String(cd);
+    btn.appendChild(dayNum);
+    if (count > 0) {
+      const badge = document.createElement("span");
+      badge.className = "month-day-count";
+      badge.textContent = String(count);
+      badge.setAttribute("aria-hidden", "true");
+      btn.appendChild(badge);
+    }
     btn.addEventListener("click", async () => {
       planState.targetDate = cell.iso;
       dateInput.value = cell.iso;

@@ -2320,6 +2320,14 @@ body.has-bg-image .task-item {
   background: var(--color-surface-raised);
 }
 
+/* Aktiver Schnellwahl-Chip (der zum gewählten Plan-Datum passt) — gefüllt statt neutral, damit der
+   gewählte Tag ohne Lesen erkennbar ist. */
+.chip-btn[data-active="true"] {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
 .plan-date-picker .input {
   flex: 1 1 160px;
   min-height: 40px;
@@ -2408,6 +2416,22 @@ body.has-bg-image .task-item {
 .month-day[data-selected="true"] {
   background: var(--color-surface-raised);
   border-color: var(--color-accent);
+}
+
+/* Kleine Anzahl-Ziffer oben rechts in der Zelle — ergänzt die grobe Auslastungs-Färbung um die
+   genaue Zahl geplanter Aufgaben, ohne die zentrierte Tageszahl zu verdrängen. */
+.month-day-count {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-accent);
+}
+
+.month-day[data-load="heavy"] .month-day-count {
+  color: var(--color-accent-warm);
 }
 
 .week-day-panel {
