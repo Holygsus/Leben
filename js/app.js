@@ -5392,7 +5392,9 @@ function buildFixedCostItem(cost) {
 
   const meta = document.createElement("span");
   meta.className = "count";
-  meta.textContent = INTERVAL_LABELS[cost.interval];
+  // Jahressumme ergänzen — macht unterschiedliche Intervalle (monatlich/quartalsweise/jährlich) auf
+  // einer gemeinsamen Skala vergleichbar (monatlicher Anteil × 12).
+  meta.textContent = `${INTERVAL_LABELS[cost.interval]} · ${formatEuro(monthlyAmount(cost) * 12)}/Jahr`;
 
   const deleteBtn = document.createElement("button");
   deleteBtn.type = "button";
@@ -5643,6 +5645,25 @@ function buildDebtItem(debt) {
   });
 
   li.append(title, amountInput, meta, deleteBtn);
+
+  // Tilgungs-Fortschritt (volle Breite unter der Zeile) — nur wenn ein Ursprungsbetrag bekannt ist,
+  // sonst gibt es keinen Bezugspunkt für "wie viel schon getilgt". Style wie die Wunschlisten-Leiste.
+  const initial = Number(debt.initial_amount);
+  const remaining = Number(debt.remaining_amount) || 0;
+  if (initial > 0) {
+    const paidPct = Math.min(100, Math.max(0, Math.round(((initial - remaining) / initial) * 100)));
+    li.classList.add("debt-item");
+    const bar = document.createElement("div");
+    bar.className = "wish-fund-bar debt-progress-bar";
+    const fill = document.createElement("div");
+    fill.className = "wish-fund-fill";
+    fill.style.width = `${paidPct}%`;
+    bar.appendChild(fill);
+    const label = document.createElement("span");
+    label.className = "wish-fund-label debt-progress-label";
+    label.textContent = `${paidPct}% getilgt`;
+    li.append(bar, label);
+  }
   return li;
 }
 
