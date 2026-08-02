@@ -8045,6 +8045,14 @@ const BOOK_STATUS_LABELS = {
 // aktive Buch zwischen längst durchgelesenen.
 const BOOK_STATUS_ORDER = { aktiv: 0, pausiert: 1, geplant: 2, beendet: 3 };
 
+// Statusfarbe für Kanten-/Aktiv-Hervorhebung der Buch-Zeile (der Status lag bisher nur im Dropdown).
+const BOOK_STATUS_COLOR = {
+  aktiv: "var(--color-success)",
+  pausiert: "var(--color-accent-warm)",
+  geplant: "var(--color-text-subtle)",
+  beendet: "var(--color-accent)",
+};
+
 const booksState = { books: [], log: [] };
 
 async function renderBooksView() {
@@ -8071,11 +8079,17 @@ function renderBooksMonthSummary() {
   const monthIso = todayISO().slice(0, 7);
   const chapters = sumChaptersInMonth(booksState.log, monthIso);
   const pages = sumPagesInMonth(booksState.log, monthIso);
-  const parts = [];
-  if (chapters > 0) parts.push(`${chapters} Kapitel`);
-  if (pages > 0) parts.push(`${pages} Seiten`);
-  if (parts.length === 0) parts.push("0 Kapitel");
-  el.textContent = `Diesen Monat gelesen: ${parts.join(" · ")}`;
+  const activeCount = booksState.books.filter((b) => b.status === "aktiv").length;
+  const doneCount = booksState.books.filter((b) => b.status === "beendet").length;
+  // Primäre Monatszahl: Seiten, sonst Kapitel (je nachdem, was geloggt wurde).
+  const monthValue = pages > 0 ? pages : chapters;
+  const monthUnit = pages > 0 ? "Seiten / Monat" : "Kapitel / Monat";
+  // Stat-Kopf statt blasser Textzeile — gibt dem Screen einen Anker (analog Gaming-Stat-Leiste).
+  el.classList.add("books-stat-head");
+  el.innerHTML =
+    `<span class="books-stat"><b style="color:var(--color-accent-warm)">${monthValue}</b><small>${monthUnit}</small></span>` +
+    `<span class="books-stat"><b>${activeCount}</b><small>Aktiv</small></span>` +
+    `<span class="books-stat"><b style="color:var(--color-success)">${doneCount}</b><small>Beendet</small></span>`;
 }
 
 function renderBooksList() {
@@ -8094,6 +8108,12 @@ function renderBooksList() {
 function buildBookItem(book) {
   const li = document.createElement("li");
   li.className = "task-item tx-item book-item";
+  // Statusfarbe an die Kante; das aktuell gelesene Buch zusätzlich als Hero hervorgehoben (steht
+  // durch BOOK_STATUS_ORDER ohnehin schon oben).
+  const statusColor = BOOK_STATUS_COLOR[book.status] || "var(--color-text-subtle)";
+  li.style.borderLeftColor = statusColor;
+  li.style.setProperty("--task-area-color", statusColor);
+  if (book.status === "aktiv") li.classList.add("is-active-book");
 
   const title = document.createElement("input");
   title.type = "text";

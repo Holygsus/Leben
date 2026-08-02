@@ -2006,6 +2006,38 @@ body.has-bg-image .task-item {
   font-weight: 600;
 }
 
+/* Buch-Zeile: farbige Statuskante; aktives Buch als Hero (Verlauf + kräftigere Kante). */
+.book-item {
+  border-left-width: 3px;
+}
+
+.book-item.is-active-book {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--color-success) 12%, var(--color-surface)), var(--color-surface));
+  border-color: color-mix(in srgb, var(--color-success) 45%, var(--color-border));
+  border-left-width: 4px;
+}
+
+/* Monats-Stat-Kopf der Lesen-Ansicht (Seiten/Monat · Aktiv · Beendet). */
+.books-stat-head {
+  display: flex;
+  gap: var(--space-5);
+}
+
+.books-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.books-stat b {
+  font-size: var(--font-size-lg);
+  font-variant-numeric: tabular-nums;
+}
+
+.books-stat small {
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+}
+
 /* Durchspiel-Fortschrittsbalken (volle Breite) aus progress_pct — Füllfarbe = Status-Farbe. */
 .game-progress {
   display: block;
