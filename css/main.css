@@ -653,6 +653,9 @@ body {
   padding: var(--space-4);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
+  /* Farbige Oberkante in der Domänenfarbe (--tile-color) — macht die sonst identischen Kacheln auf
+     einen Blick unterscheidbar. */
+  border-top: 3px solid var(--tile-color, var(--color-border));
   background: var(--color-surface-raised);
   cursor: pointer;
   transition: border-color var(--transition-base), transform var(--transition-base);
@@ -663,12 +666,64 @@ body {
   transform: translateY(-1px);
 }
 
+/* Aktions-Kachel (z.B. Folgevorschläge, öffnet ein Popup statt zu navigieren) — abgesetzt vom
+   Navigations-Raster durch einen warmen Verlauf + kräftigere Kante. */
+.cockpit-tile-hero {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--tile-color, var(--color-accent-warm)) 16%, var(--color-surface-raised)),
+    var(--color-surface-raised)
+  );
+  border-color: color-mix(in srgb, var(--tile-color, var(--color-accent-warm)) 45%, var(--color-border));
+}
+
 .cockpit-tile-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--color-text-subtle);
+}
+
+.cockpit-tile-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--tile-color, var(--color-text-subtle));
+}
+
+.cockpit-tile-ringrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.cockpit-ring {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  background: conic-gradient(var(--tile-color, var(--color-accent)) calc(var(--ring-pct, 0) * 1%), var(--color-border) 0);
+}
+
+.cockpit-ring > span {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--color-surface-raised);
+  display: grid;
+  place-items: center;
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .cockpit-tile-glance {

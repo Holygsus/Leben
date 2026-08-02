@@ -1354,17 +1354,24 @@ async function renderCockpitView() {
   const openFollowups = await countOpenFollowups().catch(() => 0);
   if (myGeneration !== renderGeneration) return;
 
+  const habitsHasDue = dueHabits.length > 0;
   const grid = document.getElementById("cockpit-grid");
   grid.append(
-    buildCockpitTile("Habits", habitsGlance, "habits"),
-    buildCockpitTile("Aufgaben", tasksGlance, "today"),
-    buildCockpitTile("Watchlist", watchGlance, "fernsehprogramm"),
-    buildCockpitTile("Gaming", gamingGlance, "games"),
-    buildCockpitTile("Finanzen", financeGlance, "finance"),
-    buildCockpitTile("Kühlschrank", pantryGlance, "kuehlschrank")
+    buildCockpitTile("Habits", habitsHasDue ? "heute fällig" : "nichts fällig", "habits", {
+      color: "var(--color-success)",
+      ring: habitsHasDue ? { done: doneHabits, total: dueHabits.length } : null,
+    }),
+    buildCockpitTile("Aufgaben", tasksGlance, "today", { color: "var(--color-accent)" }),
+    buildCockpitTile("Watchlist", watchGlance, "fernsehprogramm", { color: "var(--color-cat-gesundheit)" }),
+    buildCockpitTile("Gaming", gamingGlance, "games", { color: "var(--color-accent-warm)" }),
+    buildCockpitTile("Finanzen", financeGlance, "finance", { color: "var(--color-cat-transport)" }),
+    buildCockpitTile("Kühlschrank", pantryGlance, "kuehlschrank", { color: "var(--color-cat-wohnen)" })
   );
   if (openFollowups > 0) {
-    const tile = buildCockpitTile("Folgevorschläge", `${openFollowups} offen`, null);
+    const tile = buildCockpitTile("Folgevorschläge", `${openFollowups} offen`, null, {
+      color: "var(--color-accent-warm)",
+      hero: true,
+    });
     tile.addEventListener("click", async () => {
       followupPopupSnoozed = false;
       openFollowupPopup(await listOpenFollowupGroups());
@@ -1373,17 +1380,35 @@ async function renderCockpitView() {
   }
 }
 
-function buildCockpitTile(label, glance, targetRoute) {
+// opts: { color } farbcodiert die Kachel an ihre Domäne (Oberkante + Punkt); { ring:{done,total} }
+// zeigt statt Text einen Mini-Fortschrittsring (nur für Zähl-Glances wie Habits sinnvoll);
+// { hero } hebt eine Aktions-Kachel (z.B. Folgevorschläge) vom Navigations-Raster ab.
+function buildCockpitTile(label, glance, targetRoute, opts = {}) {
   const tile = document.createElement("button");
   tile.type = "button";
-  tile.className = "cockpit-tile";
+  tile.className = "cockpit-tile" + (opts.hero ? " cockpit-tile-hero" : "");
+  if (opts.color) tile.style.setProperty("--tile-color", opts.color);
+
   const labelEl = document.createElement("span");
   labelEl.className = "cockpit-tile-label";
-  labelEl.textContent = label;
-  const glanceEl = document.createElement("span");
-  glanceEl.className = "cockpit-tile-glance";
-  glanceEl.textContent = glance;
-  tile.append(labelEl, glanceEl);
+  labelEl.innerHTML = `<span class="cockpit-tile-dot" aria-hidden="true"></span>${escapeHtml(label)}`;
+  tile.append(labelEl);
+
+  if (opts.ring && opts.ring.total > 0) {
+    const pct = Math.round((opts.ring.done / opts.ring.total) * 100);
+    const row = document.createElement("span");
+    row.className = "cockpit-tile-ringrow";
+    row.innerHTML =
+      `<span class="cockpit-ring" style="--ring-pct:${pct}"><span>${opts.ring.done}/${opts.ring.total}</span></span>` +
+      `<span class="cockpit-tile-glance">${escapeHtml(glance)}</span>`;
+    tile.append(row);
+  } else {
+    const glanceEl = document.createElement("span");
+    glanceEl.className = "cockpit-tile-glance";
+    glanceEl.textContent = glance;
+    tile.append(glanceEl);
+  }
+
   // targetRoute null = Kachel ohne Tab-Ziel (der Aufrufer hängt einen eigenen Click-Handler an,
   // z. B. die Folgevorschläge-Kachel, die stattdessen das Popup öffnet).
   if (targetRoute) {
