@@ -352,11 +352,80 @@ body {
 
 /* Today view */
 
+/* Tageszeit-Verlauf hinter dem Gruß — dezenter Tint, der mit der Uhrzeit umschlägt (morgens warm,
+   tagsüber kühl-blau, abends dämmrig). Rein atmosphärisch, verankert das "wann bin ich hier". */
+.today-greeting {
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-2);
+  transition: background 0.5s ease;
+}
+
+.today-greeting[data-daytime="morning"] {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--color-accent-warm) 18%, transparent), transparent 72%);
+}
+
+.today-greeting[data-daytime="day"] {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--color-accent) 14%, transparent), transparent 72%);
+}
+
+.today-greeting[data-daytime="evening"] {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-accent) 20%, transparent),
+    color-mix(in srgb, var(--color-accent-warm) 12%, transparent) 85%
+  );
+}
+
 .today-greeting-row {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-3);
+}
+
+/* Aufwand-Leiste unter dem Fortschritts-Hero: aufsummierte geplante Minuten des Tages, Füllstand =
+   bereits erledigter Anteil. Gibt dem Tag ein zeitliches Gewicht neben der reinen Aufgaben-Zählung. */
+.today-effort {
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.today-effort[hidden] {
+  display: none;
+}
+
+.today-effort-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+}
+
+.today-effort-head span:last-child {
+  color: var(--color-text-muted);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.today-effort-bar {
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.today-effort-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  transition: width 0.3s ease;
 }
 
 .today-greeting h1 {

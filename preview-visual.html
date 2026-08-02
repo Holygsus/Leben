@@ -91,6 +91,8 @@
 
   .d-bar { height: 6px; border-radius: var(--radius-full); background: var(--color-border); overflow: hidden; }
   .d-bar > i { display: block; height: 100%; background: var(--c, var(--color-accent)); }
+  .d-bar.seg { display: flex; }
+  .d-bar.seg > i { height: 100%; }
 
   .d-pill { font-variant-numeric: tabular-nums; font-weight: 700; padding: 2px 8px;
     border-radius: var(--radius-sm); background: var(--color-bg); flex-shrink: 0; }
@@ -110,6 +112,8 @@
   .d-card .body { padding: var(--space-2) var(--space-3); display: flex; flex-direction: column; gap: 4px; }
   .d-card .body strong { font-size: var(--font-size-sm); }
   .d-corner { position: absolute; top: 6px; right: 6px; }
+  .d-ribbon { position: absolute; top: 8px; left: -22px; transform: rotate(-45deg); width: 90px; text-align: center;
+    background: var(--color-danger); color: #fff; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.05em; padding: 2px 0; }
 
   .d-section-head { display: flex; align-items: center; gap: var(--space-2); font-weight: 700;
     font-size: var(--font-size-sm); margin-top: var(--space-2); }
@@ -123,9 +127,9 @@
   .d-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
   .d-cal span { aspect-ratio: 1; display: grid; place-items: center; font-size: 0.75rem;
     border-radius: var(--radius-sm); background: var(--color-surface); border: 1px solid var(--color-border); position: relative; }
-  .d-cal span.load::after { content: ""; position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
-    width: var(--w, 4px); height: 4px; border-radius: 2px; background: var(--color-accent); }
   .d-cal span.hi { background: color-mix(in srgb, var(--color-accent) 14%, var(--color-surface)); }
+  .d-cal span.cnt::after { content: attr(data-n); position: absolute; top: 2px; right: 3px; font-size: 0.55rem;
+    font-weight: 700; color: var(--color-accent); }
 
   .d-stat { display: flex; gap: var(--space-4); }
   .d-stat div { display: flex; flex-direction: column; }
@@ -137,8 +141,16 @@
   .d-hero { border: 1px solid color-mix(in srgb, var(--color-accent-warm) 40%, var(--color-border));
     background: linear-gradient(135deg, color-mix(in srgb, var(--color-accent-warm) 12%, var(--color-surface)), var(--color-surface));
     border-radius: var(--radius-md); padding: var(--space-3); }
+  .d-sky { border-radius: var(--radius-md); padding: var(--space-3);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--color-accent) 22%, var(--color-surface)), color-mix(in srgb, var(--color-accent-warm) 14%, var(--color-surface))); }
+
+  .d-step { display: inline-flex; align-items: center; gap: var(--space-2); }
+  .d-step button { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--color-border);
+    background: var(--color-surface); color: var(--color-text); font-weight: 700; font-size: 1.1rem; }
+  .d-num { font-size: 1.3rem; font-weight: 800; font-variant-numeric: tabular-nums; min-width: 28px; text-align: center; }
 
   .muted { color: var(--color-text-muted); font-size: var(--font-size-sm); }
+  .strike { text-decoration: line-through; color: var(--color-text-subtle); }
   .flex { display: flex; align-items: center; gap: var(--space-2); }
   .between { justify-content: space-between; }
 </style>
@@ -150,73 +162,59 @@
   <button class="demo-toggle" id="theme-toggle" type="button">🌙 Dark Mode</button>
 </div>
 
-<p class="demo-intro">Vorher/Nachher zu allen visuellen Verbesserungstipps (9 Tabs × 3). Links jeweils der aktuelle
-Stand mit bestehenden Klassen, rechts der Vorschlag. Die „Nachher"-Bausteine sind Demo-Prototypen
-(<code>d-*</code>-Klassen in dieser Datei) — noch nicht in <code>main.css</code>. Theme-Toggle oben rechts.</p>
+<p class="demo-intro">Vorher/Nachher zu visuellen Verbesserungstipps (11 Tabs × 3). Die zuvor bereits in
+die App gebauten Vorschläge wurden entfernt — hier steht jetzt die <strong>nächste Runde noch nicht
+umgesetzter</strong> Ideen. Links der aktuelle Stand, rechts der Vorschlag. Die „Nachher"-Bausteine
+sind Demo-Prototypen (<code>d-*</code>-Klassen in dieser Datei) — noch nicht in <code>main.css</code>.
+Theme-Toggle oben rechts.</p>
 
 <!-- ============ 1 · HEUTE ============ -->
 <section class="tab">
   <h2>1 · Heute</h2>
 
   <div class="tip">
-    <h3>1.1 Progress-Ring nach oben ziehen</h3>
-    <p>Der „X% geschafft"-Ring ist die emotionale Kernaussage, sitzt aktuell aber unter mehreren Widget-Karten.</p>
+    <h3>1.1 Tageszeit-Stimmung im Gruß <span class="d-badge" style="--b:var(--color-success)">✓ gebaut</span></h3>
+    <p>Der Gruß ist neutraler Text. Ein zarter Verlauf + Tageszeit-Icon (Morgen/Mittag/Abend) macht den Kopf lebendig und verankert „wann bin ich hier".</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame">
-          <strong>Guten Abend, Sven</strong>
-          <div class="d-row"><span>📅 Termine</span></div>
-          <div class="d-row"><span>🎂 Geburtstage</span></div>
-          <div class="flex" style="opacity:.9"><div class="d-ring" style="--p:65%"><span>65%</span></div><span class="muted">4 von 6 erledigt</span></div>
-        </div>
+        <div class="frame"><div class="flex between"><strong>Guten Abend, Sven</strong><span class="muted">Sa · 2. Aug</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame"><div class="d-sky flex between"><span class="flex"><span style="font-size:1.4rem">🌙</span><strong>Guten Abend, Sven</strong></span><span class="muted">Sa · 2. Aug</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>1.2 Tages-Aufwand als Leiste über der Liste <span class="d-badge" style="--b:var(--color-success)">✓ gebaut</span></h3>
+    <p>Der Aufwand (5/10/30/60) wird pro Aufgabe erfasst, aber nirgends summiert. Eine Zeile „~75 min heute geplant" mit Balken gibt dem Tag ein Gewicht.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-row"><span>⬜</span><span class="grow">Wäsche</span><span class="muted">30 min</span></div><div class="d-row"><span>⬜</span><span class="grow">Rechnung zahlen</span><span class="muted">10 min</span></div></div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
         <div class="frame">
-          <div class="flex between"><strong>Guten Abend, Sven</strong><span class="muted">Sa · 26. Juli</span></div>
-          <div class="flex"><div class="d-ring" style="--p:65%"><span>65%</span></div>
-            <div><strong>Guter Lauf heute</strong><br><span class="muted">4 von 6 erledigt — 2 kleine Wins fehlen</span></div></div>
-          <div class="d-row"><span>📅 Termine</span></div>
-          <div class="d-row"><span>🎂 Geburtstage</span></div>
+          <div><div class="flex between"><strong>Heute geplant</strong><span class="muted">~75 min</span></div><div class="d-bar" style="margin-top:6px;height:8px"><i style="width:62%"></i></div></div>
+          <div class="d-row"><span>⬜</span><span class="grow">Wäsche</span><span class="muted">30 min</span></div>
+          <div class="d-row"><span>⬜</span><span class="grow">Rechnung zahlen</span><span class="muted">10 min</span></div>
         </div>
       </div>
     </div>
   </div>
 
   <div class="tip">
-    <h3>1.2 Widget-Karten farblich unterscheiden</h3>
-    <p>Termine, Geburtstage und Kaufbereit sehen identisch aus. Eine Akzentkante links macht sie beim Scrollen sofort unterscheidbar.</p>
+    <h3>1.3 Erledigtes optisch abtrennen</h3>
+    <p>Erledigte und offene Aufgaben liegen gemischt in einer Liste. Eine dezente „✓ erledigt"-Trennung mit gedämpften, durchgestrichenen Zeilen hält den Fokus auf dem Offenen.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame">
-          <div class="d-row"><span>📅 Anstehende Termine</span></div>
-          <div class="d-row"><span>🎂 Geburtstage</span></div>
-          <div class="d-row"><span>🛒 Kaufbereit</span></div>
-        </div>
+        <div class="frame"><div class="d-row"><span>⬜</span><span class="grow">Wäsche</span></div><div class="d-row" style="opacity:.6"><span>✅</span><span class="grow strike">Müll rausbringen</span></div><div class="d-row"><span>⬜</span><span class="grow">Einkaufen</span></div></div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
         <div class="frame">
-          <div class="d-row d-evt" style="--c:var(--color-accent)"><span>📅 Anstehende Termine</span></div>
-          <div class="d-row d-evt" style="--c:var(--color-accent-warm)"><span>🎂 Geburtstage</span></div>
-          <div class="d-row d-evt" style="--c:var(--color-success)"><span>🛒 Kaufbereit</span></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="tip">
-    <h3>1.3 Quick-Win-Card hervorheben</h3>
-    <p>Der „schnappbare Erfolg" ist konzeptionell ein Highlight, sitzt aber optisch flach zwischen den Listen.</p>
-    <div class="cmp">
-      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame">
-          <div class="d-row"><span>⚡</span><span class="grow">Müll rausbringen</span><span class="muted">5 min</span></div>
-        </div>
-      </div>
-      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
-        <div class="frame">
-          <div class="d-hero flex"><span style="font-size:1.3rem">⚡</span>
-            <div class="grow"><span class="d-badge" style="--b:var(--color-accent-warm)">Quick Win</span><br><strong>Müll rausbringen</strong></div>
-            <span class="muted">5 min</span></div>
+          <div class="d-row"><span>⬜</span><span class="grow">Wäsche</span></div>
+          <div class="d-row"><span>⬜</span><span class="grow">Einkaufen</span></div>
+          <div class="flex" style="margin-top:var(--space-1)"><span class="d-badge" style="--b:var(--color-success)">✓ 2 erledigt</span><span style="flex:1;height:1px;background:var(--color-border)"></span></div>
+          <div class="d-row" style="opacity:.55"><span>✅</span><span class="grow strike">Müll rausbringen</span></div>
         </div>
       </div>
     </div>
@@ -228,57 +226,58 @@ Stand mit bestehenden Klassen, rechts der Vorschlag. Die „Nachher"-Bausteine s
   <h2>2 · Übersicht</h2>
 
   <div class="tip">
-    <h3>2.1 Bereichs-Header mit Farbe füllen</h3>
-    <p>Die Bereichsfarbe existiert, ist aber nur eine 3px-Kante an der Zeile. Als farbige Pill + zarter Tint wird sie strukturgebend.</p>
+    <h3>2.1 Bereichs-Icon neben dem Farbpunkt</h3>
+    <p>Der Header hat schon Farbpunkt + Tint. Ein kleines Icon je Bereich macht ihn beim schnellen Scrollen noch schneller erkennbar als Farbe allein.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
         <div class="frame">
-          <strong>Haushalt</strong>
-          <div class="d-row" style="border-left:3px solid var(--color-accent)"><span class="grow">Wäsche</span></div>
-          <div class="d-row" style="border-left:3px solid var(--color-accent)"><span class="grow">Einkaufen</span></div>
+          <div class="flex" style="background:color-mix(in srgb,var(--color-accent) 12%,transparent);padding:6px 10px;border-radius:var(--radius-sm)"><span class="d-dot"></span><strong>Haushalt</strong></div>
+          <div class="flex" style="background:color-mix(in srgb,var(--color-cat-gesundheit) 12%,transparent);padding:6px 10px;border-radius:var(--radius-sm)"><span class="d-dot" style="--c:var(--color-cat-gesundheit)"></span><strong>Gesundheit</strong></div>
         </div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
         <div class="frame">
-          <div class="flex" style="background:color-mix(in srgb,var(--color-accent) 12%,transparent);padding:6px 10px;border-radius:var(--radius-sm)">
-            <span class="d-dot" style="--c:var(--color-accent)"></span><strong>Haushalt</strong></div>
-          <div class="d-row"><span class="grow">Wäsche</span></div>
-          <div class="d-row"><span class="grow">Einkaufen</span></div>
+          <div class="flex" style="background:color-mix(in srgb,var(--color-accent) 12%,transparent);padding:6px 10px;border-radius:var(--radius-sm)"><span style="font-size:1.1rem">🏠</span><span class="d-dot"></span><strong>Haushalt</strong></div>
+          <div class="flex" style="background:color-mix(in srgb,var(--color-cat-gesundheit) 12%,transparent);padding:6px 10px;border-radius:var(--radius-sm)"><span style="font-size:1.1rem">💪</span><span class="d-dot" style="--c:var(--color-cat-gesundheit)"></span><strong>Gesundheit</strong></div>
         </div>
       </div>
     </div>
   </div>
 
   <div class="tip">
-    <h3>2.2 Fortschritt pro Bereich</h3>
-    <p>Ein Mini-Balken „3/8" neben dem Bereichsnamen macht die Übersicht auf einen Blick lesbar.</p>
+    <h3>2.2 Aktive Filter als entfernbare Chips</h3>
+    <p>Gesetzte Filter verschwinden hinter dem Filter-Button — man vergisst leicht, dass ein Filter aktiv ist. Sichtbare Chips mit ✕ machen den Zustand klar und rücknehmbar.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame">
-          <strong>Haushalt</strong>
-          <strong>Finanzen</strong>
-          <strong>Gesundheit</strong>
-        </div>
+        <div class="frame"><div class="flex"><span class="d-chip">▾ Filter</span><span class="muted" style="font-size:.72rem">(2 aktiv, nicht sichtbar)</span></div></div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
-        <div class="frame">
-          <div><div class="flex between"><strong>Haushalt</strong><span class="muted">3/8</span></div><div class="d-bar" style="margin-top:4px"><i style="width:38%"></i></div></div>
-          <div><div class="flex between"><strong>Finanzen</strong><span class="muted">5/6</span></div><div class="d-bar" style="margin-top:4px"><i style="width:83%;background:var(--color-success)"></i></div></div>
-          <div><div class="flex between"><strong>Gesundheit</strong><span class="muted">1/9</span></div><div class="d-bar" style="margin-top:4px"><i style="width:11%;background:var(--color-warning)"></i></div></div>
-        </div>
+        <div class="frame"><div class="d-chips">
+          <span class="d-chip">▾ Filter</span>
+          <span class="d-badge" style="--b:var(--color-accent)">Priorität: Hoch&nbsp;✕</span>
+          <span class="d-badge" style="--b:var(--color-cat-gesundheit)">Haushalt&nbsp;✕</span>
+        </div></div>
       </div>
     </div>
   </div>
 
   <div class="tip">
-    <h3>2.3 Aktiven Ansichts-Modus klar markieren</h3>
-    <p>Liste-vs-Kanban-Toggle wirkt wie nackter Text. Aktiver Modus als gefüllter Chip zeigt den Zustand ohne Lesen.</p>
+    <h3>2.3 Leere Bereiche zurücknehmen</h3>
+    <p>Bereiche ohne offene Aufgaben nehmen gleich viel Raum ein wie volle. Gedämpft + eingeklappt lassen sie die aktiven Bereiche hervortreten.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame"><div class="d-toggle-row"><span class="muted">≡ Filter</span><span class="muted">▦ Kanban</span></div></div>
+        <div class="frame">
+          <div class="flex between"><strong>Haushalt</strong><span class="muted">3</span></div>
+          <div class="flex between"><strong>Finanzen</strong><span class="muted">0</span></div>
+          <div class="flex between"><strong>Projekte</strong><span class="muted">0</span></div>
+        </div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
-        <div class="frame"><div class="d-toggle-row"><span class="d-tog">≡ Liste</span><span class="d-tog on">▦ Kanban</span></div></div>
+        <div class="frame">
+          <div class="flex between"><strong>Haushalt</strong><span class="d-badge" style="--b:var(--color-accent)">3 offen</span></div>
+          <div class="d-row" style="opacity:.45;min-height:34px"><span class="grow">Finanzen</span><span class="muted">leer ›</span></div>
+          <div class="d-row" style="opacity:.45;min-height:34px"><span class="grow">Projekte</span><span class="muted">leer ›</span></div>
+        </div>
       </div>
     </div>
   </div>
@@ -289,60 +288,46 @@ Stand mit bestehenden Klassen, rechts der Vorschlag. Die „Nachher"-Bausteine s
   <h2>3 · Plan</h2>
 
   <div class="tip">
-    <h3>3.1 Monatskalender mit Auslastungs-Punkten</h3>
-    <p>Tage mit geplanten Aufgaben bekommen einen Punkt (Größe = Dichte) — der Kalender wird zur Info-Grafik.</p>
+    <h3>3.1 Aufgaben-Anzahl als Ziffer in der Kalenderzelle</h3>
+    <p>Die Monatszellen sind schon nach Auslastung getönt. Eine kleine Ziffer in der Ecke sagt zusätzlich <em>wie viele</em> — Farbe gibt das Gefühl, die Zahl die Präzision.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
         <div class="frame"><div class="d-cal">
-          <span>21</span><span>22</span><span>23</span><span>24</span><span>25</span><span>26</span><span>27</span>
+          <span>18</span><span class="hi">19</span><span>20</span><span class="hi">21</span><span class="hi">22</span><span>23</span><span>24</span>
         </div></div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
         <div class="frame"><div class="d-cal">
-          <span class="load" style="--w:4px">21</span><span>22</span><span class="load" style="--w:10px">23</span>
-          <span class="load hi" style="--w:18px">24</span><span>25</span><span class="hi">26</span><span class="load" style="--w:6px">27</span>
+          <span>18</span><span class="hi cnt" data-n="2">19</span><span>20</span><span class="hi cnt" data-n="1">21</span><span class="hi cnt" data-n="4">22</span><span>23</span><span>24</span>
         </div></div>
       </div>
     </div>
   </div>
 
   <div class="tip">
-    <h3>3.2 Primär-Aktion absetzen, Export degradieren</h3>
-    <p>Fünf gleiche Panels untereinander. „Plan bestätigen" als klarer Primär-CTA, Export als leiser Footer.</p>
+    <h3>3.2 Vorschlags-Aufwand als Donut</h3>
+    <p>Der Tagesvorschlag nennt „X min" nur als Text. Ein kleiner Donut (verplant vs. Budget) macht sofort sichtbar, wie voll der vorgeschlagene Tag ist.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame">
-          <button class="btn" style="width:100%">Plan bestätigen</button>
-          <button class="btn" style="width:100%">Offene Aufgaben kopieren</button>
-          <button class="btn" style="width:100%">Alle Daten exportieren</button>
-        </div>
+        <div class="frame"><strong>Vorschlag</strong><p class="muted">90 von 120 min verplant</p><div class="d-row"><span class="grow">Wäsche</span></div></div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
-        <div class="frame">
-          <button class="btn" style="width:100%;font-size:var(--font-size-lg);min-height:52px">Plan bestätigen</button>
-          <div class="flex" style="margin-top:var(--space-3);border-top:1px solid var(--color-border);padding-top:var(--space-2)">
-            <span class="muted">Export:</span>
-            <button class="d-chip" style="cursor:pointer">Aufgaben kopieren</button>
-            <button class="d-chip" style="cursor:pointer">JSON-Datei</button>
-          </div>
-        </div>
+        <div class="frame"><div class="flex"><div class="d-ring" style="--p:75%"><span>75%</span></div>
+          <div><strong>Vorschlag</strong><br><span class="muted">90 / 120 min · 30 frei</span></div></div>
+          <div class="d-row"><span class="grow">Wäsche</span></div></div>
       </div>
     </div>
   </div>
 
   <div class="tip">
-    <h3>3.3 Budget als Balken statt Text</h3>
-    <p>„genutzte vs. verfügbare Minuten" als Fortschrittsbalken passt zum Effort-Konzept und ist schneller erfassbar.</p>
+    <h3>3.3 Datum-Schnellwahl aktiv markieren</h3>
+    <p>Heute / Morgen / Übermorgen sehen alle gleich aus — der gewählte Tag ist nicht ablesbar. Der aktive Chip gefüllt zeigt den Zustand ohne Nachdenken.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame"><p class="muted">Budget: 90 von 120 Min verplant</p></div>
+        <div class="frame"><div class="d-toggle-row"><span class="d-tog">Heute</span><span class="d-tog">Morgen</span><span class="d-tog">Übermorgen</span></div></div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
-        <div class="frame">
-          <div class="flex between"><strong>Tagesbudget</strong><span class="muted">90 / 120 min</span></div>
-          <div class="d-bar" style="height:10px"><i style="width:75%"></i></div>
-          <span class="muted" style="font-size:.72rem">30 min frei</span>
-        </div>
+        <div class="frame"><div class="d-toggle-row"><span class="d-tog">Heute</span><span class="d-tog on">Morgen</span><span class="d-tog">Übermorgen</span></div></div>
       </div>
     </div>
   </div>
@@ -353,46 +338,45 @@ Stand mit bestehenden Klassen, rechts der Vorschlag. Die „Nachher"-Bausteine s
   <h2>4 · Habits</h2>
 
   <div class="tip">
-    <h3>4.1 Streak sichtbar machen</h3>
-    <p>Das Flame-Icon existiert schon. Der aktuelle Streak gehört prominent in jede Zeile — er ist der Motivations-Kern.</p>
+    <h3>4.1 Wochen-Ziel als Ring</h3>
+    <p>„Ziel: 3× / Woche" steht als Text da. Als kleiner Ring (2 von 3 diese Woche) sieht man den Wochenfortschritt sofort — ergänzt Streak (langfristig) und Heatmap (Tage).</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame"><div class="d-row"><span>⬜</span><span class="grow">Gym</span></div><div class="d-row"><span>⬜</span><span class="grow">Lesen</span></div></div>
+        <div class="frame"><div class="d-row"><span class="grow"><strong>Gym</strong><br><span class="muted" style="font-size:.72rem">Ziel: 3× / Woche</span></span></div></div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
-        <div class="frame">
-          <div class="d-row"><span>⬜</span><span class="grow">Gym</span><span class="d-flame"><svg viewBox="0 0 24 24"><path d="M12 2c1 3-3 4-3 8a3 3 0 0 0 6 0c1.5 1 2 3 2 4.5A5.5 5.5 0 0 1 6 14.5C6 9 12 7 12 2z"/></svg>12</span></div>
-          <div class="d-row"><span>⬜</span><span class="grow">Lesen</span><span class="d-flame"><svg viewBox="0 0 24 24"><path d="M12 2c1 3-3 4-3 8a3 3 0 0 0 6 0c1.5 1 2 3 2 4.5A5.5 5.5 0 0 1 6 14.5C6 9 12 7 12 2z"/></svg>3</span></div>
-        </div>
+        <div class="frame"><div class="d-row"><span class="grow"><strong>Gym</strong><br><span class="muted" style="font-size:.72rem">diese Woche</span></span>
+          <div class="d-ring" style="--p:66%;width:44px;height:44px"><span style="width:32px;height:32px;font-size:.7rem">2/3</span></div></div></div>
       </div>
     </div>
   </div>
 
   <div class="tip">
-    <h3>4.2 7-Tage-Mini-Heatmap</h3>
-    <p>Eine Reihe aus 7 Quadraten (erledigt = gefüllt) gibt sofort ein Gefühl für Konstanz — „don't break the chain".</p>
+    <h3>4.2 Zähl-Habits als Stepper</h3>
+    <p>Zähl-Habits (Glas Wasser, Zigarette) hoch/runter zählbar — die aktuelle Zahl groß, mit +/− direkt daneben statt versteckt.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame"><div class="d-row"><span class="grow">Gym</span></div></div>
+        <div class="frame"><div class="d-row"><span class="grow">Wasser</span><span class="muted">3 Glas &nbsp; +</span></div></div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
-        <div class="frame"><div class="d-row"><span class="grow">Gym</span>
-          <span class="d-heat"><i class="on"></i><i class="on"></i><i></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span></div></div>
+        <div class="frame"><div class="d-row"><span style="font-size:1.2rem">💧</span><span class="grow"><strong>Wasser</strong><br><span class="muted" style="font-size:.72rem">Ziel 6 Glas</span></span>
+          <span class="d-step"><button>−</button><span class="d-num">3</span><button>+</button></span></div></div>
       </div>
     </div>
   </div>
 
   <div class="tip">
-    <h3>4.3 Habits sind keine Tasks</h3>
-    <p>Aktuell reine graue Task-Zeilen. Größere Kacheln mit eigener Akzentfarbe grenzen den Habit-Charakter ab.</p>
+    <h3>4.3 Monats-Konstanz-Balken</h3>
+    <p>Die 7-Tage-Heatmap zeigt die Woche. Ein dünner Monatsbalken darunter („August 68%") gibt zusätzlich das Langzeit-Gefühl, ohne die Zeile zu überladen.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame"><div class="d-row"><span>⬜</span><span class="grow">Gym</span></div></div>
+        <div class="frame"><div class="d-row"><span class="grow">Gym</span><span class="d-heat"><i class="on"></i><i class="on"></i><i></i><i class="on"></i><i class="on"></i><i></i><i></i></span></div></div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
-        <div class="frame"><div style="border:1px solid color-mix(in srgb,var(--color-success) 35%,var(--color-border));border-left:4px solid var(--color-success);border-radius:var(--radius-md);padding:var(--space-3);display:flex;align-items:center;gap:var(--space-3)">
-          <span style="font-size:1.4rem">💪</span><div class="grow"><strong>Gym</strong><br><span class="muted" style="font-size:.72rem">Ziel: 3× / Woche</span></div>
-          <span class="d-flame"><svg viewBox="0 0 24 24"><path d="M12 2c1 3-3 4-3 8a3 3 0 0 0 6 0c1.5 1 2 3 2 4.5A5.5 5.5 0 0 1 6 14.5C6 9 12 7 12 2z"/></svg>12</span></div></div>
+        <div class="frame"><div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3)">
+          <div class="flex between"><strong>Gym</strong><span class="d-heat"><i class="on"></i><i class="on"></i><i></i><i class="on"></i><i class="on"></i><i></i><i></i></span></div>
+          <div class="flex between" style="margin-top:8px"><span class="muted" style="font-size:.72rem">August</span><span class="muted" style="font-size:.72rem">68%</span></div>
+          <div class="d-bar" style="margin-top:3px"><i style="width:68%;background:var(--color-success)"></i></div></div></div>
       </div>
     </div>
   </div>
@@ -403,55 +387,47 @@ Stand mit bestehenden Klassen, rechts der Vorschlag. Die „Nachher"-Bausteine s
   <h2>5 · Finanzen</h2>
 
   <div class="tip">
-    <h3>5.1 Pot-Cards mit Füllstands-Balken</h3>
-    <p>Ein Balken „aktuell / Ziel" in Topffarbe macht „wie voll ist Freiheit?" ohne Kopfrechnen sichtbar.</p>
+    <h3>5.1 Monats-Saldo-Kopf</h3>
+    <p>Die Töpfe stehen für sich, aber „wie lief der Monat" fehlt als Anker. Ein Kopf mit Einnahmen / Ausgaben / Saldo und Zwei-Ton-Balken fasst den Monat in einer Zeile.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
         <div class="frame"><div class="d-row" style="display:block"><span class="muted">Freiheit</span><br><strong>420 €</strong></div></div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
         <div class="frame"><div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3)">
-          <div class="flex between"><span class="flex"><span class="d-dot" style="--c:var(--color-accent-warm)"></span>Freiheit</span><strong>420 € <span class="muted" style="font-weight:400">/ 600</span></strong></div>
+          <div class="d-stat"><div><b style="color:var(--color-success)">+2.400</b><small>Einnahmen</small></div><div><b style="color:var(--color-danger)">−1.980</b><small>Ausgaben</small></div><div><b>+420 €</b><small>Saldo</small></div></div>
+          <div class="d-bar seg" style="margin-top:10px;height:8px"><i style="width:55%;background:var(--color-success)"></i><i style="width:45%;background:var(--color-danger)"></i></div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>5.2 Topf-Ziel-Countdown</h3>
+    <p>Ein Topf zeigt Füllstand, aber nicht „wie weit noch". Eine Badge „noch 180 € · ~2 Monate" macht das Sparziel greifbar und motivierend.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3)">
+          <div class="flex between"><span class="flex"><span class="d-dot" style="--c:var(--color-accent-warm)"></span>Freiheit</span><strong>420 / 600</strong></div>
           <div class="d-bar" style="margin-top:8px"><i style="width:70%;background:var(--color-accent-warm)"></i></div></div></div>
       </div>
-    </div>
-  </div>
-
-  <div class="tip">
-    <h3>5.2 Leere Panels zu kompakten Zeilen</h3>
-    <p>Fixkosten/Verpflichtende/Schulden sind drei große Panels für je eine Zeile. Kompakt mit Summe rechts.</p>
-    <div class="cmp">
-      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame">
-          <div class="panel" style="margin:0"><div class="flex between"><h2 style="font-size:1rem">Fixkosten</h2><span>⚙</span></div></div>
-          <div class="panel" style="margin:0"><div class="flex between"><h2 style="font-size:1rem">Schulden</h2><span>⚙</span></div></div>
-        </div>
-      </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
-        <div class="frame">
-          <div class="d-row"><span class="grow">Fixkosten</span><span class="d-pill">842 €</span><span class="muted">›</span></div>
-          <div class="d-row"><span class="grow">Verpflichtende Ausgaben</span><span class="d-pill">210 €</span><span class="muted">›</span></div>
-          <div class="d-row"><span class="grow">Schulden</span><span class="d-pill" style="color:var(--color-danger)">1.500 €</span><span class="muted">›</span></div>
-        </div>
+        <div class="frame"><div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3)">
+          <div class="flex between"><span class="flex"><span class="d-dot" style="--c:var(--color-accent-warm)"></span>Freiheit</span><strong>420 / 600</strong></div>
+          <div class="d-bar" style="margin-top:8px"><i style="width:70%;background:var(--color-accent-warm)"></i></div>
+          <div class="flex" style="margin-top:8px"><span class="d-badge" style="--b:var(--color-accent-warm)">noch 180 €</span><span class="muted" style="font-size:.72rem">~2 Monate bei 90 €/M</span></div></div></div>
       </div>
     </div>
   </div>
 
   <div class="tip">
-    <h3>5.3 Transaktionsliste wie ein Kassenbon</h3>
-    <p>Betrag rechtsbündig & monospaced, Vorzeichen farbig (Einnahme/Ausgabe), Topf-Farbpunkt links.</p>
+    <h3>5.3 Wiederkehrende Ausgaben markieren</h3>
+    <p>Fixe/monatliche Buchungen sehen aus wie einmalige. Ein dezenter ↻-Marker trennt „kommt jeden Monat" von spontanen Ausgaben.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame">
-          <div class="d-row"><span class="grow">Rewe Einkauf</span><span>-32,40</span></div>
-          <div class="d-row"><span class="grow">Gehalt</span><span>2400,00</span></div>
-        </div>
+        <div class="frame"><div class="d-row"><span class="grow">Netflix</span><span class="d-pill" style="color:var(--color-danger)">−12,99 €</span></div><div class="d-row"><span class="grow">Rewe Einkauf</span><span class="d-pill" style="color:var(--color-danger)">−32,40 €</span></div></div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
-        <div class="frame">
-          <div class="d-row"><span class="d-dot" style="--c:var(--color-cat-essen)"></span><span class="grow">Rewe Einkauf</span><span class="d-pill" style="color:var(--color-danger)">−32,40 €</span></div>
-          <div class="d-row"><span class="d-dot" style="--c:var(--color-success)"></span><span class="grow">Gehalt</span><span class="d-pill" style="color:var(--color-success)">+2.400,00 €</span></div>
-        </div>
+        <div class="frame"><div class="d-row"><span class="d-badge" style="--b:var(--color-accent)">↻</span><span class="grow">Netflix</span><span class="d-pill" style="color:var(--color-danger)">−12,99 €</span></div><div class="d-row"><span style="width:22px"></span><span class="grow">Rewe Einkauf</span><span class="d-pill" style="color:var(--color-danger)">−32,40 €</span></div></div>
       </div>
     </div>
   </div>
@@ -462,48 +438,49 @@ Stand mit bestehenden Klassen, rechts der Vorschlag. Die „Nachher"-Bausteine s
   <h2>6 · Fernsehprogramm</h2>
 
   <div class="tip">
-    <h3>6.1 Poster-Grid statt Textzeilen</h3>
-    <p>Medien leben von Bildern. Ein Karten-Grid mit Cover-/Icon-Slot ist die größte visuelle Verbesserung hier.</p>
+    <h3>6.1 Serien-Fortschritt als Balken</h3>
+    <p>Die aktive Karte hat schon ein Cover. Was fehlt: „Wo bin ich?" Ein Folgen-Balken (Staffel 2 · 4/10) zeigt den Serienfortschritt auf einen Blick.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame"><div class="d-row"><span class="grow">Severance</span></div><div class="d-row"><span class="grow">Dune</span></div></div>
+        <div class="frame"><div class="d-row"><span class="grow">Severance</span><span class="muted">S2 · E4</span></div></div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
-        <div class="frame"><div class="d-grid">
-          <div class="d-card"><div class="d-thumb" style="--c:var(--color-accent)">📺</div><div class="body"><strong>Severance</strong></div></div>
-          <div class="d-card"><div class="d-thumb" style="--c:var(--color-accent-warm)">🎬</div><div class="body"><strong>Dune</strong></div></div>
+        <div class="frame"><div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3)">
+          <div class="flex between"><strong>Severance</strong><span class="muted">Staffel 2 · 4 / 10</span></div>
+          <div class="d-bar" style="margin-top:6px"><i style="width:40%"></i></div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>6.2 Wochen-Programm als Tages-Spalten</h3>
+    <p>Der verplante Wochen-Slot ist eine flache Liste. Als Mo–So-Streifen mit dem Eintrag am jeweiligen Tag wird das „Programm" zum Wochenplan.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-row"><span class="grow">Severance</span><span class="muted">Mi</span></div><div class="d-row"><span class="grow">Dune</span><span class="muted">Sa</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame"><div class="d-cal" style="grid-template-columns:repeat(7,1fr)">
+          <span>Mo</span><span>Di</span><span class="hi" style="font-size:.6rem">📺</span><span>Do</span><span>Fr</span><span class="hi" style="font-size:.6rem">🎬</span><span>So</span>
         </div></div>
       </div>
     </div>
   </div>
 
   <div class="tip">
-    <h3>6.2 Typ als farbige Badge</h3>
-    <p>Serie/Anime/Film/Doku/YouTube brauchen unterscheidbare Farb-Pills — dieselbe Codierung wie in den Filtern.</p>
+    <h3>6.3 „Neu diese Woche"-Banderole</h3>
+    <p>Neu erschienene Folgen/Staffeln gehen in der Liste unter. Eine Ecken-Banderole zieht den Blick auf das, was frisch verfügbar ist.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame"><div class="d-row"><span class="grow">Frieren</span><span class="muted">anime</span></div><div class="d-row"><span class="grow">Planet Earth</span><span class="muted">doku</span></div></div>
-      </div>
-      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
-        <div class="frame">
-          <div class="d-row"><span class="grow">Frieren</span><span class="d-badge" style="--b:var(--color-cat-gesundheit)">Anime</span></div>
-          <div class="d-row"><span class="grow">Planet Earth</span><span class="d-badge" style="--b:var(--color-success)">Doku</span></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="tip">
-    <h3>6.3 Bewertung als Badge</h3>
-    <p>Das Ø-Rating (als Filter schon da) als kleine Zahl-Badge in der Ecke jeder Karte.</p>
-    <div class="cmp">
-      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame"><div class="d-row"><span class="grow">Severance</span></div></div>
+        <div class="frame"><div class="d-grid">
+          <div class="d-card"><div class="d-thumb">📺</div><div class="body"><strong>Severance</strong></div></div>
+          <div class="d-card"><div class="d-thumb" style="--c:var(--color-accent-warm)">🎬</div><div class="body"><strong>Dune</strong></div></div>
+        </div></div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
         <div class="frame"><div class="d-grid">
-          <div class="d-card"><div class="d-corner"><span class="d-badge" style="--b:var(--color-accent-warm)">★ 9.1</span></div><div class="d-thumb" style="--c:var(--color-accent)">📺</div><div class="body"><strong>Severance</strong></div></div>
-          <div class="d-card"><div class="d-corner"><span class="d-badge" style="--b:var(--color-text-muted)">★ 7.4</span></div><div class="d-thumb" style="--c:var(--color-accent-warm)">🎬</div><div class="body"><strong>Dune</strong></div></div>
+          <div class="d-card"><span class="d-ribbon">NEU</span><div class="d-thumb">📺</div><div class="body"><strong>Severance</strong></div></div>
+          <div class="d-card"><div class="d-thumb" style="--c:var(--color-accent-warm)">🎬</div><div class="body"><strong>Dune</strong></div></div>
         </div></div>
       </div>
     </div>
@@ -515,47 +492,41 @@ Stand mit bestehenden Klassen, rechts der Vorschlag. Die „Nachher"-Bausteine s
   <h2>7 · Rezepte</h2>
 
   <div class="tip">
-    <h3>7.1 Karten-Grid mit Foto-Slot</h3>
-    <p>Rezepte als 2-spaltige Kacheln mit Bild-/Icon-Kopf statt flacher Liste — kochbuch-artig, lädt zum Stöbern ein.</p>
+    <h3>7.1 Kochzeit-Ampel</h3>
+    <p>Die Meta-Chips zeigen die Dauer als Zahl. Ein farbiger Ampel-Punkt (≤15 min grün, ≤40 gelb, darüber rot) lässt „schnell kochbar" ohne Lesen aufscannen.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame"><div class="d-row"><span class="grow">Spaghetti Carbonara</span></div><div class="d-row"><span class="grow">Chili sin Carne</span></div></div>
+        <div class="frame"><div class="d-row"><span class="grow">Carbonara</span><span class="d-chip">⏱ 20 min</span></div><div class="d-row"><span class="grow">Schmorbraten</span><span class="d-chip">⏱ 120 min</span></div></div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
-        <div class="frame"><div class="d-grid">
-          <div class="d-card"><div class="d-thumb" style="--c:var(--color-accent-warm)">🍝</div><div class="body"><strong>Carbonara</strong></div></div>
-          <div class="d-card"><div class="d-thumb" style="--c:var(--color-success)">🌶️</div><div class="body"><strong>Chili sin Carne</strong></div></div>
-        </div></div>
+        <div class="frame"><div class="d-row"><span class="d-dot" style="--c:var(--color-warning)"></span><span class="grow">Carbonara</span><span class="d-chip">⏱ 20 min</span></div><div class="d-row"><span class="d-dot" style="--c:var(--color-danger)"></span><span class="grow">Schmorbraten</span><span class="d-chip">⏱ 120 min</span></div></div>
       </div>
     </div>
   </div>
 
   <div class="tip">
-    <h3>7.2 Meta-Chips (Dauer / Portionen)</h3>
-    <p>Kleine Chips für Dauer, Portionen, Hauptzutat geben jeder Karte Substanz und Wiedererkennung.</p>
+    <h3>7.2 Zutaten-Verfügbarkeit als Ring</h3>
+    <p>Die „kochbar"-Badge ist binär (ja/nein). Ein kleiner Ring „6 / 8 Zutaten da" zeigt auch, <em>wie nah</em> ein fast-kochbares Rezept ist.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame"><div class="d-row"><span class="grow">Carbonara</span></div></div>
+        <div class="frame"><div class="d-row"><span class="grow">Chili sin Carne</span><span class="d-badge" style="--b:var(--color-warning)">2 fehlen</span></div></div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
-        <div class="frame"><div class="d-card" style="max-width:220px"><div class="d-thumb" style="--c:var(--color-accent-warm)">🍝</div>
-          <div class="body"><strong>Carbonara</strong><div class="d-chips"><span class="d-chip">⏱ 20 min</span><span class="d-chip">2 Port.</span><span class="d-chip">Pasta</span></div></div></div></div>
+        <div class="frame"><div class="d-row"><span class="grow">Chili sin Carne</span>
+          <div class="d-ring" style="--p:75%;width:40px;height:40px;--color-success:var(--color-warning)"><span style="width:28px;height:28px;font-size:.62rem">6/8</span></div></div></div>
       </div>
     </div>
   </div>
 
   <div class="tip">
-    <h3>7.3 „Kochbar jetzt"-Signal</h3>
-    <p>Bei Abgleich mit dem Kühlschrank ein grünes Badge — verbindet Rezepte und Kühlschrank sichtbar.</p>
+    <h3>7.3 „Zuletzt gekocht"-Hinweis</h3>
+    <p>Nichts zeigt, was lange nicht dran war. Ein dezenter Chip „zuletzt Mai" hilft, aus der Routine auszubrechen und Vergessenes wiederzuentdecken.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame"><div class="d-row"><span class="grow">Carbonara</span></div><div class="d-row"><span class="grow">Chili sin Carne</span></div></div>
+        <div class="frame"><div class="d-card" style="max-width:220px"><div class="d-thumb" style="--c:var(--color-accent-warm)">🍝</div><div class="body"><strong>Carbonara</strong></div></div></div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
-        <div class="frame">
-          <div class="d-row"><span class="grow">Carbonara</span><span class="d-badge" style="--b:var(--color-success)">✓ kochbar</span></div>
-          <div class="d-row"><span class="grow">Chili sin Carne</span><span class="d-badge" style="--b:var(--color-warning)">2 fehlen</span></div>
-        </div>
+        <div class="frame"><div class="d-card" style="max-width:220px"><div class="d-thumb" style="--c:var(--color-accent-warm)">🍝</div><div class="body"><strong>Carbonara</strong><div class="d-chips"><span class="d-chip">🍽 12× gekocht</span><span class="d-chip">zuletzt Mai</span></div></div></div></div>
       </div>
     </div>
   </div>
@@ -566,41 +537,34 @@ Stand mit bestehenden Klassen, rechts der Vorschlag. Die „Nachher"-Bausteine s
   <h2>8 · Kühlschrank</h2>
 
   <div class="tip">
-    <h3>8.1 Nach Kategorie gruppieren mit Icons</h3>
-    <p>Kühlschrank/Tiefkühl/Vorrat/Gewürze als Abschnitte mit eigenem Icon + Farbe spiegeln die Ordnung einer Küche.</p>
+    <h3>8.1 Zähler im Abschnitts-Header</h3>
+    <p>Die Kategorie-Abschnitte (Kühlschrank/Tiefkühl/Vorrat/Gewürze) haben Icon + Farbe. Ein Zähler rechts („6") zeigt die Füllung je Bereich, ohne zu zählen.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame"><div class="d-row"><span class="grow">Milch</span></div><div class="d-row"><span class="grow">Erbsen TK</span></div><div class="d-row"><span class="grow">Reis</span></div></div>
+        <div class="frame"><div class="d-section-head"><svg viewBox="0 0 24 24"><path d="M5 2h14v20H5z"/></svg>Kühlschrank</div><div class="d-row"><span class="grow">Milch</span></div></div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
-        <div class="frame">
-          <div class="d-section-head" style="--c:var(--color-accent)"><svg viewBox="0 0 24 24"><path d="M5 2h14v20H5z"/></svg>Kühlschrank</div>
-          <div class="d-row"><span class="grow">Milch</span></div>
-          <div class="d-section-head" style="--c:var(--color-cat-gesundheit)"><svg viewBox="0 0 24 24"><path d="M12 2v20M2 12h20"/></svg>Tiefkühl</div>
-          <div class="d-row"><span class="grow">Erbsen TK</span></div>
-          <div class="d-section-head" style="--c:var(--color-accent-warm)"><svg viewBox="0 0 24 24"><path d="M4 7h16v13H4z"/></svg>Vorrat</div>
-          <div class="d-row"><span class="grow">Reis</span></div>
-        </div>
+        <div class="frame"><div class="d-section-head between" style="display:flex;justify-content:space-between"><span class="flex"><svg viewBox="0 0 24 24"><path d="M5 2h14v20H5z"/></svg>Kühlschrank</span><span class="d-badge">6</span></div><div class="d-row"><span class="grow">Milch</span></div></div>
       </div>
     </div>
   </div>
 
   <div class="tip">
-    <h3>8.2 Mengen-Pille rechts</h3>
-    <p>Die Menge als eigene Pille rechtsbündig, damit Name und Menge nicht in einer Textzeile verschwimmen.</p>
+    <h3>8.2 Leer/Knapp → Einkaufslisten-Signal</h3>
+    <p>Aufgebrauchte oder knappe Artikel gehen unter. Ein „auf die Liste"-Button/Marker macht aus dem Kühlschrank direkt den Einkaufszettel.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame"><div class="d-row"><span class="grow">Reis — 500g</span></div><div class="d-row"><span class="grow">Milch — 1L</span></div></div>
+        <div class="frame"><div class="d-row"><span class="grow">Milch</span><span class="d-pill">0 L</span></div><div class="d-row"><span class="grow">Eier</span><span class="d-pill">2 St.</span></div></div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
-        <div class="frame"><div class="d-row"><span class="grow">Reis</span><span class="d-pill">500 g</span></div><div class="d-row"><span class="grow">Milch</span><span class="d-pill">1 L</span></div></div>
+        <div class="frame"><div class="d-row" style="border-left:3px solid var(--color-danger)"><span class="grow">Milch</span><span class="d-pill" style="color:var(--color-danger)">0 L</span><span class="d-badge" style="--b:var(--color-accent)">+ Liste</span></div><div class="d-row" style="border-left:3px solid var(--color-warning)"><span class="grow">Eier</span><span class="d-pill">2 St.</span><span class="d-badge" style="--b:var(--color-accent)">+ Liste</span></div></div>
       </div>
     </div>
   </div>
 
   <div class="tip">
-    <h3>8.3 Ablauf-/Frische-Signal</h3>
-    <p>Farbcodierung frisch → wird knapp → alt — dieselbe Logik wie die bestehenden <code>is-due-soon</code>/<code>is-overdue</code>-Task-States.</p>
+    <h3>8.3 Ablauf-/Frische-Signal <span class="muted" style="font-weight:400">(noch nicht baubar — Ablaufdatum fehlt im Datenmodell)</span></h3>
+    <p>Farbcodierung frisch → wird knapp → alt, gleiche Logik wie die <code>is-due-soon</code>/<code>is-overdue</code>-Task-States. Voraussetzung: ein Haltbarkeitsfeld an den Pantry-Items.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
         <div class="frame"><div class="d-row"><span class="grow">Joghurt</span></div><div class="d-row"><span class="grow">Hack</span></div></div>
@@ -621,46 +585,169 @@ Stand mit bestehenden Klassen, rechts der Vorschlag. Die „Nachher"-Bausteine s
   <h2>9 · Gaming-Backlog</h2>
 
   <div class="tip">
-    <h3>9.1 Status-Farbe & „Spiele gerade"-Hero</h3>
-    <p>Status braucht klare Farbcodierung; das aktuell gespielte Spiel als Hero-Karte oben absetzen.</p>
+    <h3>9.1 Spielzeit-Fortschritt als Balken</h3>
+    <p>Status und Plattform sind schon codiert. Was fehlt: „Wie weit bin ich?" Ein Balken „18 / ~40 h" (HowLongToBeat-Schätzung) zeigt den Durchspiel-Fortschritt.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame"><div class="d-row"><span class="grow">Elden Ring</span><span class="muted">playing</span></div><div class="d-row"><span class="grow">Hades</span><span class="muted">backlog</span></div></div>
+        <div class="frame"><div class="d-row"><span class="grow">Elden Ring</span><span class="d-badge" style="--b:var(--color-success)">Spiele gerade</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame"><div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3)">
+          <div class="flex between"><strong>Elden Ring</strong><span class="muted">18 / ~40 h</span></div>
+          <div class="d-bar" style="margin-top:6px"><i style="width:45%;background:var(--color-success)"></i></div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>9.2 Cover-Grid statt Liste</h3>
+    <p>Wie beim Fernsehprogramm: Spiele leben von Artwork. Ein 2-spaltiges Cover-Grid macht den Backlog zum Stöber-Regal statt zur Textliste.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-row"><span class="grow">Elden Ring</span></div><div class="d-row"><span class="grow">Hades</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame"><div class="d-grid">
+          <div class="d-card"><div class="d-corner"><span class="d-badge" style="--b:var(--color-success)">Spielt</span></div><div class="d-thumb">🎮</div><div class="body"><strong>Elden Ring</strong></div></div>
+          <div class="d-card"><div class="d-thumb" style="--c:var(--color-accent-warm)">🎲</div><div class="body"><strong>Hades</strong></div></div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>9.3 Bewertung nach dem Durchspielen</h3>
+    <p>Durchgespielte Titel verschwinden im „Durch"-Status. Eine ★-Bewertung als Badge macht aus dem Backlog rückblickend eine persönliche Bestenliste.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-row"><span class="grow">Celeste</span><span class="d-badge" style="--b:var(--color-accent)">Durch</span></div><div class="d-row"><span class="grow">Hollow Knight</span><span class="d-badge" style="--b:var(--color-accent)">Durch</span></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame"><div class="d-row"><span class="grow">Celeste</span><span class="d-badge" style="--b:var(--color-accent-warm)">★ 9.5</span></div><div class="d-row"><span class="grow">Hollow Knight</span><span class="d-badge" style="--b:var(--color-accent-warm)">★ 9.0</span></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 10 · COCKPIT ============ -->
+<section class="tab">
+  <h2>10 · Cockpit</h2>
+
+  <div class="tip">
+    <h3>10.1 Kacheln an ihren Ziel-Tab farbcodieren</h3>
+    <p>Vier optisch identische Kacheln zwingen zum Lesen. Ein Farbpunkt + farbige Oberkante in der Domänenfarbe macht Habits/Aufgaben/Watchlist/Gaming auf einen Blick unterscheidbar.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-grid">
+          <div class="d-card"><div class="body"><span class="muted" style="font-size:.72rem">Habits</span><strong>2 / 5 heute</strong></div></div>
+          <div class="d-card"><div class="body"><span class="muted" style="font-size:.72rem">Aufgaben</span><strong>3 offen</strong></div></div>
+          <div class="d-card"><div class="body"><span class="muted" style="font-size:.72rem">Watchlist</span><strong>Severance</strong></div></div>
+          <div class="d-card"><div class="body"><span class="muted" style="font-size:.72rem">Gaming</span><strong>Elden Ring</strong></div></div>
+        </div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame"><div class="d-grid">
+          <div class="d-card" style="border-top:3px solid var(--color-success)"><div class="body"><span class="flex"><span class="d-dot" style="--c:var(--color-success)"></span><span class="muted" style="font-size:.72rem">Habits</span></span><strong>2 / 5 heute</strong></div></div>
+          <div class="d-card" style="border-top:3px solid var(--color-accent)"><div class="body"><span class="flex"><span class="d-dot" style="--c:var(--color-accent)"></span><span class="muted" style="font-size:.72rem">Aufgaben</span></span><strong>3 offen</strong></div></div>
+          <div class="d-card" style="border-top:3px solid var(--color-cat-gesundheit)"><div class="body"><span class="flex"><span class="d-dot" style="--c:var(--color-cat-gesundheit)"></span><span class="muted" style="font-size:.72rem">Watchlist</span></span><strong>Severance</strong></div></div>
+          <div class="d-card" style="border-top:3px solid var(--color-accent-warm)"><div class="body"><span class="flex"><span class="d-dot" style="--c:var(--color-accent-warm)"></span><span class="muted" style="font-size:.72rem">Gaming</span></span><strong>Elden Ring</strong></div></div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>10.2 Zähl-Glances als Mini-Ring statt Text</h3>
+    <p>„2 / 5 heute" ist ein Verhältnis — als kleiner Fortschrittsring liest man den Erfüllungsgrad ohne die Zahlen zu vergleichen.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-card" style="max-width:200px"><div class="body"><span class="muted" style="font-size:.72rem">Habits</span><strong>2 / 5 heute</strong></div></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame"><div class="d-card" style="max-width:200px"><div class="body flex" style="flex-direction:row;align-items:center;gap:var(--space-3)">
+          <div class="d-ring" style="--p:40%;width:52px;height:52px"><span style="width:38px;height:38px">2/5</span></div>
+          <div><span class="muted" style="font-size:.72rem">Habits heute</span><br><strong>3 fehlen</strong></div></div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <h3>10.3 Aktions-Kachel vom Navigations-Raster absetzen</h3>
+    <p>Die „Folgevorschläge"-Kachel öffnet ein Popup statt zu navigieren — als hervorgehobene Hero-Kachel mit Badge signalisiert sie „hier wartet was auf dich".</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame"><div class="d-card" style="max-width:220px"><div class="body"><span class="muted" style="font-size:.72rem">Folgevorschläge</span><strong>4 offen</strong></div></div></div>
+      </div>
+      <div class="cmp-col"><span class="cmp-label good">Nachher</span>
+        <div class="frame"><div class="d-hero flex" style="max-width:240px"><span style="font-size:1.3rem">💡</span>
+          <div class="grow"><span class="d-badge" style="--b:var(--color-accent-warm)">Wartet auf dich</span><br><strong>4 Folgevorschläge</strong></div><span class="muted">›</span></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 11 · LESEN ============ -->
+<section class="tab">
+  <h2>11 · Lesen</h2>
+
+  <div class="tip">
+    <h3>11.1 Lesefortschritt als Balken</h3>
+    <p>„Kap. 4 / 12" steht als Meta-Text neben dem Autor. Als Balken in Buch-Akzentfarbe sieht man den Fortschritt sofort — und er motiviert zum Weiterlesen.</p>
+    <div class="cmp">
+      <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
+        <div class="frame">
+          <div class="d-row"><span class="grow">Project Hail Mary</span><span class="muted">Kap. 4 / 12 · A. Weir</span></div>
+          <div class="d-row"><span class="grow">Sapiens</span><span class="muted">S. 210 / 420 · Harari</span></div>
+        </div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
         <div class="frame">
-          <div class="d-hero flex"><span style="font-size:1.4rem">🎮</span><div class="grow"><span class="d-badge" style="--b:var(--color-success)">Spiele gerade</span><br><strong>Elden Ring</strong></div></div>
-          <div class="d-row"><span class="grow">Hades</span><span class="d-badge" style="--b:var(--color-text-muted)">Backlog</span></div>
-          <div class="d-row"><span class="grow">Celeste</span><span class="d-badge" style="--b:var(--color-accent)">Durch</span></div>
+          <div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3)">
+            <div class="flex between"><strong>Project Hail Mary</strong><span class="muted">4 / 12 Kap.</span></div>
+            <div class="d-bar" style="margin-top:6px"><i style="width:33%;background:var(--color-accent-warm)"></i></div>
+            <span class="muted" style="font-size:.72rem">A. Weir</span></div>
+          <div style="border:1px solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-3)">
+            <div class="flex between"><strong>Sapiens</strong><span class="muted">210 / 420 S.</span></div>
+            <div class="d-bar" style="margin-top:6px"><i style="width:50%;background:var(--color-accent-warm)"></i></div>
+            <span class="muted" style="font-size:.72rem">Harari</span></div>
         </div>
       </div>
     </div>
   </div>
 
   <div class="tip">
-    <h3>9.2 Plattform-Badge</h3>
-    <p>Plattform (PC/PS/Switch) als kleines Icon/Pill statt Textzeile.</p>
+    <h3>11.2 Aktives Buch als Hero + Status-Farbe</h3>
+    <p>Der Status lebt nur im Dropdown. Als farbige Badge (Geplant/Aktiv/Pausiert/Beendet) wird er sichtbar, und das aktuell gelesene Buch gehört als Hero nach oben.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame"><div class="d-row"><span class="grow">Elden Ring — PC</span></div><div class="d-row"><span class="grow">Zelda — Switch</span></div></div>
+        <div class="frame">
+          <div class="d-row"><span class="grow">Project Hail Mary</span><span class="muted">aktiv ▾</span></div>
+          <div class="d-row"><span class="grow">Sapiens</span><span class="muted">pausiert ▾</span></div>
+          <div class="d-row"><span class="grow">Dune</span><span class="muted">geplant ▾</span></div>
+        </div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
-        <div class="frame"><div class="d-row"><span class="grow">Elden Ring</span><span class="d-chip">🖥 PC</span></div><div class="d-row"><span class="grow">Zelda TOTK</span><span class="d-chip">🎮 Switch</span></div></div>
+        <div class="frame">
+          <div class="d-hero flex"><span style="font-size:1.3rem">📖</span>
+            <div class="grow"><span class="d-badge" style="--b:var(--color-success)">Liest gerade</span><br><strong>Project Hail Mary</strong></div></div>
+          <div class="d-row"><span class="grow">Sapiens</span><span class="d-badge" style="--b:var(--color-warning)">Pausiert</span></div>
+          <div class="d-row"><span class="grow">Dune</span><span class="d-badge" style="--b:var(--color-text-muted)">Geplant</span></div>
+        </div>
       </div>
     </div>
   </div>
 
   <div class="tip">
-    <h3>9.3 Backlog-Stat-Leiste oben</h3>
-    <p>„12 Backlog · 3 gespielt · 5 durch" gibt dem Screen einen Kopf und ein Gefühl für Größe.</p>
+    <h3>11.3 Monats-Leseleistung als Stat-Kopf</h3>
+    <p>Die Monats-Summe steht als blasse Statuszeile. Als Stat-Kopf (wie im Gaming-Tab) bekommt der Screen einen Anker und macht den Lese-Monat greifbar.</p>
     <div class="cmp">
       <div class="cmp-col"><span class="cmp-label bad">Vorher</span>
-        <div class="frame"><strong>Gaming-Backlog</strong><div class="d-row"><span class="grow">Elden Ring</span></div></div>
+        <div class="frame"><p class="muted">Diesen Monat: 142 Seiten gelesen</p><div class="d-row"><span class="grow">Project Hail Mary</span></div></div>
       </div>
       <div class="cmp-col"><span class="cmp-label good">Nachher</span>
         <div class="frame">
-          <div class="d-stat"><div><b>12</b><small>Backlog</small></div><div><b style="color:var(--color-success)">3</b><small>Am Spielen</small></div><div><b style="color:var(--color-accent)">5</b><small>Durch</small></div></div>
-          <div class="d-row"><span class="grow">Elden Ring</span></div>
+          <div class="d-stat"><div><b style="color:var(--color-accent-warm)">142</b><small>Seiten / Monat</small></div><div><b>2</b><small>Aktiv</small></div><div><b style="color:var(--color-success)">5</b><small>Beendet</small></div></div>
+          <div class="d-row"><span class="grow">Project Hail Mary</span></div>
         </div>
       </div>
     </div>

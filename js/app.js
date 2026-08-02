@@ -1505,6 +1505,11 @@ function renderGreeting() {
   const greeting = hour < 11 ? "Guten Morgen" : hour < 18 ? "Guten Tag" : "Guten Abend";
   const text = currentUsername ? `${greeting}, ${currentUsername}` : greeting;
   const icon = hour < 18 ? GREETING_SUN_ICON : GREETING_MOON_ICON;
+  // Tageszeit-Verlauf hinter dem Gruß (morgens warm, tagsüber kühl, abends dämmrig) — macht den
+  // Kopf lebendig und verankert die Uhrzeit, ergänzend zum bereits vorhandenen Sonne/Mond-Icon.
+  const phase = hour < 11 ? "morning" : hour < 18 ? "day" : "evening";
+  const greetingEl = document.querySelector(".today-greeting");
+  if (greetingEl) greetingEl.dataset.daytime = phase;
   document.getElementById("greeting-text").innerHTML =
     `<span class="inline-icon greeting-icon"><svg viewBox="0 0 24 24">${icon}</svg></span>${escapeHtml(text)}`;
   document.getElementById("today-date").textContent = now.toLocaleDateString("de-DE", {
@@ -1645,6 +1650,23 @@ function renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById, onChange
   const ring = document.getElementById("progress-ring");
   ring.style.setProperty("--pct", pct);
   ring.classList.toggle("is-complete", topLevelTasks.length > 0 && topLevelDoneCount === topLevelTasks.length);
+
+  // Aufwand-Leiste: aufsummierte Minuten der heute geplanten Top-Level-Aufgaben, Füllstand =
+  // bereits erledigte Minuten. Ohne Aufwandsangaben (Summe 0) bleibt die Leiste ausgeblendet.
+  const effortEl = document.getElementById("today-effort");
+  if (effortEl) {
+    const sumEffort = (arr) => arr.reduce((s, t) => s + (Number(t.effort) || 0), 0);
+    const totalMin = sumEffort(topLevelTasks);
+    if (totalMin > 0) {
+      const doneMin = sumEffort(topLevelTasks.filter((t) => t.status === "done"));
+      const openMin = totalMin - doneMin;
+      effortEl.hidden = false;
+      document.getElementById("today-effort-sum").textContent = openMin > 0 ? `noch ~${openMin} min` : "geschafft";
+      document.getElementById("today-effort-fill").style.width = `${Math.round((doneMin / totalMin) * 100)}%`;
+    } else {
+      effortEl.hidden = true;
+    }
+  }
 
   list.innerHTML = "";
   for (const task of [...overdueTasks].sort(compareByPriority)) {
