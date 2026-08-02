@@ -7939,6 +7939,16 @@ function buildGameItem(game) {
   });
 
   li.append(title, statusSelect, prioritySelect, progressInput, meta, upBtn, downBtn, deleteBtn);
+
+  // Fortschrittsbalken (volle Breite unter der Zeile) aus progress_pct — macht den Durchspiel-Stand
+  // sichtbar, statt ihn nur als Zahl im Eingabefeld zu führen. Nur ab >0 %.
+  if (game.progress_pct != null && game.progress_pct > 0) {
+    const bar = document.createElement("span");
+    bar.className = "game-progress";
+    bar.setAttribute("aria-hidden", "true");
+    bar.innerHTML = `<span class="game-progress-fill" style="width:${Math.min(100, game.progress_pct)}%;background:${statusColor}"></span>`;
+    li.append(bar);
+  }
   return li;
 }
 

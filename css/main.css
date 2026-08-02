@@ -1951,6 +1951,22 @@ body.has-bg-image .task-item {
   font-weight: 600;
 }
 
+/* Durchspiel-Fortschrittsbalken (volle Breite) aus progress_pct — Füllfarbe = Status-Farbe. */
+.game-progress {
+  display: block;
+  width: 100%;
+  height: 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.game-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-full);
+}
+
 .pot-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
