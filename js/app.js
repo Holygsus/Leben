@@ -14,6 +14,7 @@ import {
 } from "./tasks.js";
 import { listAreas, createArea, updateArea, deleteArea, swapAreaOrder } from "./areas.js";
 import { createThought } from "./thoughts.js";
+import { createTaskFeedback } from "./feedback.js";
 import {
   suggestTasksForPlan,
   formatTasksForExport,
@@ -1170,6 +1171,77 @@ function openReflectionPopup(date) {
   document.getElementById("reflection-dismiss").addEventListener("click", dismiss);
 }
 
+// Task-Feedback beim Abschließen einer Aufgabe (siehe wissensdatenbank/leben-os-betriebsmodell.md).
+// Leichtes, wegklickbares Sheet: Rating 1–5 (Pflicht zum Absenden) + optionale Notiz, die das Ergebnis
+// weiterträgt ("September 2026"). Überspringen/Escape/Backdrop schließen ohne zu speichern (kein
+// Blocker). Gibt ein Promise zurück, das beim Schließen resolvet — der Aufrufer wartet, bevor er das
+// Folgeaufgaben-Popup öffnet (beide teilen sich modal-root).
+function openTaskFeedbackSheet(task) {
+  return new Promise((resolve) => {
+    const root = document.getElementById("modal-root");
+    document.body.style.overflow = "hidden";
+
+    const close = () => {
+      root.innerHTML = "";
+      document.body.style.overflow = "";
+      document.removeEventListener("keydown", onKeydown);
+      closeActiveModal = null;
+      resolve();
+    };
+    const onKeydown = (e) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("keydown", onKeydown);
+    closeActiveModal = close;
+
+    root.innerHTML = `
+      <div class="modal-backdrop" id="feedback-backdrop">
+        <div class="modal-card" role="dialog" aria-modal="true" aria-label="Aufgaben-Feedback">
+          <h2>Wie lief das?</h2>
+          <p style="margin:-4px 0 4px;color:var(--color-text-subtle);font-size:.9rem;">${escapeHtml(task.title)}</p>
+          <div class="priority-chips" id="feedback-rating-chips" role="group" aria-label="Bewertung">
+            ${[1, 2, 3, 4, 5].map((r) => `<button type="button" class="priority-chip" data-rating="${r}">${r}</button>`).join("")}
+          </div>
+          <label class="modal-label">
+            Notiz (optional)
+            <textarea class="input" id="feedback-note" rows="2"></textarea>
+          </label>
+          <div class="modal-actions">
+            <button class="btn" type="button" id="feedback-submit">Absenden</button>
+            <button class="btn btn-secondary" type="button" id="feedback-skip">Überspringen</button>
+          </div>
+        </div>
+      </div>`;
+
+    document.getElementById("feedback-backdrop").addEventListener("click", (e) => {
+      if (e.target.id === "feedback-backdrop") close();
+    });
+
+    let selectedRating = null;
+    const ratingChips = document.getElementById("feedback-rating-chips");
+    ratingChips.querySelectorAll(".priority-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        selectedRating = Number(chip.dataset.rating);
+        ratingChips.querySelectorAll(".priority-chip").forEach((c) => (c.dataset.active = String(c.dataset.rating === String(selectedRating))));
+      });
+    });
+
+    document.getElementById("feedback-submit").addEventListener("click", async () => {
+      if (!selectedRating) {
+        showToast("Bitte eine Bewertung wählen.", true);
+        return;
+      }
+      const note = document.getElementById("feedback-note").value.trim();
+      await withErrorToast(async () => {
+        await createTaskFeedback({ taskId: task.id, rating: selectedRating, note: note || null });
+        close();
+      });
+    });
+
+    document.getElementById("feedback-skip").addEventListener("click", close);
+  });
+}
+
 /* ---------- Folgeaufgaben-Vorschläge ---------- */
 // wissensdatenbank/features/folgeaufgaben-vorschlaege.md. Der manuell ausgelöste Skill schreibt
 // Vorschläge in die DB; die App zeigt sie hier im "Neue Vorschläge"-Popup (Auswahl 0–5 + Bestätigen).
@@ -1830,6 +1902,10 @@ function appendTaskRowContent(el, task, areaColorById, allTasks, onChange) {
         // direkt beim Abhaken abfragen, nicht erst später im Fernsehprogramm-Tab (Spec-Vorgabe).
         const ratingLogId = isWatchlistTask(task) ? await promptWatchlistRating(task) : null;
         showCompleteUndoToast(task, allTasks, onChange, ratingLogId);
+        // Task-Feedback beim Abhaken (Betriebsmodell): leichtes Rating + Notiz. Habits ausgenommen
+        // (schließen wiederholt ab), Watchlist hat ihre eigene Bewertung oben. Sequenziell vor dem
+        // Folgeaufgaben-Popup, damit sich die beiden Modals im modal-root nicht überschreiben.
+        if (!isWatchlistTask(task) && !isHabitTask(task)) await openTaskFeedbackSheet(task);
       }
       onChange();
       await triggerFollowupPopupAfterCompletion(unmutedFollowups);

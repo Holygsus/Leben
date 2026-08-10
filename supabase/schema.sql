@@ -463,6 +463,22 @@ create table if not exists thoughts (
 
 create index if not exists thoughts_user_status_idx on thoughts (user_id, status);
 
+-- Task-Feedback (migration-033, wissensdatenbank/leben-os-betriebsmodell.md): leichtes Rating (1–5,
+-- wie daily_reflections.mood) + optionale Notiz beim Abschluss einer Aufgabe. Lern-Treibstoff für den
+-- Folgeaufgaben-Familienbaum; die Notiz trägt das Ergebnis weiter. unique(task_id) = ein Feedback pro
+-- Aufgabe. Habits/Watchlist App-seitig ausgenommen.
+create table if not exists task_feedback (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users not null,
+  task_id uuid references tasks(id) on delete cascade not null,
+  rating int not null check (rating between 1 and 5),
+  note text,
+  created_at timestamptz default now(),
+  unique (task_id)
+);
+
+create index if not exists task_feedback_user_id_idx on task_feedback (user_id);
+
 -- Row Level Security
 alter table areas enable row level security;
 alter table tasks enable row level security;
@@ -493,6 +509,7 @@ alter table birthdays enable row level security;
 alter table daily_reflections enable row level security;
 alter table pantry_items enable row level security;
 alter table thoughts enable row level security;
+alter table task_feedback enable row level security;
 
 drop policy if exists "areas: own data" on areas;
 create policy "areas: own data" on areas for all using (auth.uid() = user_id);
@@ -580,6 +597,9 @@ create policy "daily_reflections: own data" on daily_reflections for all using (
 
 drop policy if exists "thoughts: own data" on thoughts;
 create policy "thoughts: own data" on thoughts for all using (auth.uid() = user_id);
+
+drop policy if exists "task_feedback: own data" on task_feedback;
+create policy "task_feedback: own data" on task_feedback for all using (auth.uid() = user_id);
 
 -- Auto-Timestamp für tasks.updated_at (und weitere Tabellen mit updated_at)
 create or replace function update_updated_at()
