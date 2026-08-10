@@ -13,6 +13,7 @@ import {
   cascadeAreaChange,
 } from "./tasks.js";
 import { listAreas, createArea, updateArea, deleteArea, swapAreaOrder } from "./areas.js";
+import { createThought } from "./thoughts.js";
 import {
   suggestTasksForPlan,
   formatTasksForExport,
@@ -1484,6 +1485,7 @@ async function renderTodayView() {
   renderBirthdaysWidget(todayViewState.birthdays);
   renderQuickWin(todayViewState.allTasks, tasks, today);
   wireQuickCapture(areas, renderTodayView);
+  wireThoughtCapture();
   wireBirthdaysManageButton();
   wireSettingsPanel();
 }
@@ -2326,6 +2328,53 @@ function wireQuickCapture(areas, onAdded) {
         isEventCheckbox.checked = false;
         input.focus();
         onAdded();
+      });
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+}
+
+// Gedanken-Eingang (siehe wissensdatenbank/leben-os-betriebsmodell.md): bewusst schlanker als
+// wireQuickCapture — ein `thought` ist rohes, unklassifiziertes Material (kein Bereich/Aufwand),
+// den der Daily Pulse erst später deutet. Erzeugt KEINE Aufgabe, nur eine thoughts-Zeile.
+function wireThoughtCapture() {
+  const form = document.getElementById("thought-form");
+  const toggleBtn = document.getElementById("thought-open");
+  const cancelBtn = document.getElementById("thought-cancel");
+  const input = document.getElementById("thought-input");
+  if (!form || !toggleBtn || !input) return;
+
+  const closeForm = () => {
+    form.hidden = true;
+    form.reset();
+  };
+
+  toggleBtn.addEventListener("click", () => {
+    if (form.hidden) {
+      form.hidden = false;
+      input.focus();
+    } else {
+      closeForm();
+    }
+  });
+  cancelBtn.addEventListener("click", closeForm);
+
+  const submitBtn = form.querySelector('button[type="submit"]');
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    // Double-Submit-Guard wie bei wireQuickCapture: bis der Insert durch ist, kein zweites Abschicken.
+    if (submitBtn.disabled) return;
+    const body = input.value.trim();
+    if (!body) return;
+    submitBtn.disabled = true;
+    try {
+      await withErrorToast(async () => {
+        await createThought({ body });
+        showToast("Gedanke festgehalten.");
+        // Panel offen lassen fürs schnelle Mehrfacherfassen, nur das Feld leeren.
+        input.value = "";
+        input.focus();
       });
     } finally {
       submitBtn.disabled = false;
@@ -4769,6 +4818,13 @@ function renderHabitList() {
         month.due > 0
           ? `<div class="habit-month"><span class="habit-month-label">${HABIT_MONTH_LABEL} ${month.pct}%</span><span class="habit-month-bar"><i style="width:${month.pct}%"></i></span></div>`
           : "";
+      // Aufgaben-Pool: die Unteraufgaben (parent_task_id), aus denen findHabitsDueToday an einem
+      // fälligen Tag rotierend eine auswählt. Bisher nur beim Anlegen / im Detail-Modal ergänzbar —
+      // hier ein Inline-Add direkt in der Zeile (implementieren-jetzt.md, Tab-Feedback 2026-08-02).
+      const poolChildren = habitsViewState.allTasks.filter((c) => c.parent_task_id === t.id);
+      const poolList = poolChildren.length
+        ? `<ul class="habit-pool-list">${poolChildren.map((c) => `<li>${escapeHtml(c.title)}</li>`).join("")}</ul>`
+        : "";
       return `
       <li class="task-item habit-item" data-habit-id="${t.id}" data-expanded="false" style="${
         areaColor ? `border-left-color:${areaColor};--task-area-color:${areaColor};` : ""
@@ -4793,6 +4849,14 @@ function renderHabitList() {
               Wiederholung
               <select class="select habit-recurrence-select" data-habit-recurrence>${buildRecurrenceOptions(t)}</select>
             </label>
+            <div class="habit-pool">
+              <span class="habit-pool-label">Aufgaben-Pool</span>
+              ${poolList}
+              <div class="habit-pool-add">
+                <input type="text" class="input habit-pool-input" placeholder="Aufgabe hinzufügen…" autocomplete="off" data-habit-pool-input />
+                <button type="button" class="chip-btn habit-pool-add-btn" data-habit-pool-add aria-label="Aufgabe zum Pool hinzufügen">+</button>
+              </div>
+            </div>
             <button type="button" class="habit-delete-btn" data-habit-delete>Habit löschen</button>
           </div>
         </div>
@@ -4856,6 +4920,12 @@ function renderHabitList() {
       return;
     }
 
+    const poolAddBtn = e.target.closest("[data-habit-pool-add]");
+    if (poolAddBtn) {
+      await addHabitPoolChild(poolAddBtn.closest("[data-habit-id]"));
+      return;
+    }
+
     const deleteBtn = e.target.closest("[data-habit-delete]");
     if (deleteBtn) {
       const li = deleteBtn.closest("[data-habit-id]");
@@ -4896,6 +4966,46 @@ function renderHabitList() {
       task.habit_recurrence = nextRecurrence;
     });
   };
+
+  list.onkeydown = (e) => {
+    if (e.key !== "Enter") return;
+    const input = e.target.closest("[data-habit-pool-input]");
+    if (!input) return;
+    e.preventDefault();
+    addHabitPoolChild(input.closest("[data-habit-id]"));
+  };
+}
+
+// Legt ein neues Pool-Kind (parent_task_id = Habit) aus dem Inline-Feld einer Habit-Zeile an.
+// Statt renderHabitsView() (voller Refetch, der die Zeile zuklappen würde) wird die neue Aufgabe
+// lokal in habitsViewState.allTasks eingehängt und die Liste neu gerendert — danach die betroffene
+// Zeile wieder aufklappen und das Feld fokussieren, damit mehrere Aufgaben zügig nacheinander
+// eingegeben werden können. Das Kind ist selbst kein Habit (habit_weekdays: null) und taucht daher
+// nur im Pool auf, nicht als eigene Habit-Zeile.
+async function addHabitPoolChild(li) {
+  if (!li) return;
+  const habitId = li.dataset.habitId;
+  const input = li.querySelector("[data-habit-pool-input]");
+  const title = input.value.trim();
+  if (!title) {
+    input.focus();
+    return;
+  }
+  await withErrorToast(async () => {
+    const created = await createTask({ title, parentTaskId: habitId });
+    habitsViewState.allTasks.push(created);
+    renderHabitList();
+    const freshLi = document.querySelector(`#habit-list [data-habit-id="${habitId}"]`);
+    if (freshLi) {
+      freshLi.dataset.expanded = "true";
+      const toggle = freshLi.querySelector(".habit-toggle");
+      if (toggle) toggle.setAttribute("aria-expanded", "true");
+      const expanded = freshLi.querySelector(".habit-expanded");
+      if (expanded) expanded.hidden = false;
+      const freshInput = freshLi.querySelector("[data-habit-pool-input]");
+      if (freshInput) freshInput.focus();
+    }
+  });
 }
 
 async function renderFinanceView() {

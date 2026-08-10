@@ -446,6 +446,23 @@ create table if not exists daily_reflections (
 
 create index if not exists daily_reflections_user_date_idx on daily_reflections (user_id, date);
 
+-- Gedanken-Eingang (migration-032, wissensdatenbank/leben-os-betriebsmodell.md): rohes, noch
+-- UNklassifiziertes Material — bewusst KEINE Aufgabe (das ist tasks.is_brainstorm). Der Daily Pulse
+-- liest `status='raw'`, klassifiziert/routet und setzt `status='processed'` + Ergebnisverweis
+-- (resulted_in_task_id bzw. routing_note), ohne die Zeile zu löschen (Nachvollziehbarkeit/Korrektur).
+create table if not exists thoughts (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users not null,
+  body text not null,
+  status text not null default 'raw' check (status in ('raw', 'processed')),
+  resulted_in_task_id uuid references tasks(id) on delete set null,
+  routing_note text,
+  created_at timestamptz default now(),
+  processed_at timestamptz
+);
+
+create index if not exists thoughts_user_status_idx on thoughts (user_id, status);
+
 -- Row Level Security
 alter table areas enable row level security;
 alter table tasks enable row level security;
@@ -475,6 +492,7 @@ alter table habit_counter_log enable row level security;
 alter table birthdays enable row level security;
 alter table daily_reflections enable row level security;
 alter table pantry_items enable row level security;
+alter table thoughts enable row level security;
 
 drop policy if exists "areas: own data" on areas;
 create policy "areas: own data" on areas for all using (auth.uid() = user_id);
@@ -559,6 +577,9 @@ create policy "pantry_items: own data" on pantry_items for all using (auth.uid()
 
 drop policy if exists "daily_reflections: own data" on daily_reflections;
 create policy "daily_reflections: own data" on daily_reflections for all using (auth.uid() = user_id);
+
+drop policy if exists "thoughts: own data" on thoughts;
+create policy "thoughts: own data" on thoughts for all using (auth.uid() = user_id);
 
 -- Auto-Timestamp für tasks.updated_at (und weitere Tabellen mit updated_at)
 create or replace function update_updated_at()
