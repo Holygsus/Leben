@@ -13,7 +13,7 @@ import {
   cascadeAreaChange,
 } from "./tasks.js";
 import { listAreas, createArea, updateArea, deleteArea, swapAreaOrder } from "./areas.js";
-import { createThought } from "./thoughts.js";
+import { createThought, listThoughts, updateThought } from "./thoughts.js";
 import { createTaskFeedback } from "./feedback.js";
 import {
   suggestTasksForPlan,
@@ -1028,6 +1028,7 @@ function renderShell() {
   routes[route]();
   maybeShowReflectionPopup();
   maybeShowFollowupPopup();
+  maybeShowThoughtNudge();
 }
 
 // "Mehr"-Menü: Klick auf den Button öffnet/schließt ein Dropdown mit den restlichen Routen, Klick
@@ -1075,6 +1076,76 @@ const REFLECTION_SNOOZED_ONCE_PREFIX = "leben-os:reflection-snoozed-once:";
 const REFLECTION_SNOOZE_MINUTES = 30;
 
 let reflectionPopupOpen = false;
+
+// ----- Snapshot-Nudge (Gedanken-Impuls) -----
+// Sanfter, einmal-täglicher Impuls, der rohes Material in `thoughts` erzeugt (siehe
+// wissensdatenbank/leben-os-betriebsmodell.md, "Der Gedanken-Eingang"). Muster wie die Reflexion,
+// aber: erscheint nur EINMAL pro Tag (Flag beim Öffnen) statt bis zur Antwort wiederzukommen, und
+// nur vor 22 Uhr (das Abendfenster gehört der Reflexion).
+const THOUGHT_NUDGE_SHOWN_PREFIX = "leben-os:thought-nudge-shown:";
+let thoughtNudgeOpen = false;
+
+function maybeShowThoughtNudge() {
+  // Nie zwei Popups gleichzeitig — modal-root wird von Reflexion/Folgeaufgaben/Feedback geteilt.
+  if (thoughtNudgeOpen || reflectionPopupOpen || followupPopupOpen) return;
+  if (document.getElementById("modal-root").innerHTML.trim()) return;
+  if (new Date().getHours() >= 22) return;
+  const today = todayISO();
+  if (localStorage.getItem(THOUGHT_NUDGE_SHOWN_PREFIX + today)) return;
+  openThoughtNudge(today);
+}
+
+function openThoughtNudge(date) {
+  thoughtNudgeOpen = true;
+  // Einmal/Tag: Flag direkt beim Öffnen setzen — der Nudge soll nicht nerven.
+  localStorage.setItem(THOUGHT_NUDGE_SHOWN_PREFIX + date, "1");
+  const root = document.getElementById("modal-root");
+  document.body.style.overflow = "hidden";
+
+  const close = () => {
+    root.innerHTML = "";
+    document.body.style.overflow = "";
+    document.removeEventListener("keydown", onKeydown);
+    closeActiveModal = null;
+    thoughtNudgeOpen = false;
+  };
+  const onKeydown = (e) => {
+    if (e.key === "Escape") close();
+  };
+  document.addEventListener("keydown", onKeydown);
+  closeActiveModal = close;
+
+  root.innerHTML = `
+    <div class="modal-backdrop" id="thought-nudge-backdrop">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-label="Gedanke festhalten">
+        <h2>Was geht dir durch den Kopf?</h2>
+        <textarea class="input" id="thought-nudge-input" rows="3" placeholder="Ein Gedanke, eine Idee, irgendwas …"></textarea>
+        <div class="modal-actions">
+          <button class="btn" type="button" id="thought-nudge-submit">Festhalten</button>
+          <button class="btn btn-secondary" type="button" id="thought-nudge-later">Später</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById("thought-nudge-backdrop").addEventListener("click", (e) => {
+    if (e.target.id === "thought-nudge-backdrop") close();
+  });
+
+  document.getElementById("thought-nudge-submit").addEventListener("click", async () => {
+    const body = document.getElementById("thought-nudge-input").value.trim();
+    if (!body) {
+      close();
+      return;
+    }
+    await withErrorToast(async () => {
+      await createThought({ body });
+      showToast("Gedanke festgehalten.");
+      close();
+    });
+  });
+
+  document.getElementById("thought-nudge-later").addEventListener("click", close);
+}
 
 async function maybeShowReflectionPopup() {
   const hour = new Date().getHours();
@@ -1451,6 +1522,104 @@ async function renderCockpitView() {
     });
     grid.append(tile);
   }
+
+  // Gedanken zum Klären: unklare Gedanken, die der Pulse nicht sicher einordnen konnte. Kachel nur
+  // zeigen, wenn welche offen sind (wie die Folgevorschläge). Klick öffnet den Resolver.
+  const unclearThoughts = await listThoughts("unclear").catch(() => []);
+  if (myGeneration !== renderGeneration) return;
+  if (unclearThoughts.length > 0) {
+    const tile = buildCockpitTile("Gedanken zum Klären", `${unclearThoughts.length} offen`, null, {
+      color: "var(--color-accent)",
+      hero: true,
+    });
+    tile.addEventListener("click", () => openThoughtResolverPopup(unclearThoughts));
+    grid.append(tile);
+  }
+}
+
+// Rückfrage-Resolver (siehe wissensdatenbank/leben-os-betriebsmodell.md, "Der Pulse-Router"): zeigt
+// unklare Gedanken mit den vom Pulse notierten Kandidaten. Tippt der Nutzer einen Kandidaten, hält die
+// App nur die Wahl fest (status zurück auf 'raw' + 'Nutzerwahl: …') — die eigentliche Zuordnung macht
+// der nächste Pulse-Lauf (Intelligenz bleibt im Skill). "Verwerfen" schließt den Gedanken ab.
+function openThoughtResolverPopup(thoughts) {
+  const root = document.getElementById("modal-root");
+  document.body.style.overflow = "hidden";
+  const remaining = [...thoughts];
+
+  const close = () => {
+    root.innerHTML = "";
+    document.body.style.overflow = "";
+    document.removeEventListener("keydown", onKeydown);
+    closeActiveModal = null;
+    renderCockpitView();
+  };
+  const onKeydown = (e) => {
+    if (e.key === "Escape") close();
+  };
+  document.addEventListener("keydown", onKeydown);
+  closeActiveModal = close;
+
+  // Kandidaten stehen in routing_note als "Kandidaten: A / B" — den Präfix abtrennen und splitten.
+  const parseCandidates = (note) => {
+    if (!note) return [];
+    return note.replace(/^Kandidaten:\s*/i, "").split("/").map((s) => s.trim()).filter(Boolean);
+  };
+
+  const render = () => {
+    root.innerHTML = `
+      <div class="modal-backdrop" id="thought-resolver-backdrop">
+        <div class="modal-card" role="dialog" aria-modal="true" aria-label="Gedanken zum Klären">
+          <h2>Gedanken zum Klären</h2>
+          <p style="margin:-4px 0 8px;color:var(--color-text-subtle);font-size:.9rem;">Tippe einen Kandidaten — der nächste Pulse ordnet den Gedanken entsprechend ein.</p>
+          <ul class="task-list" id="thought-resolver-list">
+            ${remaining
+              .map((t) => {
+                const chips = parseCandidates(t.routing_note)
+                  .map((c) => `<button type="button" class="priority-chip" data-pick="${escapeHtml(c)}" data-id="${t.id}">${escapeHtml(c)}</button>`)
+                  .join("");
+                return `<li class="task-item" style="flex-direction:column;align-items:stretch;gap:6px;">
+                  <span class="task-title">${escapeHtml(t.body)}</span>
+                  <div class="priority-chips" role="group">${chips}
+                    <button type="button" class="priority-chip" data-discard="${t.id}">Verwerfen</button>
+                  </div>
+                </li>`;
+              })
+              .join("")}
+          </ul>
+          <div class="modal-actions">
+            <button class="btn btn-secondary" type="button" id="thought-resolver-close">Schließen</button>
+          </div>
+        </div>
+      </div>`;
+
+    document.getElementById("thought-resolver-backdrop").addEventListener("click", (e) => {
+      if (e.target.id === "thought-resolver-backdrop") close();
+    });
+    document.getElementById("thought-resolver-close").addEventListener("click", close);
+
+    const resolve = async (id, patch) => {
+      await withErrorToast(async () => {
+        await updateThought(id, patch);
+        const idx = remaining.findIndex((t) => t.id === id);
+        if (idx >= 0) remaining.splice(idx, 1);
+        if (remaining.length === 0) close();
+        else render();
+      });
+    };
+
+    root.querySelectorAll("[data-pick]").forEach((btn) => {
+      btn.addEventListener("click", () =>
+        resolve(btn.dataset.id, { status: "raw", routing_note: `Nutzerwahl: ${btn.dataset.pick}` })
+      );
+    });
+    root.querySelectorAll("[data-discard]").forEach((btn) => {
+      btn.addEventListener("click", () =>
+        resolve(btn.dataset.discard, { status: "processed", routing_note: "verworfen" })
+      );
+    });
+  };
+
+  render();
 }
 
 // opts: { color } farbcodiert die Kachel an ihre Domäne (Oberkante + Punkt); { ring:{done,total} }

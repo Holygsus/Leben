@@ -454,7 +454,7 @@ create table if not exists thoughts (
   id uuid default gen_random_uuid() primary key,
   user_id uuid references auth.users not null,
   body text not null,
-  status text not null default 'raw' check (status in ('raw', 'processed')),
+  status text not null default 'raw' check (status in ('raw', 'processed', 'unclear')),
   resulted_in_task_id uuid references tasks(id) on delete set null,
   routing_note text,
   created_at timestamptz default now(),
