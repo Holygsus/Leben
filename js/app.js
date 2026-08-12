@@ -3292,6 +3292,7 @@ function buildTaskNodeEl(node, area, depth) {
       } else {
         unmutedFollowups = await completeTaskCascade(node, overviewState.tasks);
         showCompleteUndoToast(node, overviewState.tasks, reloadOverview);
+        if (!isWatchlistTask(node) && !isHabitTask(node)) await openTaskFeedbackSheet(node);
       }
       reloadOverview();
       await triggerFollowupPopupAfterCompletion(unmutedFollowups);
@@ -3813,6 +3814,7 @@ function renderTaskDetailView(card, task, allTasks, children, comments, backButt
           const refreshedTasks = await renderTaskDetailCard(task.id, close, false);
           refreshOpenViewsAfterTaskChange(refreshedTasks);
         });
+        if (!isWatchlistTask(task) && !isHabitTask(task)) await openTaskFeedbackSheet(task);
       }
       const refreshedTasks = await renderTaskDetailCard(task.id, close, false);
       refreshOpenViewsAfterTaskChange(refreshedTasks);
@@ -3867,6 +3869,7 @@ function renderTaskDetailView(card, task, allTasks, children, comments, backButt
             const refreshedTasks = await renderTaskDetailCard(task.id, close, false);
             refreshOpenViewsAfterTaskChange(refreshedTasks);
           });
+          if (!isWatchlistTask(child) && !isHabitTask(child)) await openTaskFeedbackSheet(child);
         }
         const refreshedTasks = await renderTaskDetailCard(task.id, close, false);
         refreshOpenViewsAfterTaskChange(refreshedTasks);

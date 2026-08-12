@@ -19,17 +19,22 @@ export async function listOpenFollowupGroups() {
   const sourceIds = [...new Set(suggestions.map((s) => s.source_task_id))];
   const { data: tasks, error: taskError } = await supabase
     .from("tasks")
-    .select("id, title")
+    .select("id, title, parent_task_id")
     .in("id", sourceIds);
   if (taskError) throw taskError;
   const titleById = new Map((tasks || []).map((t) => [t.id, t.title]));
+  const parentById = new Map((tasks || []).map((t) => [t.id, t.parent_task_id]));
 
   // Gruppen in der Reihenfolge des jeweils ersten Vorschlags aufbauen.
   const groups = new Map();
   for (const s of suggestions) {
     if (!groups.has(s.source_task_id)) {
       groups.set(s.source_task_id, {
-        sourceTask: { id: s.source_task_id, title: titleById.get(s.source_task_id) || "Erledigte Aufgabe" },
+        sourceTask: {
+          id: s.source_task_id,
+          title: titleById.get(s.source_task_id) || "Erledigte Aufgabe",
+          parentTaskId: parentById.get(s.source_task_id) || null,
+        },
         suggestions: [],
       });
     }
@@ -53,12 +58,18 @@ export async function countOpenFollowups() {
 // acceptedIds = Menge der angehakten Vorschlags-IDs (kann leer sein → nichts übernommen).
 export async function resolveFollowupGroup(group, acceptedIds) {
   const accepted = new Set(acceptedIds);
+  // Übernommene Folgeaufgaben nesten unter der MUTTER (Themenbaum-Staffelung, siehe
+  // wissensdatenbank/features/folgeaufgaben-vorschlaege.md): ist die Ursprungsaufgabe selbst eine
+  // Unteraufgabe, hängt die Folgeaufgabe unter dieselbe Mutter (Geschwister); ist sie schon eine
+  // Mutter/Top-Level, direkt darunter. So bleibt der Baum sichtbar statt flach zu zerfallen.
+  const motherId = group.sourceTask.parentTaskId || group.sourceTask.id;
   for (const s of group.suggestions) {
     if (accepted.has(s.id)) {
       await createTask({
         title: s.title,
         areaId: s.area_id,
         effort: s.effort,
+        parentTaskId: motherId,
         followupSourceId: s.source_task_id,
       });
       await updateSuggestionStatus(s.id, "accepted");
