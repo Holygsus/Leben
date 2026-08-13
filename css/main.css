@@ -935,6 +935,14 @@ body.has-bg-image .task-item {
   color: var(--color-accent-contrast);
 }
 
+/* Kontext-Label-Mutter in der Heute-Ansicht: Checkbox deaktiviert (kein eigenes planned_date,
+   nur als Gruppierer für geplante Kinder). Kein Cascade-Complete möglich — Kinder einzeln abhaken. */
+.task-checkbox[disabled] {
+  opacity: 0.35;
+  cursor: default;
+  pointer-events: none;
+}
+
 .task-item.is-done .task-title {
   color: var(--color-text-subtle);
   text-decoration: line-through;
@@ -1386,6 +1394,59 @@ body.has-bg-image .task-item {
   font-size: var(--font-size-sm);
   font-weight: 600;
   cursor: pointer;
+}
+
+.habit-pool {
+  margin-top: var(--space-3);
+}
+
+.habit-pool-label {
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-1);
+}
+
+.habit-pool-list {
+  list-style: none;
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.habit-pool-list li {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  padding-left: var(--space-3);
+  position: relative;
+}
+
+.habit-pool-list li::before {
+  content: "↳";
+  position: absolute;
+  left: 0;
+  color: var(--color-text-subtle);
+}
+
+.habit-pool-add {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+}
+
+.habit-pool-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 40px;
+}
+
+.habit-pool-add-btn {
+  flex: 0 0 auto;
+  min-width: 40px;
+  padding: 0 var(--space-3);
 }
 
 .weekday-chip {
@@ -2602,9 +2663,33 @@ body.has-bg-image .task-item {
   color: var(--color-accent-contrast);
 }
 
+/* Mobile-first: das native Datums-Input rutscht per order in eine eigene Zeile UNTER die
+   Preset-Chips (statt sich zwischen "Übermorgen" und ">" zu drängen und den Umbruch zu sprengen),
+   die drei Presets teilen sich kompakt eine Reihe. Ab 600px wieder das inline-Layout (siehe unten). */
+.plan-date-picker .chip-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 var(--space-2);
+  min-height: 32px;
+  font-size: 0.825rem;
+}
+
 .plan-date-picker .input {
-  flex: 1 1 160px;
+  order: 1;
+  flex: 1 1 100%;
   min-height: 40px;
+}
+
+@media (min-width: 600px) {
+  .plan-date-picker .chip-btn {
+    flex: 0 0 auto;
+    padding: 0 var(--space-4);
+  }
+
+  .plan-date-picker .input {
+    order: 0;
+    flex: 1 1 160px;
+  }
 }
 
 /* Monatskalender (Plan) — zeigt den sichtbaren Kalendermonat inkl. Padding-Tagen aus dem

@@ -1967,7 +1967,7 @@ function renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById, onChange
   const appendGroups = (nodes) => {
     for (const node of [...nodes].sort(compareByPriority)) {
       if (overdueIds.has(node.id)) appendGroups(node.children);
-      else list.appendChild(buildTodayGroupEl(node, allTasks, areaColorById, onChange, onToggle));
+      else list.appendChild(buildTodayGroupEl(node, allTasks, areaColorById, onChange, onToggle, todayIds));
     }
   };
   appendGroups(tree);
@@ -1977,16 +1977,19 @@ function renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById, onChange
 // View-Wechsel hinaus — das ist in Ordnung, entspricht dem Verhalten der Übersicht).
 const todayCollapsedNodes = new Set();
 
-function buildTodayGroupEl(node, allTasks, areaColorById, onChange, onToggle) {
+function buildTodayGroupEl(node, allTasks, areaColorById, onChange, onToggle, todayIds) {
   const hasChildren = node.children.length > 0;
   const collapsed = hasChildren && todayCollapsedNodes.has(node.id);
+  // Kontext-Label-Mutter: hat selbst kein planned_date für heute, ist nur wegen eines Kindes im
+  // Baum. Checkbox wird deaktiviert (einzelne Kinder separat abhaken statt Kaskade auf alle).
+  const isContextLabel = hasChildren && todayIds != null && !todayIds.has(node.id);
 
   const li = document.createElement("li");
   li.className = "task-group";
 
   const row = document.createElement("div");
   row.className = "task-item";
-  appendTaskRowContent(row, node, areaColorById, allTasks, onChange);
+  appendTaskRowContent(row, node, areaColorById, allTasks, onChange, isContextLabel);
 
   if (hasChildren) {
     const toggle = document.createElement("button");
@@ -2014,7 +2017,7 @@ function buildTodayGroupEl(node, allTasks, areaColorById, onChange, onToggle) {
     const childList = document.createElement("ul");
     childList.className = "task-list task-group-children";
     for (const child of node.children) {
-      childList.appendChild(buildTodayGroupEl(child, allTasks, areaColorById, onChange, onToggle));
+      childList.appendChild(buildTodayGroupEl(child, allTasks, areaColorById, onChange, onToggle, todayIds));
     }
     li.appendChild(childList);
   }
@@ -2033,7 +2036,9 @@ function buildTaskItem(task, areaColorById, allTasks, onChange) {
 // gemeinsame Basis für flache Zeilen (buildTaskItem) und Gruppen-Header (buildTodayGroupEl). Die
 // Checkbox nutzt immer completeTaskCascade/reopenTaskCascade mit dem vollen allTasks-Kontext, auch
 // für Aufgaben ohne Kinder (dort ist das Ergebnis identisch zum einfachen Statuswechsel).
-function appendTaskRowContent(el, task, areaColorById, allTasks, onChange) {
+// isContextLabel: true wenn der Task in der Heute-Ansicht nur als Kontext-Label erscheint (kein
+// eigenes planned_date für heute, nur wegen geplanter Kinder im Baum) — Checkbox dann deaktiviert.
+function appendTaskRowContent(el, task, areaColorById, allTasks, onChange, isContextLabel = false) {
   const isStale = isTaskStale(task);
   const isOverdue = isTaskOverdue(task);
   const isDueSoon = isTaskDueSoon(task);
@@ -2059,27 +2064,35 @@ function appendTaskRowContent(el, task, areaColorById, allTasks, onChange) {
   checkbox.setAttribute("aria-pressed", String(task.status === "done"));
   checkbox.setAttribute("aria-label", task.title);
   checkbox.textContent = task.status === "done" ? "✓" : "";
-  checkbox.addEventListener("click", async (e) => {
-    e.stopPropagation();
-    await withErrorToast(async () => {
-      let unmutedFollowups = false;
-      if (task.status === "done") {
-        await reopenTaskCascade(task, allTasks);
-      } else {
-        unmutedFollowups = await completeTaskCascade(task, allTasks);
-        // Nur in der Heute-Ansicht (dieser Checkbox-Pfad ist ihr einziger Aufrufer) — Bewertung
-        // direkt beim Abhaken abfragen, nicht erst später im Fernsehprogramm-Tab (Spec-Vorgabe).
-        const ratingLogId = isWatchlistTask(task) ? await promptWatchlistRating(task) : null;
-        showCompleteUndoToast(task, allTasks, onChange, ratingLogId);
-        // Task-Feedback beim Abhaken (Betriebsmodell): leichtes Rating + Notiz. Habits ausgenommen
-        // (schließen wiederholt ab), Watchlist hat ihre eigene Bewertung oben. Sequenziell vor dem
-        // Folgeaufgaben-Popup, damit sich die beiden Modals im modal-root nicht überschreiben.
-        if (!isWatchlistTask(task) && !isHabitTask(task)) await openTaskFeedbackSheet(task);
-      }
-      onChange();
-      await triggerFollowupPopupAfterCompletion(unmutedFollowups);
+  if (isContextLabel) {
+    // Kontext-Label-Mutter: erscheint in Heute nur wegen geplanter Kinder, hat kein eigenes
+    // planned_date für heute. Checkbox deaktivieren — einzelne Unteraufgaben separat abhaken.
+    checkbox.disabled = true;
+    checkbox.setAttribute("aria-disabled", "true");
+    checkbox.setAttribute("title", "Nur als Kontext — einzelne Unteraufgaben abhaken");
+  } else {
+    checkbox.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await withErrorToast(async () => {
+        let unmutedFollowups = false;
+        if (task.status === "done") {
+          await reopenTaskCascade(task, allTasks);
+        } else {
+          unmutedFollowups = await completeTaskCascade(task, allTasks);
+          // Nur in der Heute-Ansicht (dieser Checkbox-Pfad ist ihr einziger Aufrufer) — Bewertung
+          // direkt beim Abhaken abfragen, nicht erst später im Fernsehprogramm-Tab (Spec-Vorgabe).
+          const ratingLogId = isWatchlistTask(task) ? await promptWatchlistRating(task) : null;
+          showCompleteUndoToast(task, allTasks, onChange, ratingLogId);
+          // Task-Feedback beim Abhaken (Betriebsmodell): leichtes Rating + Notiz. Habits ausgenommen
+          // (schließen wiederholt ab), Watchlist hat ihre eigene Bewertung oben. Sequenziell vor dem
+          // Folgeaufgaben-Popup, damit sich die beiden Modals im modal-root nicht überschreiben.
+          if (!isWatchlistTask(task) && !isHabitTask(task)) await openTaskFeedbackSheet(task);
+        }
+        onChange();
+        await triggerFollowupPopupAfterCompletion(unmutedFollowups);
+      });
     });
-  });
+  }
 
   const title = document.createElement("span");
   title.className = "task-title task-title-btn";
