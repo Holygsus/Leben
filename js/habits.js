@@ -127,6 +127,20 @@ export async function listAllHabitCompletions() {
   return data;
 }
 
+// Loggt einen expliziten Skip-Eintrag für ein Habit (migration-026). Verwendet upsert statt insert,
+// damit ein bereits vorhandener Eintrag (z.B. bei doppeltem Klick) überschrieben statt verdoppelt
+// wird. note ist optional — leer lassen, wenn der Nutzer keine Notiz eingegeben hat.
+export async function logHabitSkip(habitTaskId, { date, note } = {}) {
+  const userId = await getCurrentUserId();
+  const { error } = await supabase
+    .from("habit_completions")
+    .upsert(
+      { user_id: userId, task_id: habitTaskId, date: date || localTodayIso(), skipped: true, note: note || null },
+      { onConflict: "task_id,date", ignoreDuplicates: false }
+    );
+  if (error) throw error;
+}
+
 // "Tage in Folge" ist nur für 'weekly' sauber aus habit_weekdays + habit_completions ableitbar:
 // pro Kalendertag rückwärts ab heute prüfen, ob der Tag laut habit_weekdays fällig war, und falls
 // ja, ob eine Completion existiert — die erste fällige Lücke beendet die Serie. Für
@@ -138,20 +152,24 @@ const STREAK_MAX_LOOKBACK_DAYS = 366;
 export function computeHabitStreak(task, completions, todayIso = localTodayIso()) {
   const taskCompletions = completions.filter((c) => c.task_id === task.id);
   if ((task.habit_recurrence || "weekly") !== "weekly") {
-    return { type: "total", count: taskCompletions.length };
+    // Für biweekly/monthly: nur wirklich erledigte (nicht geskippte) Einträge zählen.
+    return { type: "total", count: taskCompletions.filter((c) => !c.skipped).length };
   }
   if (task.habit_weekdays.length === 0) return { type: "days", count: 0 };
 
-  const completedDates = new Set(taskCompletions.map((c) => c.date));
+  // Skipped-Einträge (migration-026) brechen die Streak: bewusst nicht gemachte Tage unterscheiden
+  // sich von "noch nicht entschieden" (kein Eintrag, heute früh am Tag).
+  const completedDates = new Set(taskCompletions.filter((c) => !c.skipped).map((c) => c.date));
+  const skippedDates = new Set(taskCompletions.filter((c) => c.skipped).map((c) => c.date));
   let count = 0;
   const cursor = new Date(todayIso + "T00:00:00");
   for (let i = 0; i < STREAK_MAX_LOOKBACK_DAYS; i++) {
     const iso = toLocalIso(cursor);
     if (task.habit_weekdays.includes(weekdayCodeFromDate(cursor))) {
       if (!completedDates.has(iso)) {
-        // Heute selbst noch offen zählt nicht als gerissene Serie — der Tag ist ja noch nicht
-        // vorbei. Jeder frühere fällige, nicht erledigte Tag beendet die Serie wie erwartet.
-        if (i === 0) {
+        // Heute noch offen UND nicht explizit geskippt → Tag ist noch nicht vorbei, kein Break.
+        // Explizit geskippt (skippedDates) oder vergangener Fehltag → Streak reißt.
+        if (i === 0 && !skippedDates.has(iso)) {
           cursor.setDate(cursor.getDate() - 1);
           continue;
         }

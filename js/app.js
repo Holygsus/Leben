@@ -77,6 +77,7 @@ import {
   listAllCounterLog,
   sumCounterForDate,
   weekAverageCounter,
+  logHabitSkip,
 } from "./habits.js";
 import {
   listWatchlistItems,
@@ -1977,6 +1978,32 @@ function renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById, onChange
 // View-Wechsel hinaus — das ist in Ordnung, entspricht dem Verhalten der Übersicht).
 const todayCollapsedNodes = new Set();
 
+// Klappt eine kleine Skip-Notiz-Form in einer Habit-Zeile auf oder wieder zu. Zweiter Klick auf
+// "Nicht gemacht" schließt das Formular wieder (toggle). Bestätigen loggt den Skip-Eintrag
+// (mit optionaler Notiz) und löst einen Re-Render der Heute-Ansicht aus.
+function toggleSkipNoteForm(row, task, onChange) {
+  const existing = row.querySelector(".habit-skip-form");
+  if (existing) { existing.remove(); return; }
+  const form = document.createElement("div");
+  form.className = "habit-skip-form";
+  form.innerHTML = `
+    <input type="text" class="input habit-skip-note" placeholder="Kurze Notiz (optional)…" maxlength="200" autocomplete="off" />
+    <button type="button" class="chip-btn habit-skip-confirm">Bestätigen</button>
+    <button type="button" class="chip-btn habit-skip-cancel">×</button>`;
+  form.querySelector(".habit-skip-cancel").addEventListener("click", () => form.remove());
+  form.querySelector(".habit-skip-confirm").addEventListener("click", async () => {
+    const note = form.querySelector(".habit-skip-note").value.trim() || null;
+    const date = task.planned_date || todayISO();
+    form.querySelector(".habit-skip-confirm").disabled = true;
+    await withErrorToast(async () => {
+      await logHabitSkip(task.id, { date, note });
+      onChange();
+    });
+  });
+  row.appendChild(form);
+  form.querySelector(".habit-skip-note").focus();
+}
+
 function buildTodayGroupEl(node, allTasks, areaColorById, onChange, onToggle, todayIds) {
   const hasChildren = node.children.length > 0;
   const collapsed = hasChildren && todayCollapsedNodes.has(node.id);
@@ -1990,6 +2017,18 @@ function buildTodayGroupEl(node, allTasks, areaColorById, onChange, onToggle, to
   const row = document.createElement("div");
   row.className = "task-item";
   appendTaskRowContent(row, node, areaColorById, allTasks, onChange, isContextLabel);
+
+  // Habit-Zeilen in Heute bekommen einen leisen "Nicht gemacht"-Button (Skip-Eintrag, migration-026).
+  // Nur für isHabitTask-Knoten selbst (Ja/Nein-Habits) — Pool-Kinder folgen in einer späteren Runde.
+  // isContextLabel-Mütter werden ausgenommen: sie haben kein eigenes planned_date für heute.
+  if (isHabitTask(node) && !isContextLabel) {
+    const skipBtn = document.createElement("button");
+    skipBtn.type = "button";
+    skipBtn.className = "chip-btn habit-skip-btn";
+    skipBtn.textContent = "Nicht gemacht";
+    skipBtn.addEventListener("click", () => toggleSkipNoteForm(row, node, onChange));
+    row.appendChild(skipBtn);
+  }
 
   if (hasChildren) {
     const toggle = document.createElement("button");
@@ -6889,32 +6928,42 @@ function renderWatchlistWeek() {
   const empty = document.getElementById("watchlist-week-empty-state");
   const weekDates = currentWeekDates(todayISO());
   const itemsById = new Map(watchlistViewState.items.map((i) => [i.id, i]));
-  const tasksByDate = new Map(
-    watchlistViewState.allTasks.filter((t) => isWatchlistTask(t) && weekDates.includes(t.planned_date)).map((t) => [t.planned_date, t])
-  );
+  // Map<date, task[]> statt Map<date, task> — planMissingSlots legt bis zu zwei Slots pro Tag an,
+  // ein einfaches Map-Überschreiben würde den zweiten Slot unsichtbar machen.
+  const tasksByDate = new Map();
+  for (const t of watchlistViewState.allTasks.filter(
+    (t) => isWatchlistTask(t) && weekDates.includes(t.planned_date)
+  )) {
+    if (!tasksByDate.has(t.planned_date)) tasksByDate.set(t.planned_date, []);
+    tasksByDate.get(t.planned_date).push(t);
+  }
 
   list.innerHTML = weekDates
     .map((date) => {
       const label = WEEKDAY_LABEL[weekdayCodeFromIso(date)];
-      const task = tasksByDate.get(date);
-      if (!task) {
+      const tasks = tasksByDate.get(date);
+      if (!tasks || tasks.length === 0) {
         return `<li class="task-item"><span class="task-title">${label} — <span class="status-message">frei</span></span></li>`;
       }
-      const item = itemsById.get(task.watchlist_item_id);
-      const titleText = `${label} — ${escapeHtml(item ? item.title : task.title)}${buildCurrentEpisodeLabel(item)}`;
       // Bereits abgeschlossene Slots: als erledigt zeigen, keine Aktionen mehr. Watchlist-Tasks
       // erscheinen seit der Governance-Entscheidung 2026-07-25 nicht mehr in Heute, daher wird die
       // Folge hier im Tab abgeschlossen (siehe wissensdatenbank/features/watchlist-fernsehprogramm.md).
-      if (task.status === "done") {
-        return `<li class="task-item watchlist-slot-done"><span class="task-title">✓ ${titleText}</span></li>`;
-      }
-      // Klick auf den Eintrag selbst löst Sichtung + Bewertung aus (wie früher der Aufgaben-Abschluss
-      // in Heute) — der Titel ist der Button, kein separates ✓ mehr. Tausch-Button bleibt daneben.
-      return `
-        <li class="task-item">
-          <button type="button" class="task-title task-title-btn watchlist-watched-btn" data-task-id="${task.id}" aria-label="Als geschaut abschließen und bewerten">${titleText}</button>
-          <button type="button" class="icon-btn watchlist-swap-btn" data-task-id="${task.id}" aria-label="Tauschen">⇄</button>
-        </li>`;
+      // Zweiter Slot desselben Tages bekommt "↳ " als Prefix statt des Wochentagsnamens.
+      return tasks.map((task, idx) => {
+        const item = itemsById.get(task.watchlist_item_id);
+        const prefix = idx === 0 ? `${label} — ` : "↳ ";
+        const titleText = `${prefix}${escapeHtml(item ? item.title : task.title)}${buildCurrentEpisodeLabel(item)}`;
+        if (task.status === "done") {
+          return `<li class="task-item watchlist-slot-done"><span class="task-title">✓ ${titleText}</span></li>`;
+        }
+        // Klick auf den Eintrag selbst löst Sichtung + Bewertung aus (wie früher der Aufgaben-Abschluss
+        // in Heute) — der Titel ist der Button, kein separates ✓ mehr. Tausch-Button bleibt daneben.
+        return `
+          <li class="task-item">
+            <button type="button" class="task-title task-title-btn watchlist-watched-btn" data-task-id="${task.id}" aria-label="Als geschaut abschließen und bewerten">${titleText}</button>
+            <button type="button" class="icon-btn watchlist-swap-btn" data-task-id="${task.id}" aria-label="Tauschen">⇄</button>
+          </li>`;
+      }).join("");
     })
     .join("");
   empty.hidden = tasksByDate.size > 0;

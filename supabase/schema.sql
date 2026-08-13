@@ -381,6 +381,8 @@ create table if not exists habit_completions (
   user_id uuid references auth.users not null,
   task_id uuid references tasks(id) on delete cascade not null,
   date date not null,
+  skipped boolean default false,   -- true = explizit als "nicht gemacht" markiert (migration-026)
+  note text,                        -- optionale Kontext-Notiz zum Skip (migration-026)
   created_at timestamptz default now(),
   unique (task_id, date)
 );

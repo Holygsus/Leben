@@ -1383,6 +1383,32 @@ body.has-bg-image .task-item {
   margin-top: var(--space-2);
 }
 
+/* Habit "Nicht gemacht"-Button in der Heute-Ansicht — dezent, rechts bündig, kein Danger-Styling */
+.habit-skip-btn {
+  font-size: 0.75rem;
+  padding: 0 var(--space-2);
+  min-height: 26px;
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
+  margin-left: auto;
+}
+
+/* Inline-Notiz-Formular, das nach Klick auf "Nicht gemacht" erscheint */
+.habit-skip-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+  padding-top: var(--space-2);
+  flex-basis: 100%;
+}
+
+.habit-skip-form .input {
+  flex: 1 1 120px;
+  min-height: 32px;
+  font-size: 0.825rem;
+}
+
 .habit-delete-btn {
   display: inline-block;
   margin-top: var(--space-2);
