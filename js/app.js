@@ -1462,10 +1462,19 @@ async function renderCockpitView() {
   const habitsGlance = dueHabits.length ? `${doneHabits} / ${dueHabits.length} heute` : "nichts fällig";
 
   // Aufgaben: offen heute (Top-Level, ohne Watchlist-Zeilen).
-  const openToday = allTasks.filter(
+  const openTodayTasks = allTasks.filter(
     (t) => t.planned_date === today && t.status !== "done" && !t.parent_task_id && !isWatchlistTask(t)
-  ).length;
+  );
+  const openToday = openTodayTasks.length;
   const tasksGlance = openToday ? `${openToday} offen` : "alles erledigt";
+  // Nächste Aufgabe für die Subzeile: Priorität absteigend, bei Gleichstand ältere zuerst — spiegelt
+  // byPriorityThenAge aus planner.js (dort nicht exportiert, darum hier klein inline).
+  const priorityRank = { high: 2, medium: 1, low: 0 };
+  const nextTask = [...openTodayTasks].sort(
+    (a, b) =>
+      (priorityRank[b.priority] ?? 1) - (priorityRank[a.priority] ?? 1) ||
+      new Date(a.created_at) - new Date(b.created_at)
+  )[0];
 
   // Watchlist: heutiges Fernsehprogramm (verplanter Eintrag von heute), sonst "—".
   const itemsById = new Map(watchlistItems.map((i) => [i.id, i]));
@@ -1506,7 +1515,10 @@ async function renderCockpitView() {
       color: "var(--color-success)",
       ring: habitsHasDue ? { done: doneHabits, total: dueHabits.length } : null,
     }),
-    buildCockpitTile("Aufgaben", tasksGlance, "today", { color: "var(--color-accent)" }),
+    buildCockpitTile("Aufgaben", tasksGlance, "today", {
+      color: "var(--color-accent)",
+      subline: nextTask ? `↳ ${nextTask.title}` : null,
+    }),
     buildCockpitTile("Watchlist", watchGlance, "fernsehprogramm", { color: "var(--color-cat-gesundheit)" }),
     buildCockpitTile("Gaming", gamingGlance, "games", { color: "var(--color-accent-warm)" }),
     buildCockpitTile("Finanzen", financeGlance, "finance", { color: "var(--color-cat-transport)" }),
@@ -1650,6 +1662,14 @@ function buildCockpitTile(label, glance, targetRoute, opts = {}) {
     glanceEl.className = "cockpit-tile-glance";
     glanceEl.textContent = glance;
     tile.append(glanceEl);
+  }
+
+  // Optionale leise Subzeile (z. B. der nächste Aufgabentitel unter „N offen") — nur im Nicht-Ring-Fall.
+  if (opts.subline) {
+    const sublineEl = document.createElement("span");
+    sublineEl.className = "cockpit-tile-subline";
+    sublineEl.textContent = opts.subline;
+    tile.append(sublineEl);
   }
 
   // targetRoute null = Kachel ohne Tab-Ziel (der Aufrufer hängt einen eigenen Click-Handler an,
@@ -2704,28 +2724,17 @@ async function renderOverviewView() {
   renderOverviewBody();
   renderNoAreaSection();
   wireOverviewFilters();
-  wireViewModeToggle();
   await renderAreaManageList();
   wireNewAreaForm();
   wireAreaManageToggle();
 }
 
-// Entscheidet zwischen Listen- (Bereichsbaum) und Kanban-Darstellung derselben Aufgaben. Nur die
-// zwei Haupt-Render-Pfade (renderOverviewView/reloadOverview) laufen hierüber — die vielen direkten
-// renderAreaTree()-Aufrufe (Collapse-Toggles, Inline-Add) stammen aus Interaktionen, die es nur in
-// der Listenansicht gibt.
+// Rendert den Übersichts-Body (Bereichsbaum). Früher gab es hier eine Weiche zur Kanban-Ansicht;
+// die wurde im War Room 2026-08-13 verworfen und aus der UI entfernt (renderKanbanBoard bleibt als
+// toter Code stehen). Nur die zwei Haupt-Render-Pfade (renderOverviewView/reloadOverview) laufen
+// hierüber — die vielen direkten renderAreaTree()-Aufrufe stammen aus Listen-Interaktionen.
 function renderOverviewBody() {
-  const tree = document.getElementById("area-tree");
-  const board = document.getElementById("kanban-board");
-  if (overviewState.viewMode === "kanban") {
-    tree.hidden = true;
-    board.hidden = false;
-    renderKanbanBoard();
-  } else {
-    board.hidden = true;
-    tree.hidden = false;
-    renderAreaTree();
-  }
+  renderAreaTree();
 }
 
 async function loadOverviewData() {
