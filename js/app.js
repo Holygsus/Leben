@@ -6846,6 +6846,18 @@ function buildEpisodeProgressLabel(item) {
   return buildCurrentEpisodeLabel(item).replace(/^ · /, "");
 }
 
+// Staffelfinale erkannt, wenn die aktuelle Folge die letzte der aktuellen Staffel ist — verlangt
+// gepflegte episode_counts_by_season (jsonb { "1":10, ... }). Ohne diese Daten kein Signal (kein
+// Blocker, exakt wie buildEpisodeProgressBar). Siehe wissensdatenbank/features/
+// watchlist-fernsehprogramm.md bzw. implementieren-jetzt.md ("Fernsehprogramm-Umbau").
+function isSeasonFinale(item) {
+  const counts = item && item.episode_counts_by_season;
+  if (!counts || typeof counts !== "object" || item.current_season == null || item.current_episode == null) return false;
+  const seasonTotal = counts[String(item.current_season)];
+  if (seasonTotal == null) return false;
+  return item.current_episode === Number(seasonTotal);
+}
+
 // Gesamt-Serienfortschritt als Balken: abgeschlossene Staffeln (voll) + aktuelle Folge, geteilt durch
 // die Summe aller bekannten Staffel-Folgenzahlen. Nur wenn Staffel/Folge und episode_counts_by_season
 // gepflegt sind — sonst leer (kein Balken).
@@ -6970,6 +6982,7 @@ function renderWatchlistWeek() {
         return `
           <li class="task-item">
             <button type="button" class="task-title task-title-btn watchlist-watched-btn" data-task-id="${task.id}" aria-label="Als geschaut abschließen und bewerten">${titleText}</button>
+            <button type="button" class="icon-btn watchlist-skip-btn" data-task-id="${task.id}" aria-label="Heute nicht schauen" title="Heute nicht">⊘</button>
             <button type="button" class="icon-btn watchlist-swap-btn" data-task-id="${task.id}" aria-label="Tauschen">⇄</button>
           </li>`;
       }).join("");
@@ -6983,6 +6996,9 @@ function renderWatchlistWeek() {
   list.querySelectorAll(".watchlist-watched-btn").forEach((btn) => {
     btn.addEventListener("click", () => completeWatchlistSlot(btn.dataset.taskId));
   });
+  list.querySelectorAll(".watchlist-skip-btn").forEach((btn) => {
+    btn.addEventListener("click", () => skipWatchlistSlot(btn.dataset.taskId));
+  });
 }
 
 // Schließt einen verplanten Watchlist-Slot direkt im Fernsehprogramm-Tab ab: Sichtung + Bewertung
@@ -6993,6 +7009,27 @@ async function completeWatchlistSlot(taskId) {
   if (!task) return;
   await withErrorToast(async () => {
     await promptWatchlistRating(task);
+    await completeTaskCascade(task, watchlistViewState.allTasks);
+    await renderFernsehprogrammView();
+  });
+}
+
+// „Heute nicht"-Skip: räumt den Slot ohne Rating-Dialog weg. Loggt kind='skipped' (keine echte
+// Sichtung, current_episode bleibt unangetastet — identisch zu submitNotWatched in
+// promptWatchlistRating), setzt den Task auf done, sodass der Slot aus der aktiven Liste verschwindet.
+// Siehe wissensdatenbank/features/aufgaben-ueberspringen.md (War Room 2026-08-14).
+async function skipWatchlistSlot(taskId) {
+  const task = watchlistViewState.allTasks.find((t) => t.id === taskId);
+  if (!task) return;
+  const item = watchlistViewState.items.find((i) => i.id === task.watchlist_item_id);
+  await withErrorToast(async () => {
+    await logViewing({
+      watchlistItemId: task.watchlist_item_id,
+      rating: null,
+      season: item?.current_season ?? null,
+      episode: item?.current_episode ?? null,
+      kind: "skipped",
+    });
     await completeTaskCascade(task, watchlistViewState.allTasks);
     await renderFernsehprogrammView();
   });
@@ -7122,7 +7159,7 @@ function buildWatchlistActiveCard(item, avg) {
     `<div class="watchlist-cover" style="--b:${WATCHLIST_TYPE_COLOR[item.type] || "var(--color-accent)"}" aria-hidden="true">${WATCHLIST_TYPE_ICON[item.type] || "📺"}</div>` +
     `<div class="watchlist-active-body">` +
     `<div class="watchlist-active-top"><span class="task-title">${escapeHtml(item.title)}</span>${buildRatingStarsHtml(avg)}</div>` +
-    `<div class="watchlist-active-meta">${buildWatchlistTypeBadge(item.type)}${meta.length ? `<span>${meta.join(" · ")}</span>` : ""}</div>` +
+    `<div class="watchlist-active-meta">${buildWatchlistTypeBadge(item.type)}${isSeasonFinale(item) ? `<span class="watchlist-finale-badge">🏁 Staffelfinale</span>` : ""}${meta.length ? `<span>${meta.join(" · ")}</span>` : ""}</div>` +
     buildEpisodeProgressBar(item) +
     `</div>`;
   card.addEventListener("click", () => openWatchlistDetail(item.id));

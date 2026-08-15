@@ -747,6 +747,12 @@ body {
   white-space: nowrap;
 }
 
+/* „Heute nicht"-Skip am Fernsehprogramm-Slot: dezenter als der Tausch-Button, damit die
+   Als-geschaut-Aktion (der Titel selbst) die primäre bleibt. */
+.watchlist-skip-btn {
+  color: var(--color-text-subtle);
+}
+
 @media (min-width: 600px) {
   .cockpit-grid {
     grid-template-columns: repeat(4, 1fr);
@@ -3205,6 +3211,20 @@ body.has-bg-image .task-item {
   border-radius: var(--radius-full);
   background: color-mix(in srgb, var(--b, var(--color-accent)) 16%, transparent);
   color: var(--b, var(--color-accent));
+  font-size: 0.72rem;
+  font-weight: 700;
+  vertical-align: middle;
+  margin-right: var(--space-2);
+}
+
+/* Staffelfinale-Signal in der Aktiv-Karte — gleiche Pillen-Form wie .wl-type-badge, warmer Akzent. */
+.watchlist-finale-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--color-accent-warm) 18%, transparent);
+  color: var(--color-accent-warm);
   font-size: 0.72rem;
   font-weight: 700;
   vertical-align: middle;
