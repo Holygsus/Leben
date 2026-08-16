@@ -1,5 +1,6 @@
 -- Leben OS — Migration 035
--- Einmalig im Supabase SQL Editor ausführen (Project → SQL Editor → New query → Run)
+-- Update 2026-08-16: via Supabase-MCP angewendet, live in der Produktions-DB (beide Tabellen + RLS +
+-- Cascade verifiziert) — nicht erneut ausführen.
 --
 -- Reiseplanung V1 (siehe wissensdatenbank/features/reiseplanung.md, War Room 2026-08-13). Eine Reise
 -- hat eine zweite, zeitliche Dimension (Tage) plus einen Pool an Attraktionen — strukturell näher an
