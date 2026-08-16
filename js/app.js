@@ -116,6 +116,9 @@ import {
   saveBackgroundImageBlob,
   clearBackgroundImage,
   resizeImageToBlob,
+  getBookCoverBlob,
+  saveBookCoverBlob,
+  clearBookCover,
 } from "./personalization.js";
 
 // Muss vor dem ersten Render laufen, sonst blitzt beim Start kurz das System-Theme auf, bevor die
@@ -2613,6 +2616,19 @@ function wireQuickCapture(areas, onAdded) {
     }
   });
   cancelBtn.addEventListener("click", closeForm);
+
+  // „+"-Menü V1 (siehe wissensdatenbank/features/schnellerfassungs-menue.md): Aufgabe ist der
+  // Default-Typ (Titelfeld oben), Geburtstag der zweite Eintrag — öffnet den bestehenden
+  // Geburtstags-Dialog statt eines zweiten Inline-Formulars. Weitere Typen folgen, sobald ihr
+  // Quick-Add aus dem jeweiligen Widget gelöst ist.
+  const typeTaskBtn = document.getElementById("quick-add-type-task");
+  const typeBirthdayBtn = document.getElementById("quick-add-type-birthday");
+  if (typeTaskBtn) typeTaskBtn.addEventListener("click", () => input.focus());
+  if (typeBirthdayBtn)
+    typeBirthdayBtn.addEventListener("click", () => {
+      closeForm();
+      openBirthdaysDetail();
+    });
 
   const submitBtn = form.querySelector('button[type="submit"]');
   form.addEventListener("submit", async (e) => {
@@ -8593,6 +8609,27 @@ function renderBooksList() {
     (a, b) => (BOOK_STATUS_ORDER[a.status] ?? 9) - (BOOK_STATUS_ORDER[b.status] ?? 9)
   );
   sorted.forEach((book) => list.appendChild(buildBookItem(book)));
+  loadActiveBookCovers();
+}
+
+// Lädt die lokal gespeicherten Cover-Blobs (IndexedDB) für die aktiven Bücher nach und füllt das
+// jeweilige .book-cover-Element — asynchron/fire-and-forget, damit renderBooksList synchron bleibt.
+async function loadActiveBookCovers() {
+  const buttons = document.querySelectorAll(".book-cover[data-book-id]");
+  for (const btn of buttons) {
+    const blob = await getBookCoverBlob(btn.dataset.bookId).catch(() => null);
+    if (!blob || !btn.isConnected) continue;
+    const url = URL.createObjectURL(blob);
+    const img = document.createElement("img");
+    img.alt = "Cover";
+    img.onload = () => URL.revokeObjectURL(url);
+    img.src = url;
+    btn.innerHTML = "";
+    btn.classList.remove("book-cover-empty");
+    btn.appendChild(img);
+    const removeBtn = btn.parentElement?.querySelector(".book-cover-remove");
+    if (removeBtn) removeBtn.hidden = false;
+  }
 }
 
 function buildBookItem(book) {
@@ -8728,6 +8765,55 @@ function buildBookItem(book) {
   });
 
   li.append(title, statusSelect, progressInput, meta, addProgress, deleteBtn);
+
+  // Cover-Upload/-Anzeige nur fürs aktive Buch (siehe wissensdatenbank/features/lesen-als-bereich.md).
+  // Cover-Blob liegt rein lokal in IndexedDB (kein DB-Feld) — gleiches Muster wie das Hintergrundbild.
+  // Das eigentliche Bild wird nach dem Listen-Aufbau asynchron nachgeladen (loadActiveBookCovers).
+  if (book.status === "aktiv") {
+    const coverWrap = document.createElement("div");
+    coverWrap.className = "book-cover-wrap";
+
+    const coverBtn = document.createElement("button");
+    coverBtn.type = "button";
+    coverBtn.className = "book-cover book-cover-empty";
+    coverBtn.dataset.bookId = book.id;
+    coverBtn.setAttribute("aria-label", "Cover hochladen");
+    coverBtn.innerHTML = `<span class="book-cover-placeholder">＋ Cover</span>`;
+
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept = "image/*";
+    fileInput.hidden = true;
+
+    coverBtn.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", async () => {
+      const file = fileInput.files?.[0];
+      fileInput.value = "";
+      if (!file) return;
+      await withErrorToast(async () => {
+        const blob = await resizeImageToBlob(file, 600);
+        await saveBookCoverBlob(book.id, blob);
+        await reloadBooks();
+      });
+    });
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "book-cover-remove";
+    removeBtn.textContent = "×";
+    removeBtn.hidden = true;
+    removeBtn.setAttribute("aria-label", "Cover entfernen");
+    removeBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await withErrorToast(async () => {
+        await clearBookCover(book.id);
+        await reloadBooks();
+      });
+    });
+
+    coverWrap.append(coverBtn, removeBtn, fileInput);
+    li.prepend(coverWrap);
+  }
 
   // Visueller Fortschrittsbalken (volle Breite unter der Zeile) — nur wenn ein Gesamtwert bekannt
   // ist, sonst gäbe es keinen sinnvollen Bezug. Style wiederverwendet aus der Wunschlisten-Leiste.

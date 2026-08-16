@@ -73,6 +73,10 @@
 <p class="empty-state" id="empty-state" hidden>Nichts geplant für heute — leg über das + oben eine Aufgabe an.</p>
 
 <form class="quick-capture-panel" id="brainstorm-form" hidden>
+  <div class="quick-add-types" role="group" aria-label="Typ">
+    <button type="button" class="quick-add-type-btn is-active" id="quick-add-type-task" aria-pressed="true">Aufgabe</button>
+    <button type="button" class="quick-add-type-btn" id="quick-add-type-birthday" aria-pressed="false">🎂 Geburtstag</button>
+  </div>
   <input type="text" class="input" id="brainstorm-input" placeholder="Was steht an?" autocomplete="off" required />
   <select class="select" id="brainstorm-area" aria-label="Bereich">
     <option value="">Bereich (optional)</option>

@@ -70,6 +70,23 @@ export async function resizeImageToBlob(file, maxEdge = 1920, quality = 0.85) {
   return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
 }
 
+// ---------- Buch-Cover (rein lokal, IndexedDB, ein Blob pro Buch-ID — gleiches Muster wie das
+// Hintergrundbild, kein DB-Feld, siehe wissensdatenbank/features/lesen-als-bereich.md) ----------
+
+const bookCoverKey = (bookId) => `book-cover:${bookId}`;
+
+export async function getBookCoverBlob(bookId) {
+  return (await idbGet(bookCoverKey(bookId))) || null;
+}
+
+export async function saveBookCoverBlob(bookId, blob) {
+  await idbSet(bookCoverKey(bookId), blob);
+}
+
+export async function clearBookCover(bookId) {
+  await idbDelete(bookCoverKey(bookId));
+}
+
 // ---------- Dark/Light-Mode (rein lokal, localStorage) ----------
 // Ohne gespeicherte Wahl bleibt das data-theme-Attribut ungesetzt und die
 // @media(prefers-color-scheme)-Regel in variables.css greift (Modus "System").
