@@ -329,6 +329,40 @@ create table if not exists game_backlog_items (
   updated_at timestamptz default now()
 );
 
+-- Reiseplanung (siehe wissensdatenbank/features/reiseplanung.md) — eigener Tab, Pool→Tage-Modell
+create table if not exists trips (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users not null,
+  title text not null,
+  destination text,
+  date_from date,
+  date_to date,
+  status text not null default 'geplant'
+    check (status in ('geplant','aktiv','abgeschlossen')),
+  sort_order integer not null default 0,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create table if not exists trip_items (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references auth.users not null,
+  trip_id uuid references trips on delete cascade not null,
+  title text not null,
+  status text not null default 'kandidat'
+    check (status in ('kandidat','eingeplant','erledigt')),
+  day_number integer,
+  time_slot text check (time_slot is null or time_slot in ('vormittag','nachmittag','abend')),
+  category text,
+  notes text,
+  link text,
+  sort_order integer not null default 0,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create index if not exists trip_items_trip_id_idx on trip_items (trip_id);
+
 -- Sparplan: Wunschliste — Rohtext-Einstieg, Anreicherung im Weekly Review
 create table if not exists wishlist_items (
   id uuid default gen_random_uuid() primary key,
@@ -497,6 +531,8 @@ alter table expense_categories enable row level security;
 alter table books enable row level security;
 alter table book_reading_log enable row level security;
 alter table game_backlog_items enable row level security;
+alter table trips enable row level security;
+alter table trip_items enable row level security;
 alter table wishlist_items enable row level security;
 alter table savings_pot_entries enable row level security;
 alter table recipes enable row level security;
@@ -566,6 +602,12 @@ create policy "book_reading_log: own data" on book_reading_log for all using (au
 
 drop policy if exists "game_backlog_items: own data" on game_backlog_items;
 create policy "game_backlog_items: own data" on game_backlog_items for all using (auth.uid() = user_id);
+
+drop policy if exists "trips: own data" on trips;
+create policy "trips: own data" on trips for all using (auth.uid() = user_id);
+
+drop policy if exists "trip_items: own data" on trip_items;
+create policy "trip_items: own data" on trip_items for all using (auth.uid() = user_id);
 
 drop policy if exists "wishlist_items: own data" on wishlist_items;
 create policy "wishlist_items: own data" on wishlist_items for all using (auth.uid() = user_id);

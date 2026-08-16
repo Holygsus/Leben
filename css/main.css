@@ -736,6 +736,35 @@ body {
   white-space: nowrap;
 }
 
+/* Habit-Chip-Streifen in der Cockpit-Kachel: zeigt WELCHE Habits dran sind (grün = erledigt). */
+.cockpit-tile-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+.cockpit-chip {
+  max-width: 100%;
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--color-text-subtle) 18%, transparent);
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cockpit-chip.is-done {
+  background: color-mix(in srgb, var(--color-success) 22%, transparent);
+  color: var(--color-success);
+}
+.cockpit-chip-more {
+  background: transparent;
+  color: var(--color-text-subtle);
+}
+
 .cockpit-tile-subline {
   font-size: 0.8rem;
   font-weight: 400;
@@ -2103,6 +2132,43 @@ body.has-bg-image .task-item {
   border-radius: var(--radius-full);
   background: var(--color-bg);
   font-size: var(--font-size-sm);
+}
+
+/* Reiseplanung: Auswahlzeile, Pool-Hinweis, Tages-Abschnitte (siehe features/reiseplanung.md). */
+.reise-trip-bar {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+.reise-trip-bar .select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.reise-pool-hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-subtle);
+  margin: 0 0 var(--space-2);
+}
+.reise-day {
+  margin-top: var(--space-4);
+}
+.reise-day-head {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-subtle);
+  margin: 0 0 var(--space-2);
+}
+.reise-day-empty {
+  color: var(--color-text-subtle);
+  padding: var(--space-2) var(--space-3);
+}
+.reise-item.reise-item-done .area-name-input {
+  text-decoration: line-through;
+  opacity: 0.6;
 }
 
 /* Gaming-Backlog: Stat-Leiste, hervorgehobene "Spiele gerade"-Zeile, Plattform-Badge. */

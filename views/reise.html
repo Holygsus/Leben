@@ -1,0 +1,35 @@
+<section class="view-header">
+  <div class="view-title-group" style="--view-accent: var(--color-cat-gesundheit);">
+    <div class="view-icon-badge"><svg viewBox="0 0 24 24"><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/><circle cx="12" cy="12" r="10"/></svg></div>
+    <h1>Reise</h1>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="reise-trip-bar">
+    <select class="select" id="reise-trip-select" aria-label="Reise auswählen"></select>
+    <button type="button" class="btn btn-secondary" id="reise-new-trip-toggle">＋ Neue Reise</button>
+  </div>
+
+  <form id="reise-new-trip-form" class="new-task-form" hidden>
+    <input class="input" type="text" id="reise-new-trip-title" placeholder="Reisetitel (z.B. Paris 2026)" required autocomplete="off" />
+    <input class="input" type="text" id="reise-new-trip-destination" placeholder="Ziel (optional)" autocomplete="off" />
+    <input class="input" type="date" id="reise-new-trip-from" aria-label="Von (optional)" />
+    <input class="input" type="date" id="reise-new-trip-to" aria-label="Bis (optional)" />
+    <button class="btn" type="submit">Reise anlegen</button>
+  </form>
+
+  <div id="reise-empty" hidden></div>
+</section>
+
+<section class="panel" id="reise-content" hidden>
+  <h2>Pool</h2>
+  <p class="reise-pool-hint">Attraktionen/Ideen sammeln — per Tages-Auswahl unten einem Tag zuordnen.</p>
+  <form id="reise-pool-add-form" class="new-task-form">
+    <input class="input" type="text" id="reise-pool-add-title" placeholder="Attraktion / Programmpunkt" required autocomplete="off" />
+    <button class="btn" type="submit">In den Pool</button>
+  </form>
+  <ul class="task-list" id="reise-pool-list"></ul>
+
+  <div id="reise-days"></div>
+</section>
