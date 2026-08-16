@@ -2106,7 +2106,13 @@ function buildTodayGroupEl(node, allTasks, areaColorById, onChange, onToggle, to
   if (hasChildren && !collapsed) {
     const childList = document.createElement("ul");
     childList.className = "task-list task-group-children";
-    for (const child of node.children) {
+    // Erledigte Kinder ans Ende bündeln (offene zuerst) — dieselbe doneDiff-Logik wie auf Top-Level
+    // (compareByPriority). Ohne das klemmt eine offene Unteraufgabe zwischen durchgestrichenen. Stabil:
+    // innerhalb offen/erledigt bleibt die natürliche Reihenfolge erhalten.
+    const orderedChildren = [...node.children].sort(
+      (a, b) => (a.status === "done" ? 1 : 0) - (b.status === "done" ? 1 : 0)
+    );
+    for (const child of orderedChildren) {
       childList.appendChild(buildTodayGroupEl(child, allTasks, areaColorById, onChange, onToggle, todayIds));
     }
     li.appendChild(childList);
@@ -5816,10 +5822,14 @@ function renderPotGrid() {
 
     const freiheitBudget = settings.pots?.freiheit || 0;
     const monthStart = todayISO().slice(0, 7) + "-01";
-    const spentThisMonth = financeState.transactions
-      .filter((t) => t.pot === "freiheit" && t.direction === "expense" && t.occurred_at >= monthStart)
-      .reduce((sum, t) => sum + Number(t.amount), 0);
-    const remaining = freiheitBudget - spentThisMonth;
+    // Freiheit bleibt konzeptionell ein Monatsbudget (kein Kontostand), aber Ausgaben UND Einnahmen
+    // dieses Monats wirken symmetrisch auf den Rest: eine als pot='freiheit' erfasste Einnahme ist
+    // eine Budget-Aufstockung und erhöht "übrig" (spiegelt die Sicherheit-Netto-Logik oben). Vorher
+    // wurden Einnahmen ignoriert (nur direction==='expense' gezählt) — Rest bewegte sich nicht.
+    const netSpentThisMonth = financeState.transactions
+      .filter((t) => t.pot === "freiheit" && t.occurred_at >= monthStart)
+      .reduce((sum, t) => sum + (t.direction === "expense" ? Number(t.amount) : -Number(t.amount)), 0);
+    const remaining = freiheitBudget - netSpentThisMonth;
     const freiheitPct = freiheitBudget ? Math.round((remaining / freiheitBudget) * 100) : 0;
     cards.push(
       buildPotCard(
