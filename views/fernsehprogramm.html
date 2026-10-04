@@ -23,15 +23,27 @@
   </div>
 </form>
 
-<section class="panel">
-  <h2>Diese Woche</h2>
-  <ul class="task-list" id="watchlist-week-list"></ul>
-  <div class="empty-state-rich" id="watchlist-week-empty-state" hidden>
+<section class="tv-program" aria-label="Programm">
+  <div class="tv-week" id="tv-week" role="tablist" aria-label="Tag wählen"></div>
+  <div class="tv-prog" id="tv-prog"></div>
+  <div class="empty-state-rich" id="tv-empty-state" hidden>
     <svg viewBox="0 0 24 24"><path d="M3 5h18v12H3z"/><path d="M8 21h8M12 17v4M8 2l3 3M16 2l-3 3"/></svg>
-    <strong>Noch nichts eingeplant</strong>
-    <span>Leg über "+" Einträge an und setze sie auf "aktiv".</span>
+    <strong id="tv-empty-title">Sendepause</strong>
+    <span id="tv-empty-text">Für diesen Tag ist nichts eingeplant.</span>
+    <button class="btn" type="button" id="tv-build" hidden>Programm erstellen</button>
   </div>
 </section>
+
+<section class="tv-upcoming" id="tv-upcoming" hidden>
+  <div class="tv-label">Demnächst</div>
+  <div class="tv-strip" id="tv-upcoming-strip"></div>
+</section>
+
+<button type="button" class="tv-learn" id="tv-learn" aria-expanded="false" aria-controls="tv-learn-bars">
+  <span class="tv-learn-head"><span>Dein Sender lernt</span><span class="tv-learn-sum" id="tv-learn-sum"></span></span>
+  <span class="tv-learn-bars" id="tv-learn-bars" hidden></span>
+</button>
+<button type="button" class="tv-rebuild" id="tv-rebuild">↻ Programm neu mischen</button>
 
 <section class="panel">
   <div class="panel-header">
