@@ -21,13 +21,20 @@ github.com/Holygsus/Leben, eingebettet in den größeren Workspace — siehe
 
 ## Datenbank-Workflow
 
-- Schema-Änderungen ausschließlich als neue, nummerierte `supabase/migration-XXX.sql` — danach
-  `supabase/schema.sql` (Referenz für Neuinstallationen) manuell nachziehen.
-- DDL läuft nur über den Supabase SQL Editor / Service-Role, **nicht** mit dem anon key aus
-  `config.js` möglich.
-- Vor Weiterarbeit an einem Modul immer erst prüfen, ob die zugehörige Migration wirklich im
-  Supabase-Dashboard ausgeführt wurde (nicht nur ob die `.sql`-Datei im Repo existiert) — Code-Stand
-  und DB-Stand können auseinanderlaufen.
+Standard-Supabase-CLI-Layout seit 2026-10-04: `supabase/migrations/<version>_<name>.sql`, 1:1
+identisch mit der Migrations-Historie der DB (`supabase_migrations.schema_migrations`). Die alten
+handnummerierten `migration-XXX.sql` liegen nur noch als Doku in `supabase/legacy/` — nie erneut
+ausführen.
+
+- Neue Schema-Änderung: `supabase migration new <name>` → SQL schreiben → `supabase db push`
+  (einmalig vorher `supabase link --project-ref eimyiymmqciiyxaqluzc`). Alternativ per Supabase-MCP
+  `apply_migration` — dann **dieselbe** Datei mit der von der DB vergebenen Version unter
+  `supabase/migrations/` committen, sonst laufen Repo und DB auseinander.
+- „Ist das live?" beantwortet `supabase migration list` (local vs. remote) bzw. MCP
+  `list_migrations` — keine „wurde angewendet"-Kommentare mehr in den SQL-Dateien.
+- `supabase/schema.sql` (Referenz für Neuinstallationen, da 001–008 vor dem Tracking liegen) nach
+  jeder Migration nachziehen, oder neu erzeugen mit `supabase db dump -f supabase/schema.sql`.
+- DDL läuft nur über CLI/MCP/SQL Editor (Service-Role), **nicht** mit dem anon key aus `config.js`.
 
 ## Service Worker (`sw.js`)
 

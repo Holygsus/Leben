@@ -1,0 +1,1 @@
+alter table expense_categories add column if not exists monthly_budget numeric;

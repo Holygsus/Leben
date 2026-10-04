@@ -1,0 +1,1 @@
+alter table pantry_items add column if not exists expires_at date;

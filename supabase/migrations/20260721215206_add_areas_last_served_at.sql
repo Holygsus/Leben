@@ -1,0 +1,1 @@
+alter table areas add column if not exists last_served_at timestamptz;
