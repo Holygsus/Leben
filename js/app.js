@@ -1,3 +1,5 @@
+// Einstieg: Bootstrap (Theme/Hintergrund), Auth-Init, Login, Router und Navigations-Shell.
+// Die einzelnen Ansichten liegen unter js/views/, geteilte UI-Helfer unter js/ui/.
 import { getSession, onAuthStateChange, signInWithMagicLink, ensureAreasSeeded, updateUsername } from "./auth.js";
 import {
   listTasks,
@@ -14,7 +16,6 @@ import {
 } from "./tasks.js";
 import { listAreas, createArea, updateArea, deleteArea, swapAreaOrder } from "./areas.js";
 import { createThought, listThoughts, updateThought } from "./thoughts.js";
-import { createTaskFeedback } from "./feedback.js";
 import {
   suggestTasksForPlan,
   formatTasksForExport,
@@ -120,15 +121,39 @@ import {
   findDisplacedSlots,
   summarizeInterestProfile,
 } from "./watchlist.js";
-import { listBirthdays, createBirthday, updateBirthday, deleteBirthday, daysUntilNextOccurrence, nextOccurrence } from "./birthdays.js";
+import {
+  listBirthdays,
+  createBirthday,
+  updateBirthday,
+  deleteBirthday,
+  daysUntilNextOccurrence,
+  nextOccurrence,
+} from "./birthdays.js";
 import { listRecipes, createRecipe, updateRecipe, deleteRecipe, formatIngredientsForShoppingList } from "./recipes.js";
 import { listPantryItems, createPantryItem, updatePantryItem, deletePantryItem } from "./pantry.js";
 import { listGames, createGame, updateGame, deleteGame } from "./games.js";
-import { listTrips, createTrip, updateTrip, deleteTrip, listTripItems, createTripItem, updateTripItem, deleteTripItem } from "./trips.js";
-import { listBooks, createBook, updateBook, deleteBook, listReadingLog, logReadingSession, sumPagesInMonth, sumChaptersInMonth } from "./books.js";
+import {
+  listTrips,
+  createTrip,
+  updateTrip,
+  deleteTrip,
+  listTripItems,
+  createTripItem,
+  updateTripItem,
+  deleteTripItem,
+} from "./trips.js";
+import {
+  listBooks,
+  createBook,
+  updateBook,
+  deleteBook,
+  listReadingLog,
+  logReadingSession,
+  sumPagesInMonth,
+  sumChaptersInMonth,
+} from "./books.js";
 import { listComments, listAllCommentedTaskIds, createComment, deleteComment } from "./comments.js";
-import { getReflectionForDate, createReflection } from "./reflections.js";
-import { listOpenFollowupGroups, countOpenFollowups, resolveFollowupGroup } from "./followups.js";
+import { listOpenFollowupGroups, countOpenFollowups } from "./followups.js";
 import {
   getStoredTheme,
   applyTheme,
@@ -140,6 +165,58 @@ import {
   saveBookCoverBlob,
   clearBookCover,
 } from "./personalization.js";
+import { createDateChipGroup, wireDateChipGroup } from "./ui/date-chips.js";
+import {
+  todayISO,
+  tomorrowISO,
+  weekStartISO,
+  buildMonthGrid,
+  shiftMonth,
+  shiftIsoDay,
+  isoDayDiff,
+  monthRange,
+  formatShortDate,
+} from "./ui/dates.js";
+import {
+  WEEKDAY_LABEL,
+  BADGE_ICON_HABIT,
+  BADGE_ICON_BRAINSTORM,
+  BADGE_ICON_OVERDUE,
+  STREAK_ICON_FLAME,
+  escapeHtml,
+  buildPinIcon,
+  buildEditIcon,
+  buildTrashIcon,
+  buildDuplicateIcon,
+  buildDragHandleIcon,
+  EMPTY_STATE_SEARCH_ICON,
+  buildEmptyState,
+  taskOptionsHtml,
+} from "./ui/dom.js";
+import { showToast, showConfirm, friendlyErrorMessage, showLoading, withErrorToast } from "./ui/modals.js";
+import { updateNavBadge } from "./ui/nav.js";
+import {
+  maybeShowThoughtNudge,
+  maybeShowReflectionPopup,
+  openTaskFeedbackSheet,
+  maybeShowFollowupPopup,
+  triggerFollowupPopupAfterCompletion,
+  openFollowupPopup,
+} from "./ui/popups.js";
+import { state, FILTER_STORAGE_KEY, overviewState, todayViewState, setRenderShell } from "./ui/state.js";
+import {
+  deleteTaskWithUndo,
+  restoreTaskSnapshot,
+  showCompleteUndoToast,
+  duplicateTaskTree,
+} from "./ui/task-actions.js";
+import {
+  isTaskOverdue,
+  isTaskDueSoon,
+  compareByUrgency,
+  compareByPriority,
+  filterTreeNodes,
+} from "./ui/task-helpers.js";
 
 // Muss vor dem ersten Render laufen, sonst blitzt beim Start kurz das System-Theme auf, bevor die
 // gespeicherte Wahl greift (siehe wissensdatenbank/features/personalisierung.md).
@@ -176,29 +253,6 @@ const routes = {
   "expense-categories": renderExpenseCategoriesView,
 };
 
-const WEEKDAY_LABEL = { mon: "Mo", tue: "Di", wed: "Mi", thu: "Do", fri: "Fr", sat: "Sa", sun: "So" };
-
-// Kleine Icons vor Badge-Text — macht "Habit"/"Brainstorm"/"Überfällig" beim schnellen Scrollen
-// schneller unterscheidbar als drei ähnlich lange Wörter in ähnlichen Farbtönen.
-const BADGE_ICON_HABIT = `<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5"/></svg>`;
-const BADGE_ICON_BRAINSTORM = `<svg viewBox="0 0 24 24"><path d="M9 18h6M10 22h4M12 2a6 6 0 0 0-3 11.2c.6.4 1 1.1 1 1.8v.5h4v-.5c0-.7.4-1.4 1-1.8A6 6 0 0 0 12 2Z"/></svg>`;
-const BADGE_ICON_OVERDUE = `<svg viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17h.01"/></svg>`;
-// SVG statt Emoji für die Streak-Anzeige (Konvention der App: konsistente Strich-Icons statt
-// Emoji, die je nach Betriebssystem unterschiedlich rendern).
-const STREAK_ICON_FLAME = `<svg viewBox="0 0 24 24"><path d="M12 2c1 3-3 4-3 8a3 3 0 0 0 6 0c1.5 1 2 3 2 4.5A5.5 5.5 0 0 1 6 14.5C6 9 12 7 12 2z"/></svg>`;
-
-const FILTER_STORAGE_KEY = "leben-os:overview-filters";
-
-function loadStoredFilters() {
-  try {
-    const raw = localStorage.getItem(FILTER_STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
 function saveStoredFilters() {
   const { effort, status, search } = overviewState.filters;
   try {
@@ -211,31 +265,6 @@ function saveStoredFilters() {
     // die Filter sollen trotzdem für die laufende Sitzung normal weiterfunktionieren.
   }
 }
-
-const storedFilters = loadStoredFilters();
-
-const overviewState = {
-  areas: [],
-  tasks: [],
-  filters: {
-    effort: storedFilters?.effort || "",
-    status: storedFilters?.status || "",
-    search: storedFilters?.search || "",
-  },
-  showDone: storedFilters?.showDone || false,
-  viewMode: storedFilters?.viewMode === "kanban" ? "kanban" : "list",
-  collapsedAreas: new Set(),
-  collapsedNodes: new Set(),
-  commentedTaskIds: new Set(), // siehe loadOverviewData() — für den dezenten Notizen-Indikator in buildTaskNameEl
-  addFormTarget: null, // { areaId, parentTaskId: null } | null — offenes "Aufgabe anlegen"-Formular auf Bereichs-Ebene
-  addFormJustOpened: false, // true nur für den einen Render direkt nach dem Öffnen — steuert das Autofokus
-  selectedBrainstormIds: new Set(), // Mehrfachauswahl in der "Ohne Bereich"-Liste für Sammel-Aktionen
-};
-
-// Räumt ein offenes Detail-Modal vollständig auf (DOM, Scroll-Sperre, Escape-Listener).
-// Wird von openTaskDetail() gesetzt und von renderShell() aufgerufen, falls beim
-// Ansichtswechsel noch ein Modal offen ist — sonst bliebe der Escape-Listener für immer hängen.
-let closeActiveModal = null;
 
 const planState = {
   areas: [],
@@ -253,441 +282,6 @@ const planState = {
   servedAreaIds: new Set(), // Bereiche mit echter Auswahl in dieser Sitzung — last_served_at-Update bei finishWalkthrough
   restrundeCandidates: [], // älteste offene Aufgaben für die abschließende Pflicht-Restrunde
 };
-
-let toastTimeout = null;
-// action = { label, onClick } | null — zeigt einen Aktions-Button im Toast (z.B. "Rückgängig").
-function showToast(message, isError = false, action = null) {
-  let toast = document.getElementById("toast");
-  if (!toast) {
-    toast = document.createElement("div");
-    toast.id = "toast";
-    document.body.appendChild(toast);
-  }
-  toast.className = "toast" + (isError ? " toast-error" : "");
-  toast.innerHTML = "";
-
-  const text = document.createElement("span");
-  text.textContent = message;
-  toast.appendChild(text);
-
-  if (action) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "toast-action";
-    btn.textContent = action.label;
-    btn.addEventListener("click", () => {
-      clearTimeout(toastTimeout);
-      toast.hidden = true;
-      action.onClick();
-    });
-    toast.appendChild(btn);
-  }
-
-  toast.onclick = (e) => {
-    if (e.target.closest(".toast-action")) return;
-    clearTimeout(toastTimeout);
-    toast.hidden = true;
-  };
-
-  toast.hidden = false;
-  clearTimeout(toastTimeout);
-  toastTimeout = setTimeout(() => {
-    toast.hidden = true;
-  }, action ? 6000 : 2000);
-}
-
-// Ersetzt window.confirm() durch ein Modal im App-eigenen Stil (nutzt dieselbe #modal-root/
-// closeActiveModal-Infrastruktur wie das Aufgaben-Detail-Modal, siehe openTaskDetail()). Löst mit
-// true bei Bestätigen, mit false bei Abbrechen/Escape/Backdrop-Klick auf. Nur für Fälle gedacht,
-// die sich nicht sinnvoll per Undo-Toast lösen lassen (z.B. Seite verlassen, Bereich löschen) —
-// für einfache, rückgängig machbare Löschaktionen lieber direkt löschen + showToast(...,{Rückgängig}).
-function showConfirm(message, { confirmLabel = "Bestätigen", cancelLabel = "Abbrechen", danger = false } = {}) {
-  return new Promise((resolve) => {
-    const root = document.getElementById("modal-root");
-    document.body.style.overflow = "hidden";
-
-    const close = (result) => {
-      root.innerHTML = "";
-      document.body.style.overflow = "";
-      document.removeEventListener("keydown", onKeydown);
-      closeActiveModal = null;
-      resolve(result);
-    };
-    const onKeydown = (e) => {
-      if (e.key === "Escape") close(false);
-    };
-    document.addEventListener("keydown", onKeydown);
-    closeActiveModal = () => close(false);
-
-    root.innerHTML = `
-      <div class="modal-backdrop" id="confirm-backdrop">
-        <div class="modal-card" role="alertdialog" aria-modal="true">
-          <p>${escapeHtml(message)}</p>
-          <div class="modal-actions">
-            <button class="btn" type="button" id="confirm-ok" style="${danger ? "background:var(--color-danger)" : ""}">${escapeHtml(confirmLabel)}</button>
-            <button class="btn btn-secondary" type="button" id="confirm-cancel">${escapeHtml(cancelLabel)}</button>
-          </div>
-        </div>
-      </div>`;
-    document.getElementById("confirm-backdrop").addEventListener("click", (e) => {
-      if (e.target.id === "confirm-backdrop") close(false);
-    });
-    document.getElementById("confirm-ok").addEventListener("click", () => close(true));
-    document.getElementById("confirm-cancel").addEventListener("click", () => close(false));
-  });
-}
-
-// Übersetzt rohe Supabase/Postgres-Fehler in verständliche deutsche Meldungen. Fehlercodes
-// 23505/23503/23502 sind die Standard-Postgres-Codes für unique/foreign-key/not-null-violation.
-function friendlyErrorMessage(err) {
-  const message = err?.message || "";
-  if (err instanceof TypeError || /Failed to fetch|NetworkError/i.test(message)) {
-    return "Keine Verbindung — bitte Internet prüfen und nochmal versuchen.";
-  }
-  if (err?.code === "23505") return "Das gibt es unter diesem Namen schon.";
-  if (err?.code === "23503") return "Das referenzierte Element existiert nicht mehr.";
-  if (err?.code === "23502") return "Ein Pflichtfeld fehlt.";
-  if (/row-level security/i.test(message)) return "Du hast keine Berechtigung für diese Aktion.";
-  if (/rate limit/i.test(message)) return "Zu viele Versuche — bitte kurz warten.";
-  if (/JWT expired|invalid claim|invalid or expired|session.*not.*found/i.test(message)) {
-    return "Deine Sitzung ist abgelaufen. Bitte die Seite neu laden und erneut anmelden.";
-  }
-  return message || "Etwas ist schiefgelaufen.";
-}
-
-// Zeigt einen Lade-Hinweis in einem Container, solange dessen eigentlicher Inhalt noch per
-// Supabase-Request nachgeladen wird (das View-HTML selbst ist bereits da, aber leer).
-function showLoading(elementId) {
-  const el = document.getElementById(elementId);
-  if (el) el.innerHTML = `<p class="loading-state">Lädt…</p>`;
-}
-
-// Führt eine mutierende Aktion aus und zeigt bei Fehlern einen Toast statt still zu scheitern.
-async function withErrorToast(action) {
-  try {
-    await action();
-  } catch (err) {
-    showToast(friendlyErrorMessage(err), true);
-  }
-}
-
-// Löscht eine Aufgabe (inkl. serverseitig kaskadierter Unteraufgaben, siehe tasks.parent_task_id
-// "on delete cascade") und bietet direkt im Toast ein "Rückgängig" an. Da Postgres das Kaskadieren
-// übernimmt, sichern wir vorher eine vollständige Kopie aller betroffenen Aufgaben, um sie bei
-// Bedarf per createTask wiederherzustellen (mit neuen IDs — die alte Eltern-Kind-Struktur bleibt
-// über die Reihenfolge der Wiederherstellung erhalten).
-async function deleteTaskWithUndo(task, allTasks, afterChange) {
-  const byId = new Map(allTasks.map((t) => [t.id, t]));
-  const descendants = Array.from(collectDescendantIds(allTasks, task.id))
-    .map((id) => byId.get(id))
-    .filter(Boolean);
-
-  await deleteTask(task.id);
-  afterChange();
-
-  const message =
-    descendants.length > 0
-      ? `„${task.title}" und ${descendants.length} Unteraufgabe(n) gelöscht.`
-      : `„${task.title}" gelöscht.`;
-  showToast(message, false, {
-    label: "Rückgängig",
-    onClick: () =>
-      withErrorToast(async () => {
-        await restoreTaskSnapshot(task, descendants);
-        afterChange();
-      }),
-  });
-}
-
-// Baut eine per deleteTaskWithUndo gesicherte Aufgabe (+ Nachfahren) wieder auf. Der Elternteil
-// des gelöschten Wurzelknotens bleibt unverändert (existiert ja noch), Nachfahren werden entlang
-// ihrer ursprünglichen Baumstruktur neu verknüpft.
-async function restoreTaskSnapshot(task, descendants) {
-  const oldToNewId = new Map();
-  const createdRoot = await createTask({
-    title: task.title,
-    areaId: task.area_id,
-    parentTaskId: task.parent_task_id,
-    effort: task.effort,
-    status: task.status,
-    plannedDate: task.planned_date,
-    isBrainstorm: task.is_brainstorm,
-    isPinned: task.is_pinned,
-    priority: task.priority,
-    isEvent: task.is_event,
-  });
-  oldToNewId.set(task.id, createdRoot.id);
-
-  const byOldParent = new Map();
-  for (const t of descendants) {
-    if (!byOldParent.has(t.parent_task_id)) byOldParent.set(t.parent_task_id, []);
-    byOldParent.get(t.parent_task_id).push(t);
-  }
-  const insertChildren = async (oldParentId) => {
-    for (const t of byOldParent.get(oldParentId) || []) {
-      const created = await createTask({
-        title: t.title,
-        areaId: t.area_id,
-        parentTaskId: oldToNewId.get(t.parent_task_id),
-        effort: t.effort,
-        status: t.status,
-        plannedDate: t.planned_date,
-        isBrainstorm: t.is_brainstorm,
-        isPinned: t.is_pinned,
-        priority: t.priority,
-        isEvent: t.is_event,
-      });
-      oldToNewId.set(t.id, created.id);
-      await insertChildren(t.id);
-    }
-  };
-  await insertChildren(task.id);
-}
-
-// Kurzer Undo-Toast nach dem Erledigen einer Aufgabe (nicht beim Wieder-Öffnen — das ist ja
-// bereits die Undo-Aktion). reopenTaskCascade leitet den korrekten Status (offen/geplant) selbst
-// wieder aus planned_date her und ist damit ein korrektes Gegenstück zu completeTaskCascade, ohne
-// dass hier ein eigener Vorher-Snapshot nötig wäre.
-// extraLogIdToUndo: optional, nur von Watchlist-Aufgaben gesetzt (siehe promptWatchlistRating) —
-// macht Rückgängig auch den zugehörigen Sichtungs-Log-Eintrag rückgängig, sonst bliebe nach einem
-// Undo eine verwaiste Bewertung stehen, die zu keiner (wieder offenen) Sichtung mehr gehört.
-function showCompleteUndoToast(task, allTasks, afterChange, extraLogIdToUndo = null) {
-  showToast(`„${task.title}" erledigt.`, false, {
-    label: "Rückgängig",
-    onClick: () =>
-      withErrorToast(async () => {
-        await reopenTaskCascade(task, allTasks);
-        if (extraLogIdToUndo) await deleteViewingLogEntry(extraLogIdToUndo);
-        afterChange();
-      }),
-  });
-}
-
-// Dupliziert eine Aufgabe samt aller Unteraufgaben für "nächstes Mal" (z.B. wiederkehrende
-// Einkaufslisten) — anders als restoreTaskSnapshot (das den exakten Vorher-Zustand wiederherstellt)
-// wird hier bei JEDEM kopierten Knoten Status auf "open" und Plandatum auf null zurückgesetzt: die
-// Kopie ist eine frische, ungeplante Vorlage, kein Klon des aktuellen (evtl. teilweise erledigten)
-// Zustands.
-async function duplicateTaskTree(task, allTasks) {
-  const descendants = Array.from(collectDescendantIds(allTasks, task.id))
-    .map((id) => allTasks.find((t) => t.id === id))
-    .filter(Boolean);
-
-  const oldToNewId = new Map();
-  const createdRoot = await createTask({
-    title: task.title,
-    areaId: task.area_id,
-    // Duplizieren einer Unteraufgabe soll sie als Geschwister unter demselben Elternteil anlegen,
-    // nicht sie zu einer eigenständigen Top-Level-Aufgabe "befördern".
-    parentTaskId: task.parent_task_id,
-    effort: task.effort,
-    priority: task.priority,
-    isEvent: task.is_event,
-    isBrainstorm: task.is_brainstorm,
-  });
-  oldToNewId.set(task.id, createdRoot.id);
-
-  const byOldParent = new Map();
-  for (const t of descendants) {
-    if (!byOldParent.has(t.parent_task_id)) byOldParent.set(t.parent_task_id, []);
-    byOldParent.get(t.parent_task_id).push(t);
-  }
-  const insertChildren = async (oldParentId) => {
-    for (const t of byOldParent.get(oldParentId) || []) {
-      const created = await createTask({
-        title: t.title,
-        areaId: t.area_id,
-        parentTaskId: oldToNewId.get(t.parent_task_id),
-        effort: t.effort,
-        priority: t.priority,
-        isEvent: t.is_event,
-        isBrainstorm: t.is_brainstorm,
-      });
-      oldToNewId.set(t.id, created.id);
-      await insertChildren(t.id);
-    }
-  };
-  await insertChildren(task.id);
-  return createdRoot;
-}
-
-function todayISO() {
-  const d = new Date();
-  const offset = d.getTimezoneOffset();
-  return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 10);
-}
-
-function tomorrowISO() {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  const offset = d.getTimezoneOffset();
-  return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 10);
-}
-
-// Montag der laufenden Woche als YYYY-MM-DD (lokal). Basis für "diese Woche"-Vergleiche gegen den
-// Datumsanteil von updated_at (der tasks_updated_at-Trigger hält updated_at bei jeder Änderung
-// aktuell, für erledigte Aufgaben also ~ Erledigungszeitpunkt).
-function weekStartISO() {
-  const d = new Date();
-  const mondayOffset = (d.getDay() + 6) % 7; // Sonntag(0) -> 6, Montag(1) -> 0, ...
-  d.setDate(d.getDate() - mondayOffset);
-  const offset = d.getTimezoneOffset();
-  return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 10);
-}
-
-function isoDatePlusDays(days) {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  const offset = d.getTimezoneOffset();
-  return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 10);
-}
-
-function isoFromLocalDate(d) {
-  const offset = d.getTimezoneOffset();
-  return new Date(d.getTime() - offset * 60000).toISOString().slice(0, 10);
-}
-
-// Baut das Zellenraster für einen Kalendermonat (Montag als erster Wochentag), inkl. Padding-Tagen
-// aus dem Vor-/Folgemonat, damit das Grid immer aus vollen 7er-Reihen besteht (5 oder 6 Wochen).
-function buildMonthGrid(monthIso) {
-  const [y, m] = monthIso.split("-").map(Number);
-  const firstOfMonth = new Date(y, m - 1, 1);
-  const firstWeekday = (firstOfMonth.getDay() + 6) % 7; // Montag = 0 ... Sonntag = 6
-  const daysInMonth = new Date(y, m, 0).getDate();
-  const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
-  const cells = [];
-  for (let i = 0; i < totalCells; i++) {
-    const date = new Date(y, m - 1, 1 - firstWeekday + i);
-    cells.push({ iso: isoFromLocalDate(date), inMonth: date.getMonth() === m - 1 });
-  }
-  return cells;
-}
-
-function shiftMonth(monthIso, delta) {
-  const [y, m] = monthIso.split("-").map(Number);
-  return isoFromLocalDate(new Date(y, m - 1 + delta, 1));
-}
-
-// Verschiebt ein konkretes ISO-Datum (YYYY-MM-DD) um delta Tage — anders als isoDatePlusDays,
-// das immer von heute aus rechnet.
-function shiftIsoDay(dateIso, delta) {
-  const [y, m, d] = dateIso.split("-").map(Number);
-  return isoFromLocalDate(new Date(y, m - 1, d + delta));
-}
-
-// Ganze Tage von fromIso bis toIso (toIso - fromIso); negativ, wenn toIso in der Vergangenheit liegt.
-// Über lokale Mitternacht gerechnet, damit Sommerzeit-Sprünge das Ergebnis nicht verschieben.
-function isoDayDiff(fromIso, toIso) {
-  if (typeof fromIso !== "string" || typeof toIso !== "string") return null;
-  const [fy, fm, fd] = fromIso.split("-").map(Number);
-  const [ty, tm, td] = toIso.split("-").map(Number);
-  if ([fy, fm, fd, ty, tm, td].some(Number.isNaN)) return null;
-  const from = new Date(fy, fm - 1, fd);
-  const to = new Date(ty, tm - 1, td);
-  return Math.round((to - from) / 86400000);
-}
-
-// [ersterIso, letzterIso] aller sichtbaren Grid-Zellen (inkl. Padding-Tage aus Nachbarmonaten) —
-// so ist die Auslastungs-Färbung (data-load) auch für ausgegraute Tage korrekt.
-function monthRange(monthIso) {
-  const cells = buildMonthGrid(monthIso);
-  return [cells[0].iso, cells[cells.length - 1].iso];
-}
-
-// Baut eine neue Datum-Chip-Gruppe (Heute/Morgen/Kein Datum/eigenes Datum) für dynamisch erzeugte
-// Formulare.
-function createDateChipGroup() {
-  const el = document.createElement("div");
-  el.className = "date-chips";
-  el.setAttribute("role", "group");
-  el.setAttribute("aria-label", "Datum");
-  el.innerHTML = `
-    <button type="button" class="date-chip" data-date="today">Heute</button>
-    <button type="button" class="date-chip" data-date="tomorrow">Morgen</button>
-    <button type="button" class="date-chip" data-date="" data-active="true">Kein Datum</button>
-    <button type="button" class="date-chip" data-date="custom">Datum…</button>
-    <input type="date" class="input date-chip-custom-input" aria-label="Eigenes Datum" hidden />`;
-  return wireDateChipGroup(el);
-}
-
-// Verdrahtet eine (bereits im DOM vorhandene oder von createDateChipGroup gebaute) .date-chips-
-// Gruppe: Klick auf einen Chip macht ihn zum einzigen aktiven. Der "Datum…"-Chip blendet stattdessen
-// ein natives Datums-Input ein. getPlannedDate() liest den aktiven Chip (bzw. das Datums-Input) aus,
-// reset() setzt auf "Kein Datum" zurück.
-function wireDateChipGroup(container) {
-  const chips = Array.from(container.querySelectorAll(".date-chip"));
-  const noDateChip = chips.find((c) => c.dataset.date === "") || chips[chips.length - 1];
-  const customChip = chips.find((c) => c.dataset.date === "custom");
-  const customInput = container.querySelector(".date-chip-custom-input");
-
-  const setActive = (chip) => {
-    for (const c of chips) c.removeAttribute("data-active");
-    chip.setAttribute("data-active", "true");
-  };
-
-  for (const chip of chips) {
-    chip.addEventListener("click", () => {
-      if (chip === customChip) {
-        setActive(chip);
-        if (customInput) {
-          customInput.hidden = false;
-          customInput.focus();
-          if (customInput.showPicker) customInput.showPicker();
-        }
-        return;
-      }
-      if (customInput) customInput.hidden = true;
-      setActive(chip);
-    });
-  }
-
-  if (customInput) {
-    customInput.addEventListener("change", () => {
-      if (customInput.value) setActive(customChip);
-    });
-  }
-
-  return {
-    el: container,
-    getPlannedDate() {
-      const activeChip = chips.find((c) => c.dataset.active === "true") || noDateChip;
-      if (activeChip.dataset.date === "today") return todayISO();
-      if (activeChip.dataset.date === "tomorrow") return tomorrowISO();
-      if (activeChip === customChip) return customInput?.value || null;
-      return null;
-    },
-    reset() {
-      setActive(noDateChip);
-      if (customInput) {
-        customInput.hidden = true;
-        customInput.value = "";
-      }
-    },
-    // Stellt eine bereits vorhandene Aufgabe im Chip-System dar (z.B. beim Öffnen des
-    // Detail-Modals) — bildet ein bestehendes planned_date auf Heute/Morgen/eigenes Datum ab.
-    setValue(isoDate) {
-      if (!isoDate) {
-        this.reset();
-        return;
-      }
-      if (isoDate === todayISO()) {
-        if (customInput) customInput.hidden = true;
-        setActive(chips.find((c) => c.dataset.date === "today"));
-        return;
-      }
-      if (isoDate === tomorrowISO()) {
-        if (customInput) customInput.hidden = true;
-        setActive(chips.find((c) => c.dataset.date === "tomorrow"));
-        return;
-      }
-      setActive(customChip);
-      if (customInput) {
-        customInput.hidden = false;
-        customInput.value = isoDate;
-      }
-    },
-  };
-}
 
 function currentRoute() {
   const hash = location.hash.replace(/^#\/?/, "");
@@ -730,93 +324,6 @@ function wireColorContrastWarning(colorInput, warningEl) {
   check();
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;",
-  }[c]));
-}
-
-// Kleine Inline-SVG-Icons statt Emoji (📌/💪 rendern je nach Betriebssystem unterschiedlich
-// bunt/inkonsistent) — erben ihre Farbe über currentColor vom umgebenden Element.
-function buildInlineIcon(pathMarkup) {
-  const span = document.createElement("span");
-  span.className = "inline-icon";
-  span.innerHTML = `<svg viewBox="0 0 24 24">${pathMarkup}</svg>`;
-  return span;
-}
-
-function buildPinIcon() {
-  return buildInlineIcon(`<path d="M12 2l2 6 6 2-5 4 1 7-6-4-6 4 1-7-5-4 6-2z"/>`);
-}
-
-function buildEditIcon() {
-  return buildInlineIcon(`<path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/>`);
-}
-
-function buildTrashIcon() {
-  return buildInlineIcon(
-    `<path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0-1 14a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1L6 6h12Z"/>`
-  );
-}
-
-function buildDuplicateIcon() {
-  return buildInlineIcon(
-    `<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>`
-  );
-}
-
-// Eigener Wrapper statt buildInlineIcon(), weil .inline-icon svg global auf stroke-only (fill:none)
-// gesetzt ist — ein Punkte-Raster braucht dagegen gefüllte Kreise.
-function buildDragHandleIcon() {
-  const span = document.createElement("span");
-  span.className = "drag-handle-icon";
-  span.innerHTML =
-    `<svg viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/>` +
-    `<circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/>` +
-    `<circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>`;
-  return span;
-}
-
-// Baut einen einladenderen Leerzustand (Icon + Titel + Untertext) statt eines reinen Textsatzes.
-// iconPath ist austauschbar (Default: Plus, "leg das erste an") — z.B. für "Keine Treffer" bei der
-// Suche ist "hinzufügen" nicht die passende Handlung, dort übergibt der Aufrufer ein Lupen-Icon.
-const EMPTY_STATE_ADD_ICON = `<path d="M12 5v14M5 12h14"/>`;
-const EMPTY_STATE_SEARCH_ICON = `<circle cx="10" cy="10" r="6"/><path d="M21 21l-4.35-4.35"/>`;
-function buildEmptyState(title, subtitle, iconPath = EMPTY_STATE_ADD_ICON) {
-  const wrap = document.createElement("div");
-  wrap.className = "empty-state-rich";
-  wrap.innerHTML = `<svg viewBox="0 0 24 24">${iconPath}</svg><strong></strong><span></span>`;
-  wrap.querySelector("strong").textContent = title;
-  wrap.querySelector("span").textContent = subtitle;
-  return wrap;
-}
-
-// Baut eingerückte <option>-Elemente für den Aufgabenbaum eines Bereichs (fuer "Uebergeordnete
-// Aufgabe"-Auswahlen). excludeIds laesst sich nutzen, um beim Verschieben/Zuordnen eine Aufgabe
-// und ihre eigenen Nachfahren aus der Zielauswahl auszuschliessen (Zyklus-Schutz).
-function taskOptionsHtml(tasks, areaId, selectedId, excludeIds = null) {
-  if (!areaId) return "";
-  const scoped = tasks.filter((t) => t.area_id === areaId && (!excludeIds || !excludeIds.has(t.id)));
-  const tree = buildTaskTree(scoped, null);
-  const out = [];
-  const walk = (nodes, depth) => {
-    for (const n of nodes) {
-      const prefix = "  ".repeat(depth);
-      const badge = n.is_pinned ? "📌 " : "";
-      out.push(
-        `<option value="${n.id}"${n.id === selectedId ? " selected" : ""}>${prefix}${badge}${escapeHtml(n.title)}</option>`
-      );
-      walk(n.children, depth + 1);
-    }
-  };
-  walk(tree, 0);
-  return out.join("");
-}
-
 let seedPromise = null;
 function ensureAreasSeededOnce(userId) {
   // init() and onAuthStateChange can both fire around the same first login;
@@ -833,10 +340,6 @@ function ensureAreasSeededOnce(userId) {
   return seedPromise;
 }
 
-// Aus session.user_metadata gecacht statt bei jedem renderGreeting()-Aufruf neu zu fetchen — kommt
-// bereits kostenlos mit jeder Session mit, siehe supabase.auth.getSession()/updateUser().
-let currentUsername = null;
-
 async function init() {
   let session;
   try {
@@ -848,7 +351,7 @@ async function init() {
   }
 
   if (session) {
-    currentUsername = session.user.user_metadata?.username || null;
+    state.currentUsername = session.user.user_metadata?.username || null;
     try {
       await ensureAreasSeededOnce(session.user.id);
       renderShell();
@@ -865,13 +368,13 @@ async function init() {
   onAuthStateChange((newSession, event) => {
     if (event !== "SIGNED_IN" && event !== "SIGNED_OUT") return;
     if (newSession) {
-      currentUsername = newSession.user.user_metadata?.username || null;
+      state.currentUsername = newSession.user.user_metadata?.username || null;
       ensureAreasSeededOnce(newSession.user.id)
         .then(renderShell)
         .catch((err) => showToast(friendlyErrorMessage(err), true));
     } else {
       seedPromise = null;
-      currentUsername = null;
+      state.currentUsername = null;
       renderLogin();
     }
   });
@@ -927,19 +430,6 @@ function renderLogin() {
       status.textContent = friendlyErrorMessage(err);
     }
   });
-}
-
-// Merkt sich den zuletzt bekannten "Heute"-Zähler über renderShell()-Neuaufbauten hinweg (das
-// Nav-Markup wird bei jedem Routenwechsel neu erzeugt) — so bleibt die Zahl auch sichtbar,
-// während man z.B. in der Übersicht browst, statt nur direkt auf der Heute-Ansicht.
-let todayRemainingCount = null;
-
-function updateNavBadge(count) {
-  todayRemainingCount = count;
-  const badge = document.getElementById("nav-today-count");
-  if (!badge) return;
-  badge.hidden = count <= 0;
-  badge.textContent = String(count);
 }
 
 // Nur Heute/Übersicht bleiben direkt in der Nav-Leiste sichtbar — die übrigen Routen wandern ins
@@ -998,22 +488,15 @@ const MORE_ROUTES = [
     icon: `<circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/>`,
   },
 ];
-
-// Erhöht sich bei jedem renderShell()-Aufruf. Die render*View()-Funktionen lesen ihren Stand direkt
-// nach dem Start in eine lokale Variable und vergleichen kurz vor dem entscheidenden
-// innerHTML-Write erneut dagegen — wechselt der Nutzer währenddessen schnell die Route (z.B.
-// Heute → Finanzen → Heute), bricht der veraltete, inzwischen überholte Aufruf statt seine Ansicht
-// über die aktuell sichtbare zu schreiben.
-let renderGeneration = 0;
 let closeNavMoreMenu = null;
 
-function renderShell() {
-  renderGeneration++;
+export function renderShell() {
+  state.renderGeneration++;
   const route = currentRoute();
   const isMoreRoute = MORE_ROUTES.some((r) => r.route === route);
   // Offenes Detail-Modal schließen — es liegt außerhalb von #app und würde sonst
   // beim Ansichtswechsel über der neuen Ansicht hängen bleiben.
-  if (closeActiveModal) closeActiveModal();
+  if (state.closeActiveModal) state.closeActiveModal();
   if (closeNavMoreMenu) closeNavMoreMenu();
   app.innerHTML = `
     <nav class="app-nav">
@@ -1043,7 +526,7 @@ function renderShell() {
     </nav>
     <div id="view-content"></div>
   `;
-  if (todayRemainingCount !== null) updateNavBadge(todayRemainingCount);
+  if (state.todayRemainingCount !== null) updateNavBadge(state.todayRemainingCount);
   app.querySelector(".app-nav").addEventListener("click", async (e) => {
     const link = e.target.closest("a.nav-link");
     if (!link || !hasUnsavedOverviewInput()) return;
@@ -1060,6 +543,7 @@ function renderShell() {
   maybeShowFollowupPopup();
   maybeShowThoughtNudge();
 }
+setRenderShell(renderShell);
 
 // "Mehr"-Menü: Klick auf den Button öffnet/schließt ein Dropdown mit den restlichen Routen, Klick
 // außerhalb oder auf einen der Menü-Links schließt es wieder. Der Outside-Click-Listener wird nur
@@ -1094,364 +578,6 @@ function wireNavMoreMenu() {
   menu.addEventListener("click", closeMenu);
 }
 
-// ----- Tagesreflexion-Popup (22–24 Uhr) -----
-// Client-seitige Zeitprüfung bei jedem renderShell()-Aufruf (App-Start/View-Wechsel), kein Cron
-// nötig — siehe wissensdatenbank/features/tagesreflexion.md. Snooze/Dismiss-Zustand liegt bewusst
-// in localStorage statt in der DB (reines UI-Verhalten für den aktuellen Abend, analog
-// QUICK_WIN_STORAGE_PREFIX), ob der Tag selbst schon beantwortet wurde, entscheidet dagegen immer
-// die DB (daily_reflections), nicht localStorage.
-const REFLECTION_DISMISSED_PREFIX = "leben-os:reflection-dismissed:";
-const REFLECTION_SNOOZE_PREFIX = "leben-os:reflection-snooze-until:";
-const REFLECTION_SNOOZED_ONCE_PREFIX = "leben-os:reflection-snoozed-once:";
-const REFLECTION_SNOOZE_MINUTES = 30;
-
-let reflectionPopupOpen = false;
-
-// ----- Snapshot-Nudge (Gedanken-Impuls) -----
-// Sanfter, einmal-täglicher Impuls, der rohes Material in `thoughts` erzeugt (siehe
-// wissensdatenbank/leben-os-betriebsmodell.md, "Der Gedanken-Eingang"). Muster wie die Reflexion,
-// aber: erscheint nur EINMAL pro Tag (Flag beim Öffnen) statt bis zur Antwort wiederzukommen, und
-// nur vor 22 Uhr (das Abendfenster gehört der Reflexion).
-const THOUGHT_NUDGE_SHOWN_PREFIX = "leben-os:thought-nudge-shown:";
-let thoughtNudgeOpen = false;
-
-function maybeShowThoughtNudge() {
-  // Nie zwei Popups gleichzeitig — modal-root wird von Reflexion/Folgeaufgaben/Feedback geteilt.
-  if (thoughtNudgeOpen || reflectionPopupOpen || followupPopupOpen) return;
-  if (document.getElementById("modal-root").innerHTML.trim()) return;
-  if (new Date().getHours() >= 22) return;
-  const today = todayISO();
-  if (localStorage.getItem(THOUGHT_NUDGE_SHOWN_PREFIX + today)) return;
-  openThoughtNudge(today);
-}
-
-function openThoughtNudge(date) {
-  thoughtNudgeOpen = true;
-  // Einmal/Tag: Flag direkt beim Öffnen setzen — der Nudge soll nicht nerven.
-  localStorage.setItem(THOUGHT_NUDGE_SHOWN_PREFIX + date, "1");
-  const root = document.getElementById("modal-root");
-  document.body.style.overflow = "hidden";
-
-  const close = () => {
-    root.innerHTML = "";
-    document.body.style.overflow = "";
-    document.removeEventListener("keydown", onKeydown);
-    closeActiveModal = null;
-    thoughtNudgeOpen = false;
-  };
-  const onKeydown = (e) => {
-    if (e.key === "Escape") close();
-  };
-  document.addEventListener("keydown", onKeydown);
-  closeActiveModal = close;
-
-  root.innerHTML = `
-    <div class="modal-backdrop" id="thought-nudge-backdrop">
-      <div class="modal-card" role="dialog" aria-modal="true" aria-label="Gedanke festhalten">
-        <h2>Was geht dir durch den Kopf?</h2>
-        <textarea class="input" id="thought-nudge-input" rows="3" placeholder="Ein Gedanke, eine Idee, irgendwas …"></textarea>
-        <div class="modal-actions">
-          <button class="btn" type="button" id="thought-nudge-submit">Festhalten</button>
-          <button class="btn btn-secondary" type="button" id="thought-nudge-later">Später</button>
-        </div>
-      </div>
-    </div>`;
-
-  document.getElementById("thought-nudge-backdrop").addEventListener("click", (e) => {
-    if (e.target.id === "thought-nudge-backdrop") close();
-  });
-
-  document.getElementById("thought-nudge-submit").addEventListener("click", async () => {
-    const body = document.getElementById("thought-nudge-input").value.trim();
-    if (!body) {
-      close();
-      return;
-    }
-    await withErrorToast(async () => {
-      await createThought({ body });
-      showToast("Gedanke festgehalten.");
-      close();
-    });
-  });
-
-  document.getElementById("thought-nudge-later").addEventListener("click", close);
-}
-
-async function maybeShowReflectionPopup() {
-  const hour = new Date().getHours();
-  if (hour < 22 || hour >= 24) return;
-  if (reflectionPopupOpen) return;
-
-  const today = todayISO();
-  if (localStorage.getItem(REFLECTION_DISMISSED_PREFIX + today)) return;
-  const snoozeUntil = localStorage.getItem(REFLECTION_SNOOZE_PREFIX + today);
-  if (snoozeUntil && Date.now() < Number(snoozeUntil)) return;
-
-  const existing = await getReflectionForDate(today).catch(() => undefined);
-  if (existing) return;
-
-  openReflectionPopup(today);
-}
-
-function openReflectionPopup(date) {
-  reflectionPopupOpen = true;
-  const root = document.getElementById("modal-root");
-  document.body.style.overflow = "hidden";
-  const alreadySnoozed = Boolean(localStorage.getItem(REFLECTION_SNOOZED_ONCE_PREFIX + date));
-
-  const close = () => {
-    root.innerHTML = "";
-    document.body.style.overflow = "";
-    document.removeEventListener("keydown", onKeydown);
-    closeActiveModal = null;
-    reflectionPopupOpen = false;
-  };
-  const dismiss = () => {
-    localStorage.setItem(REFLECTION_DISMISSED_PREFIX + date, "1");
-    close();
-  };
-  const onKeydown = (e) => {
-    if (e.key === "Escape") dismiss();
-  };
-  document.addEventListener("keydown", onKeydown);
-  closeActiveModal = dismiss;
-
-  root.innerHTML = `
-    <div class="modal-backdrop" id="reflection-backdrop">
-      <div class="modal-card" role="dialog" aria-modal="true" aria-label="Tagesreflexion">
-        <h2>Wie war dein Tag?</h2>
-        <div class="priority-chips" id="reflection-mood-chips" role="group" aria-label="Stimmung">
-          ${[1, 2, 3, 4, 5].map((m) => `<button type="button" class="priority-chip" data-mood="${m}">${m}</button>`).join("")}
-        </div>
-        <label class="modal-label">
-          Notiz (optional)
-          <textarea class="input" id="reflection-note" rows="2"></textarea>
-        </label>
-        <div class="modal-actions">
-          <button class="btn" type="button" id="reflection-submit">Absenden</button>
-          ${alreadySnoozed ? "" : `<button class="btn btn-secondary" type="button" id="reflection-snooze">In 30 Min. nochmal</button>`}
-          <button class="btn btn-secondary" type="button" id="reflection-dismiss">Nicht heute</button>
-        </div>
-      </div>
-    </div>`;
-
-  document.getElementById("reflection-backdrop").addEventListener("click", (e) => {
-    if (e.target.id === "reflection-backdrop") dismiss();
-  });
-
-  let selectedMood = null;
-  const moodChips = document.getElementById("reflection-mood-chips");
-  moodChips.querySelectorAll(".priority-chip").forEach((chip) => {
-    chip.addEventListener("click", () => {
-      selectedMood = Number(chip.dataset.mood);
-      moodChips.querySelectorAll(".priority-chip").forEach((c) => (c.dataset.active = String(c.dataset.mood === String(selectedMood))));
-    });
-  });
-
-  document.getElementById("reflection-submit").addEventListener("click", async () => {
-    if (!selectedMood) {
-      showToast("Bitte eine Stimmung auswählen.", true);
-      return;
-    }
-    const note = document.getElementById("reflection-note").value.trim();
-    await withErrorToast(async () => {
-      await createReflection({ date, mood: selectedMood, note: note || null });
-      close();
-    });
-  });
-
-  const snoozeBtn = document.getElementById("reflection-snooze");
-  if (snoozeBtn) {
-    snoozeBtn.addEventListener("click", () => {
-      localStorage.setItem(REFLECTION_SNOOZE_PREFIX + date, String(Date.now() + REFLECTION_SNOOZE_MINUTES * 60000));
-      localStorage.setItem(REFLECTION_SNOOZED_ONCE_PREFIX + date, "1");
-      close();
-    });
-  }
-
-  document.getElementById("reflection-dismiss").addEventListener("click", dismiss);
-}
-
-// Task-Feedback beim Abschließen einer Aufgabe (siehe wissensdatenbank/leben-os-betriebsmodell.md).
-// Leichtes, wegklickbares Sheet: Rating 1–5 (Pflicht zum Absenden) + optionale Notiz, die das Ergebnis
-// weiterträgt ("September 2026"). Überspringen/Escape/Backdrop schließen ohne zu speichern (kein
-// Blocker). Gibt ein Promise zurück, das beim Schließen resolvet — der Aufrufer wartet, bevor er das
-// Folgeaufgaben-Popup öffnet (beide teilen sich modal-root).
-function openTaskFeedbackSheet(task) {
-  return new Promise((resolve) => {
-    const root = document.getElementById("modal-root");
-    document.body.style.overflow = "hidden";
-
-    const close = () => {
-      root.innerHTML = "";
-      document.body.style.overflow = "";
-      document.removeEventListener("keydown", onKeydown);
-      closeActiveModal = null;
-      resolve();
-    };
-    const onKeydown = (e) => {
-      if (e.key === "Escape") close();
-    };
-    document.addEventListener("keydown", onKeydown);
-    closeActiveModal = close;
-
-    root.innerHTML = `
-      <div class="modal-backdrop" id="feedback-backdrop">
-        <div class="modal-card" role="dialog" aria-modal="true" aria-label="Aufgaben-Feedback">
-          <h2>Wie lief das?</h2>
-          <p style="margin:-4px 0 4px;color:var(--color-text-subtle);font-size:.9rem;">${escapeHtml(task.title)}</p>
-          <div class="priority-chips" id="feedback-rating-chips" role="group" aria-label="Bewertung">
-            ${[1, 2, 3, 4, 5].map((r) => `<button type="button" class="priority-chip" data-rating="${r}">${r}</button>`).join("")}
-          </div>
-          <label class="modal-label">
-            Notiz (optional)
-            <textarea class="input" id="feedback-note" rows="2"></textarea>
-          </label>
-          <div class="modal-actions">
-            <button class="btn" type="button" id="feedback-submit">Absenden</button>
-            <button class="btn btn-secondary" type="button" id="feedback-skip">Überspringen</button>
-          </div>
-        </div>
-      </div>`;
-
-    document.getElementById("feedback-backdrop").addEventListener("click", (e) => {
-      if (e.target.id === "feedback-backdrop") close();
-    });
-
-    let selectedRating = null;
-    const ratingChips = document.getElementById("feedback-rating-chips");
-    ratingChips.querySelectorAll(".priority-chip").forEach((chip) => {
-      chip.addEventListener("click", () => {
-        selectedRating = Number(chip.dataset.rating);
-        ratingChips.querySelectorAll(".priority-chip").forEach((c) => (c.dataset.active = String(c.dataset.rating === String(selectedRating))));
-      });
-    });
-
-    document.getElementById("feedback-submit").addEventListener("click", async () => {
-      if (!selectedRating) {
-        showToast("Bitte eine Bewertung wählen.", true);
-        return;
-      }
-      const note = document.getElementById("feedback-note").value.trim();
-      await withErrorToast(async () => {
-        await createTaskFeedback({ taskId: task.id, rating: selectedRating, note: note || null });
-        close();
-      });
-    });
-
-    document.getElementById("feedback-skip").addEventListener("click", close);
-  });
-}
-
-/* ---------- Folgeaufgaben-Vorschläge ---------- */
-// wissensdatenbank/features/folgeaufgaben-vorschlaege.md. Der manuell ausgelöste Skill schreibt
-// Vorschläge in die DB; die App zeigt sie hier im "Neue Vorschläge"-Popup (Auswahl 0–5 + Bestätigen).
-
-let followupPopupOpen = false;
-// In-Memory-Snooze: klickt der Nutzer das Popup weg, ohne zu entscheiden, poppt es nicht bei jedem
-// Re-Render erneut auf — bleibt aber über die Cockpit-Kachel und beim nächsten App-Start erreichbar.
-let followupPopupSnoozed = false;
-
-async function maybeShowFollowupPopup() {
-  if (followupPopupOpen || followupPopupSnoozed) return;
-  // Kein zweites Modal über ein bereits offenes (z. B. die Tagesreflexion) legen.
-  if (closeActiveModal) return;
-  const groups = await listOpenFollowupGroups().catch(() => []);
-  if (!groups.length) return;
-  openFollowupPopup(groups);
-}
-
-// Öffnet das "Neue Vorschläge"-Popup direkt im Abschluss-Moment, wenn completeTaskCascade beim
-// Abhaken stumme Vorschläge sichtbar geschaltet hat (Phase B, siehe js/tasks.js). Setzt ein evtl.
-// gesetztes Snooze zurück, damit ein frischer Abschluss trotzdem sofort auftaucht.
-async function triggerFollowupPopupAfterCompletion(unmuted) {
-  if (!unmuted) return;
-  followupPopupSnoozed = false;
-  await maybeShowFollowupPopup();
-}
-
-function openFollowupPopup(groups) {
-  followupPopupOpen = true;
-  const root = document.getElementById("modal-root");
-  document.body.style.overflow = "hidden";
-
-  const close = () => {
-    root.innerHTML = "";
-    document.body.style.overflow = "";
-    document.removeEventListener("keydown", onKeydown);
-    closeActiveModal = null;
-    followupPopupOpen = false;
-  };
-  const snooze = () => {
-    followupPopupSnoozed = true;
-    close();
-  };
-  const onKeydown = (e) => {
-    if (e.key === "Escape") snooze();
-  };
-  document.addEventListener("keydown", onKeydown);
-  closeActiveModal = snooze;
-
-  root.innerHTML = `
-    <div class="modal-backdrop" id="followup-backdrop">
-      <div class="modal-card" role="dialog" aria-modal="true" aria-label="Neue Folgeaufgaben-Vorschläge">
-        <h2>Neue Vorschläge</h2>
-        <p class="followup-intro">Welche nächsten Schritte willst du übernehmen?</p>
-        ${groups
-          .map(
-            (group) => `
-          <div class="followup-group" data-source-id="${escapeHtml(group.sourceTask.id)}">
-            <h3 class="followup-source-title">${escapeHtml(group.sourceTask.title)}</h3>
-            ${group.suggestions
-              .map(
-                (s) => `
-              <label class="checkbox-label followup-option">
-                <input type="checkbox" data-suggestion-id="${escapeHtml(s.id)}" />
-                ${s.frame ? `<span class="followup-frame">${escapeHtml(s.frame)}</span>` : ""}
-                <span class="followup-title">${escapeHtml(s.title)}</span>
-              </label>`
-              )
-              .join("")}
-          </div>`
-          )
-          .join("")}
-        <div class="modal-actions">
-          <button class="btn" type="button" id="followup-confirm">Bestätigen</button>
-          <button class="btn btn-secondary" type="button" id="followup-later">Später</button>
-        </div>
-      </div>
-    </div>`;
-
-  document.getElementById("followup-backdrop").addEventListener("click", (e) => {
-    if (e.target.id === "followup-backdrop") snooze();
-  });
-  document.getElementById("followup-later").addEventListener("click", snooze);
-
-  document.getElementById("followup-confirm").addEventListener("click", async () => {
-    await withErrorToast(async () => {
-      let created = 0;
-      for (const group of groups) {
-        const groupEl = document.querySelector(`.followup-group[data-source-id="${cssEscapeAttr(group.sourceTask.id)}"]`);
-        const acceptedIds = groupEl
-          ? [...groupEl.querySelectorAll("input[type=checkbox]:checked")].map((c) => c.dataset.suggestionId)
-          : [];
-        created += acceptedIds.length;
-        // Jede angezeigte Aufgabe wird bewusst geschlossen (auch bei 0 Auswahl → nie wieder Vorschläge).
-        await resolveFollowupGroup(group, acceptedIds);
-      }
-      close();
-      showToast(created ? `${created} Folgeaufgabe(n) übernommen.` : "Vorschläge geschlossen.");
-      renderShell();
-    });
-  });
-}
-
-// Attribut-sichere Variante der Ursprungs-ID für den Selektor oben (UUIDs sind unkritisch, aber so
-// bleibt der Selektor auch bei künftigen ID-Formen robust).
-function cssEscapeAttr(value) {
-  return String(value).replace(/["\\]/g, "\\$&");
-}
-
 // Prüft auf offene, unbestätigte Eingaben in der Übersicht (Inline-Anlegen-Formulare) —
 // Grundlage für die Nachfrage vorm Verlassen der Ansicht per Nav-Klick.
 function hasUnsavedOverviewInput() {
@@ -1469,10 +595,10 @@ function hasUnsavedOverviewInput() {
 // Daten (Habits/Tasks/Watchlist/Gaming). Bewusst kein Default-Landing — hängt vorerst im "Mehr"-
 // Menü, kann später via MORE_ROUTES/currentRoute nach vorne gezogen werden.
 async function renderCockpitView() {
-  const myGeneration = renderGeneration;
+  const myGeneration = state.renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/cockpit.html");
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
   container.innerHTML = await res.text();
 
   const today = todayISO();
@@ -1506,7 +632,7 @@ async function renderCockpitView() {
       listPantryItems(),
       listBroadcastProgram(today, today),
     ]);
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
 
   // Habits: heute fällig + wie viele davon schon erledigt (über habit_completions, nicht tasks.status).
   const dueHabits = listHabitsForToday(habitTasks, recentCompletions, today);
@@ -1559,7 +685,7 @@ async function renderCockpitView() {
   // Folgevorschläge: Kachel nur zeigen, wenn welche offen sind. Klick öffnet direkt das Popup
   // (kein eigener Tab/Route), siehe wissensdatenbank/features/folgeaufgaben-vorschlaege.md.
   const openFollowups = await countOpenFollowups().catch(() => 0);
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
 
   const habitsHasDue = dueHabits.length > 0;
   const grid = document.getElementById("cockpit-grid");
@@ -1588,7 +714,7 @@ async function renderCockpitView() {
       hero: true,
     });
     tile.addEventListener("click", async () => {
-      followupPopupSnoozed = false;
+      state.followupPopupSnoozed = false;
       openFollowupPopup(await listOpenFollowupGroups());
     });
     grid.append(tile);
@@ -1597,7 +723,7 @@ async function renderCockpitView() {
   // Gedanken zum Klären: unklare Gedanken, die der Pulse nicht sicher einordnen konnte. Kachel nur
   // zeigen, wenn welche offen sind (wie die Folgevorschläge). Klick öffnet den Resolver.
   const unclearThoughts = await listThoughts("unclear").catch(() => []);
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
   if (unclearThoughts.length > 0) {
     const tile = buildCockpitTile("Gedanken zum Klären", `${unclearThoughts.length} offen`, null, {
       color: "var(--color-accent)",
@@ -1621,14 +747,14 @@ function openThoughtResolverPopup(thoughts) {
     root.innerHTML = "";
     document.body.style.overflow = "";
     document.removeEventListener("keydown", onKeydown);
-    closeActiveModal = null;
+    state.closeActiveModal = null;
     renderCockpitView();
   };
   const onKeydown = (e) => {
     if (e.key === "Escape") close();
   };
   document.addEventListener("keydown", onKeydown);
-  closeActiveModal = close;
+  state.closeActiveModal = close;
 
   // Kandidaten stehen in routing_note als "Kandidaten: A / B" — den Präfix abtrennen und splitten.
   const parseCandidates = (note) => {
@@ -1814,22 +940,11 @@ function buildCockpitTile(label, glance, targetRoute, opts = {}) {
 
 /* ---------- Today ---------- */
 
-// Cache der zuletzt geladenen Heute-Aufgaben. Auf-/Zuklappen und Statusänderungen sollen nur den
-// Aufgaben-Teil neu rendern statt views/today.html komplett neu zu fetchen (das hätte #view-content
-// per innerHTML ersetzt und damit den Scroll-Container zurückgesetzt) — siehe
-// renderTodayTaskSection()/refreshTodayTaskList()/rerenderTodayTaskListFromCache().
-const todayViewState = {
-  allTasks: [],
-  areaColorById: {},
-  areaNameById: {},
-  birthdays: [],
-};
-
 async function renderTodayView() {
-  const myGeneration = renderGeneration;
+  const myGeneration = state.renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/today.html");
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
   container.innerHTML = await res.text();
   showLoading("task-list");
 
@@ -1922,7 +1037,7 @@ function renderGreeting() {
   const now = new Date();
   const hour = now.getHours();
   const greeting = hour < 11 ? "Guten Morgen" : hour < 18 ? "Guten Tag" : "Guten Abend";
-  const text = currentUsername ? `${greeting}, ${currentUsername}` : greeting;
+  const text = state.currentUsername ? `${greeting}, ${state.currentUsername}` : greeting;
   const icon = hour < 18 ? GREETING_SUN_ICON : GREETING_MOON_ICON;
   // Tageszeit-Verlauf hinter dem Gruß (morgens warm, tagsüber kühl, abends dämmrig) — macht den
   // Kopf lebendig und verankert die Uhrzeit, ergänzend zum bereits vorhandenen Sonne/Mond-Icon.
@@ -1957,13 +1072,13 @@ async function openSettingsPanel() {
     root.innerHTML = "";
     document.body.style.overflow = "";
     document.removeEventListener("keydown", onKeydown);
-    closeActiveModal = null;
+    state.closeActiveModal = null;
   };
   const onKeydown = (e) => {
     if (e.key === "Escape") close();
   };
   document.addEventListener("keydown", onKeydown);
-  closeActiveModal = close;
+  state.closeActiveModal = close;
 
   root.innerHTML = `
     <div class="modal-backdrop" id="settings-backdrop">
@@ -1971,7 +1086,7 @@ async function openSettingsPanel() {
         <h2>Einstellungen</h2>
         <label class="modal-label">
           Name
-          <input class="input" type="text" id="settings-username" value="${escapeHtml(currentUsername || "")}" placeholder="Dein Name" />
+          <input class="input" type="text" id="settings-username" value="${escapeHtml(state.currentUsername || "")}" placeholder="Dein Name" />
         </label>
         <label class="modal-label">
           Darstellung
@@ -2012,7 +1127,7 @@ async function openSettingsPanel() {
     const username = document.getElementById("settings-username").value.trim();
     await withErrorToast(async () => {
       await updateUsername(username || null);
-      currentUsername = username || null;
+      state.currentUsername = username || null;
       renderGreeting();
       close();
     });
@@ -2319,11 +1434,6 @@ function appendTaskRowContent(el, task, areaColorById, allTasks, onChange, isCon
 
 // ----- Anstehende Termine -----
 
-function formatShortDate(isoDate) {
-  const [, m, d] = isoDate.split("-").map(Number);
-  return `${d}.${m}`;
-}
-
 function renderUpcomingEvents(allTasks, today) {
   const widget = document.getElementById("events-widget");
   const list = document.getElementById("events-widget-list");
@@ -2430,13 +1540,13 @@ function openBirthdaysDetail() {
     root.innerHTML = "";
     document.body.style.overflow = "";
     document.removeEventListener("keydown", onKeydown);
-    closeActiveModal = null;
+    state.closeActiveModal = null;
   };
   const onKeydown = (e) => {
     if (e.key === "Escape") close();
   };
   document.addEventListener("keydown", onKeydown);
-  closeActiveModal = close;
+  state.closeActiveModal = close;
 
   const monthOptionsHtml = (selected) =>
     BIRTHDAY_MONTH_OPTIONS.map(([v, label]) => `<option value="${v}"${v === selected ? " selected" : ""}>${label}</option>`).join("");
@@ -2643,45 +1753,6 @@ function renderQuickWin(allTasks, tasks, today) {
   };
 }
 
-// Ein Plandatum in der Vergangenheit, das noch nicht erledigt ist — unabhängig davon ob der
-// Status noch "open" oder schon "planned" ist (beides ist über das Detail-Modal frei kombinierbar).
-function isTaskOverdue(task) {
-  return task.status !== "done" && !!task.planned_date && task.planned_date < todayISO();
-}
-
-// Vorwarnstufe zwischen "normal" und "überfällig" — heute/morgen fällig, aber noch nicht in der
-// Vergangenheit. Mit isTaskOverdue() zusammen deckt das lückenlos alle geplanten, offenen Aufgaben
-// ab (kein Datum kann gleichzeitig beides sein).
-function isTaskDueSoon(task) {
-  if (task.status === "done" || !task.planned_date) return false;
-  const today = todayISO();
-  return task.planned_date === today || task.planned_date === tomorrowISO();
-}
-
-// Sortiert nach Dringlichkeit: überfällige/nahe Plandaten zuerst (aufsteigend), undatierte
-// Aufgaben zuletzt — unter sich wie bisher nach Erstellungsdatum (älteste zuerst).
-function compareByUrgency(a, b) {
-  if (a.planned_date && b.planned_date) {
-    return a.planned_date < b.planned_date ? -1 : a.planned_date > b.planned_date ? 1 : 0;
-  }
-  if (a.planned_date) return -1;
-  if (b.planned_date) return 1;
-  return new Date(a.created_at) - new Date(b.created_at);
-}
-
-// Priorität soll nur in Heute etwas bewirken — dort aber ohne eigenes Icon/Badge: die
-// höchstpriorisierte Aufgabe steht einfach ganz oben. Innerhalb derselben Priorität bleibt die
-// bisherige Dringlichkeits-Reihenfolge erhalten (compareByUrgency als Tiebreaker). Erledigte
-// Aufgaben rutschen zuerst gebündelt ans Ende, statt an ihrer Prioritäts-Position stehen zu bleiben
-// — sonst wirkt die Liste bei jedem erneuten Aufruf von Heute wie "durcheinandergewürfelt".
-const PRIORITY_RANK = { high: 2, medium: 1, low: 0 };
-function compareByPriority(a, b) {
-  const doneDiff = (a.status === "done" ? 1 : 0) - (b.status === "done" ? 1 : 0);
-  if (doneDiff !== 0) return doneDiff;
-  const diff = (PRIORITY_RANK[b.priority] ?? 1) - (PRIORITY_RANK[a.priority] ?? 1);
-  return diff !== 0 ? diff : compareByUrgency(a, b);
-}
-
 function isTaskStale(task) {
   if (task.status === "done") return false;
   const ageMs = Date.now() - new Date(task.created_at).getTime();
@@ -2851,10 +1922,10 @@ function wireThoughtCapture() {
 /* ---------- Overview ---------- */
 
 async function renderOverviewView() {
-  const myGeneration = renderGeneration;
+  const myGeneration = state.renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/overview.html");
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
   container.innerHTML = await res.text();
   showLoading("area-tree");
 
@@ -2956,19 +2027,6 @@ function taskPassesFilter(task) {
   if (status && task.status !== status) return false;
   if (search && !task.title.toLowerCase().includes(search)) return false;
   return true;
-}
-
-// Baut aus einem Aufgabenbaum (siehe buildTaskTree) einen zugeschnittenen Baum: ein Knoten
-// bleibt, wenn er selbst `predicate` erfüllt ODER mindestens ein Nachfahre es tut — sonst würde
-// z.B. eine passende Unteraufgabe verschwinden, nur weil ihr Elternteil nicht matcht. Genutzt
-// für die Übersicht-Filter (taskPassesFilter) und für die Heute-Gruppierung (todayIds-Mitgliedschaft).
-function filterTreeNodes(nodes, predicate) {
-  const out = [];
-  for (const node of nodes) {
-    const children = filterTreeNodes(node.children, predicate);
-    if (predicate(node) || children.length > 0) out.push({ ...node, children });
-  }
-  return out;
 }
 
 // Zählt aktive Filter für den Badge am Filter-Toggle — Suchtext, Aufwand/Status-Auswahl und die
@@ -3842,13 +2900,13 @@ async function openTaskDetail(task) {
     root.innerHTML = "";
     document.body.style.overflow = "";
     document.removeEventListener("keydown", onKeydown);
-    closeActiveModal = null;
+    state.closeActiveModal = null;
   };
   const onKeydown = (e) => {
     if (e.key === "Escape") close();
   };
   document.addEventListener("keydown", onKeydown);
-  closeActiveModal = close;
+  state.closeActiveModal = close;
 
   root.innerHTML = `
     <div class="modal-backdrop" id="modal-backdrop">
@@ -4533,10 +3591,10 @@ function renderPlanLoadError(message, dateInput) {
 }
 
 async function renderPlanView() {
-  const myGeneration = renderGeneration;
+  const myGeneration = state.renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/plan.html");
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
   container.innerHTML = await res.text();
 
   planState.targetDate = tomorrowISO();
@@ -5028,10 +4086,10 @@ const financeState = {
 const habitsViewState = { allTasks: [], areaColorById: {}, completions: [], counterLog: [] };
 
 async function renderHabitsView() {
-  const myGeneration = renderGeneration;
+  const myGeneration = state.renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/habits.html");
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
   container.innerHTML = await res.text();
   const [tasks, areas, completions, counterLog] = await Promise.all([
     listTasks(),
@@ -5467,10 +4525,10 @@ async function addHabitPoolChild(li) {
 }
 
 async function renderFinanceView() {
-  const myGeneration = renderGeneration;
+  const myGeneration = state.renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/finance.html");
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
   container.innerHTML = await res.text();
   showLoading("pot-grid");
 
@@ -5507,13 +4565,13 @@ function openSalaryDistributionModal() {
     root.innerHTML = "";
     document.body.style.overflow = "";
     document.removeEventListener("keydown", onKeydown);
-    closeActiveModal = null;
+    state.closeActiveModal = null;
   };
   const onKeydown = (e) => {
     if (e.key === "Escape") close();
   };
   document.addEventListener("keydown", onKeydown);
-  closeActiveModal = close;
+  state.closeActiveModal = close;
 
   root.innerHTML = `
     <div class="modal-backdrop" id="salary-backdrop">
@@ -6176,10 +5234,10 @@ function wireFinanceFilters() {
 const fixkostenState = { costs: [] };
 
 async function renderFixkostenView() {
-  const myGeneration = renderGeneration;
+  const myGeneration = state.renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/fixkosten.html");
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
   container.innerHTML = await res.text();
   await reloadFixkostenList();
   wireFixkostenForm();
@@ -6302,10 +5360,10 @@ function wireFixkostenForm() {
 const committedManageState = { expenses: [] };
 
 async function renderVerpflichtendeAusgabenView() {
-  const myGeneration = renderGeneration;
+  const myGeneration = state.renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/verpflichtende-ausgaben.html");
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
   container.innerHTML = await res.text();
   await reloadCommittedManageList();
   wireCommittedManageForm();
@@ -6407,10 +5465,10 @@ function wireCommittedManageForm() {
 const debtsState = { debts: [] };
 
 async function renderDebtsView() {
-  const myGeneration = renderGeneration;
+  const myGeneration = state.renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/debts.html");
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
   container.innerHTML = await res.text();
   await reloadDebtsList();
   wireDebtsForm();
@@ -6560,10 +5618,10 @@ function wireDebtsForm() {
 
 // ---- Frei editierbare Ausgaben-Kategorien (Verwaltungs-Unterseite) ----
 async function renderExpenseCategoriesView() {
-  const myGeneration = renderGeneration;
+  const myGeneration = state.renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/expense-categories.html");
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
   container.innerHTML = await res.text();
   await reloadExpenseCategories();
   wireExpenseCategoryForm();
@@ -7074,10 +6132,10 @@ const TV_SLOT_LABEL = {
 };
 
 async function renderFernsehprogrammView() {
-  const myGeneration = renderGeneration;
+  const myGeneration = state.renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/fernsehprogramm.html");
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
   container.innerHTML = await res.text();
   showLoading("tv-prog");
 
@@ -7095,7 +6153,7 @@ async function renderFernsehprogrammView() {
     listUpcomingWatchEvents(),
     listInterestProfile(),
   ]);
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
   watchlistViewState.items = items;
   watchlistViewState.logEntries = logEntries;
   Object.assign(tvState, { dates, entries, slots, events, profile, menu: null });
@@ -7680,13 +6738,13 @@ async function openWatchlistDetail(itemId) {
     root.innerHTML = "";
     document.body.style.overflow = "";
     document.removeEventListener("keydown", onKeydown);
-    closeActiveModal = null;
+    state.closeActiveModal = null;
   };
   const onKeydown = (e) => {
     if (e.key === "Escape") close();
   };
   document.addEventListener("keydown", onKeydown);
-  closeActiveModal = close;
+  state.closeActiveModal = close;
 
   root.innerHTML = `
     <div class="modal-backdrop" id="watchlist-detail-backdrop">
@@ -7856,14 +6914,14 @@ async function promptWatchlistRating(task) {
       root.innerHTML = "";
       document.body.style.overflow = "";
       document.removeEventListener("keydown", onKeydown);
-      closeActiveModal = null;
+      state.closeActiveModal = null;
       resolve(logId);
     };
     const onKeydown = (e) => {
       if (e.key === "Escape") submit(null);
     };
     document.addEventListener("keydown", onKeydown);
-    closeActiveModal = () => close(null);
+    state.closeActiveModal = () => close(null);
 
     const submit = async (rating) => {
       const logRow = await logViewing({
@@ -7926,10 +6984,10 @@ async function promptWatchlistRating(task) {
 // geplanten digitalen Kühlschrank/Kochen-fördern.
 
 async function renderRezepteView() {
-  const myGeneration = renderGeneration;
+  const myGeneration = state.renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/rezepte.html");
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
   container.innerHTML = await res.text();
   recipesViewState.search = "";
   await renderRecipeList();
@@ -8070,13 +7128,13 @@ async function openRecipeDetail(recipeId, mode) {
     root.innerHTML = "";
     document.body.style.overflow = "";
     document.removeEventListener("keydown", onKeydown);
-    closeActiveModal = null;
+    state.closeActiveModal = null;
   };
   const onKeydown = (e) => {
     if (e.key === "Escape") close();
   };
   document.addEventListener("keydown", onKeydown);
-  closeActiveModal = close;
+  state.closeActiveModal = close;
 
   root.innerHTML = `
     <div class="modal-backdrop" id="recipe-detail-backdrop">
@@ -8332,10 +7390,10 @@ const PANTRY_CATEGORY_META = {
 const PANTRY_CATEGORY_ORDER = ["kuehlschrank", "tiefkuehl", "vorrat", "gewuerze", ""];
 
 async function renderKuehlschrankView() {
-  const myGeneration = renderGeneration;
+  const myGeneration = state.renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/kuehlschrank.html");
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
   container.innerHTML = await res.text();
   await renderPantryList();
   wirePantryQuickAddForm();
@@ -8573,10 +7631,10 @@ function compareGamesInStatus(a, b) {
 const gamesState = { games: [], showFinished: false };
 
 async function renderGamesView() {
-  const myGeneration = renderGeneration;
+  const myGeneration = state.renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/games.html");
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
   container.innerHTML = await res.text();
   gamesState.showFinished = false;
   await reloadGamesList();
@@ -8881,10 +7939,10 @@ const BOOK_STATUS_COLOR = {
 const booksState = { books: [], log: [] };
 
 async function renderBooksView() {
-  const myGeneration = renderGeneration;
+  const myGeneration = state.renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/books.html");
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
   container.innerHTML = await res.text();
   await reloadBooks();
   wireBooksQuickAddForm();
@@ -9204,14 +8262,14 @@ const TIME_SLOT_LABELS = { vormittag: "Vormittag", nachmittag: "Nachmittag", abe
 const TIME_SLOT_ORDER = { vormittag: 0, nachmittag: 1, abend: 2 };
 
 async function renderReiseView() {
-  const myGeneration = renderGeneration;
+  const myGeneration = state.renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/reise.html");
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
   container.innerHTML = await res.text();
 
   reiseState.trips = await listTrips();
-  if (myGeneration !== renderGeneration) return;
+  if (myGeneration !== state.renderGeneration) return;
 
   // Auswahl-Default: bestehende Auswahl behalten, sonst erste aktive, sonst erste Reise.
   if (!reiseState.trips.some((t) => t.id === reiseState.selectedTripId)) {
