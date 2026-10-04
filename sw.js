@@ -43,6 +43,7 @@ const SHELL_ASSETS = [
   "js/ui/task-actions.js",
   "js/ui/task-helpers.js",
   "js/views/books.js",
+  "js/views/cockpit.js",
   "js/views/debts.js",
   "js/views/expense-categories.js",
   "js/views/fernsehprogramm.js",
