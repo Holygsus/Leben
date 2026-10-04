@@ -66,7 +66,6 @@ import {
   WEEKDAY_CODES,
   isHabitTask,
   isCounterHabit,
-  findHabitsDueToday,
   autoplanDueHabits,
   weekdayCodeFromIso,
   RECURRENCE_LABEL,
@@ -78,7 +77,19 @@ import {
   sumCounterForDate,
   weekAverageCounter,
   logHabitSkip,
+  listHabitsForToday,
+  listHabitCompletionsSince,
 } from "./habits.js";
+import {
+  INSIGHT_WINDOW_DAYS,
+  listReflectionsSince,
+  listTaskFeedbackSince,
+  shiftIsoDate,
+  buildMoodStrip,
+  averageMood,
+  averageRatingByArea,
+  moodByHabitDays,
+} from "./insights.js";
 import {
   listWatchlistItems,
   createWatchlistItem,
@@ -1465,23 +1476,43 @@ async function renderCockpitView() {
   container.innerHTML = await res.text();
 
   const today = todayISO();
-  const [allTasks, games, watchlistItems, transactions, pantryItems, todayProgram] = await Promise.all([
-    listTasks(),
-    listGames(),
-    listWatchlistItems(),
-    listTransactions(),
-    listPantryItems(),
-    listBroadcastProgram(today, today),
-  ]);
+  // Gezielte Abfragen statt listTasks()/listTransactions() ohne Filter — sonst wächst die Ladezeit des
+  // Cockpits mit der gesamten Historie, obwohl nur heute bzw. der laufende Monat angezeigt wird.
+  const monthIso = today.slice(0, 7);
+  const insightFrom = shiftIsoDate(today, -(INSIGHT_WINDOW_DAYS - 1));
+  const [
+    todayTasks,
+    habitTasks,
+    recentCompletions,
+    reflections,
+    feedback,
+    areas,
+    games,
+    watchlistItems,
+    transactions,
+    pantryItems,
+    todayProgram,
+  ] =
+    await Promise.all([
+      listTasks({ plannedDate: today }),
+      listTasks({ isHabit: true }),
+      listHabitCompletionsSince(insightFrom),
+      listReflectionsSince(insightFrom).catch(() => []),
+      listTaskFeedbackSince(insightFrom).catch(() => []),
+      listAreas(),
+      listGames(),
+      listWatchlistItems(),
+      listTransactions({ from: `${monthIso}-01` }),
+      listPantryItems(),
+      listBroadcastProgram(today, today),
+    ]);
   if (myGeneration !== renderGeneration) return;
 
-  // Habits: heute fällig + wie viele davon schon erledigt.
-  const dueHabits = findHabitsDueToday(allTasks, today);
-  const doneHabits = dueHabits.filter((t) => t.status === "done").length;
-  const habitsGlance = dueHabits.length ? `${doneHabits} / ${dueHabits.length} heute` : "nichts fällig";
+  // Habits: heute fällig + wie viele davon schon erledigt (über habit_completions, nicht tasks.status).
+  const dueHabits = listHabitsForToday(habitTasks, recentCompletions, today);
 
   // Aufgaben: offen heute (Top-Level, ohne Watchlist-Zeilen).
-  const openTodayTasks = allTasks.filter(
+  const openTodayTasks = todayTasks.filter(
     (t) => t.planned_date === today && t.status !== "done" && !t.parent_task_id && !isWatchlistTask(t)
   );
   const openToday = openTodayTasks.length;
@@ -1511,7 +1542,6 @@ async function renderCockpitView() {
 
   // Finanzen: Summe der Ausgaben im laufenden Kalendermonat — leichtgewichtiger Glance ohne die
   // volle Topf-/Budget-Logik des Finanzen-Tabs (die bleibt Quelle der Wahrheit dort).
-  const monthIso = today.slice(0, 7);
   const monthExpenses = transactions
     .filter((t) => t.direction === "expense" && typeof t.occurred_at === "string" && t.occurred_at.slice(0, 7) === monthIso)
     .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
@@ -1538,7 +1568,7 @@ async function renderCockpitView() {
       color: "var(--color-success)",
       // Chip-Streifen statt Ring: zeigt WELCHE Habits dran sind (grün = erledigt, grau = offen),
       // max. 7 sichtbar + „+N". Siehe wissensdatenbank/implementieren-jetzt.md („Kanban + Bento").
-      chips: habitsHasDue ? dueHabits.slice(0, 7).map((h) => ({ label: h.title, done: h.status === "done" })) : null,
+      chips: habitsHasDue ? dueHabits.slice(0, 7).map((h) => ({ label: h.title, done: h.done })) : null,
       chipsOverflow: habitsHasDue ? Math.max(0, dueHabits.length - 7) : 0,
     }),
     buildCockpitTile("Aufgaben", tasksGlance, "today", {
@@ -1550,6 +1580,8 @@ async function renderCockpitView() {
     buildCockpitTile("Finanzen", financeGlance, "finance", { color: "var(--color-cat-transport)" }),
     buildCockpitTile("Kühlschrank", pantryGlance, "kuehlschrank", { color: "var(--color-cat-wohnen)" })
   );
+  const insightTile = buildInsightTile({ reflections, feedback, completions: recentCompletions, areas, today });
+  if (insightTile) grid.append(insightTile);
   if (openFollowups > 0) {
     const tile = buildCockpitTile("Folgevorschläge", `${openFollowups} offen`, null, {
       color: "var(--color-accent-warm)",
@@ -1664,6 +1696,60 @@ function openThoughtResolverPopup(thoughts) {
 // opts: { color } farbcodiert die Kachel an ihre Domäne (Oberkante + Punkt); { ring:{done,total} }
 // zeigt statt Text einen Mini-Fortschrittsring (nur für Zähl-Glances wie Habits sinnvoll);
 // { hero } hebt eine Aktions-Kachel (z.B. Folgevorschläge) vom Navigations-Raster ab.
+// Rückblick-Kachel (js/insights.js): spiegelt Stimmung, Aufgaben-Feedback und Habit-Wirkung zurück,
+// statt die Daten nur zu sammeln. null, solange es noch gar nichts auszuwerten gibt.
+function buildInsightTile({ reflections, feedback, completions, areas, today }) {
+  const strip = buildMoodStrip(reflections, today);
+  const moodAvg = averageMood(strip);
+  const byArea = averageRatingByArea(feedback);
+  const habitEffect = moodByHabitDays(reflections, completions);
+  if (moodAvg == null && byArea.length === 0 && !habitEffect) return null;
+
+  const fmt = (n) => n.toFixed(1).replace(".", ",");
+  const areaById = new Map(areas.map((a) => [a.id, a]));
+  const tile = document.createElement("div");
+  tile.className = "cockpit-tile cockpit-tile-insight";
+  tile.style.setProperty("--tile-color", "var(--color-accent)");
+
+  const bars = strip
+    .map((d) => {
+      const label = `${d.date.slice(8, 10)}.${d.date.slice(5, 7)}.: ${d.mood ?? "—"}`;
+      return d.mood == null
+        ? `<span class="insight-bar is-empty" title="${label}"></span>`
+        : `<span class="insight-bar" style="--mood:${d.mood}" title="${label}"></span>`;
+    })
+    .join("");
+
+  const lines = [];
+  if (habitEffect) {
+    const diff = habitEffect.withAvg - habitEffect.withoutAvg;
+    const verdict = Math.abs(diff) < 0.3 ? "kaum Unterschied" : diff > 0 ? `+${fmt(diff)} mit Habit` : `${fmt(diff)} mit Habit`;
+    lines.push(
+      `Stimmung an Habit-Tagen Ø ${fmt(habitEffect.withAvg)}, sonst Ø ${fmt(habitEffect.withoutAvg)} <span class="insight-muted">(${verdict})</span>`
+    );
+  }
+  if (byArea.length) {
+    const name = (row) => escapeHtml(areaById.get(row.areaId)?.name ?? "Ohne Bereich");
+    const best = byArea[0];
+    const worst = byArea[byArea.length - 1];
+    lines.push(
+      byArea.length > 1
+        ? `Läuft gut: <strong>${name(best)}</strong> Ø ${fmt(best.avg)} · zäh: <strong>${name(worst)}</strong> Ø ${fmt(worst.avg)}`
+        : `Aufgaben-Feedback <strong>${name(best)}</strong> Ø ${fmt(best.avg)}`
+    );
+  }
+
+  tile.innerHTML = `
+    <span class="cockpit-tile-label"><span class="cockpit-tile-dot" aria-hidden="true"></span>Rückblick</span>
+    <div class="insight-mood-row">
+      <span class="insight-bars" aria-label="Stimmung der letzten 14 Tage">${bars}</span>
+      <span class="cockpit-tile-glance">${moodAvg == null ? "—" : `Ø ${fmt(moodAvg)}`}</span>
+    </div>
+    ${lines.map((l) => `<span class="insight-line">${l}</span>`).join("")}
+  `;
+  return tile;
+}
+
 function buildCockpitTile(label, glance, targetRoute, opts = {}) {
   const tile = document.createElement("button");
   tile.type = "button";

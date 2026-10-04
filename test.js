@@ -19,7 +19,8 @@ import {
   findDisplacedSlots,
   summarizeInterestProfile,
 } from "./js/watchlist.js";
-import { findHabitsDueToday, sumCounterForDate, weekAverageCounter } from "./js/habits.js";
+import { findHabitsDueToday, listHabitsForToday, sumCounterForDate, weekAverageCounter } from "./js/habits.js";
+import { buildMoodStrip, averageMood, averageRatingByArea, moodByHabitDays, shiftIsoDate } from "./js/insights.js";
 import { computeBudgetTrend, computeCategoryBreakdown, slugifyCategoryKey } from "./js/finance.js";
 import { formatIngredientsForShoppingList } from "./js/recipes.js";
 import { sumPagesInMonth, sumChaptersInMonth } from "./js/books.js";
@@ -535,6 +536,77 @@ function assertEqual(actual, expected, label) {
     "- Salz",
     "formatIngredientsForShoppingList: ohne Menge nur der Name"
   );
+}
+
+// ---------- listHabitsForToday ----------
+{
+  // 2026-10-05 ist ein Montag.
+  const tasks = [
+    { id: "h1", title: "Laufen", habit_weekdays: ["mon"], habit_recurrence: "weekly" },
+    { id: "h2", title: "Lesen", habit_weekdays: ["tue"], habit_recurrence: "weekly" },
+    { id: "h3", title: "Wasser", habit_weekdays: ["mon"], habit_unit: "Gläser" },
+    { id: "h4", title: "Putzen", habit_weekdays: ["mon"], habit_recurrence: "biweekly", habit_last_due_date: "2026-10-05" },
+    { id: "t1", title: "Normale Aufgabe", habit_weekdays: null },
+  ];
+  const completions = [
+    { task_id: "h1", date: "2026-10-05", skipped: false },
+    { task_id: "h4", date: "2026-10-05", skipped: true },
+  ];
+  assertEqual(
+    listHabitsForToday(tasks, completions, "2026-10-05"),
+    [
+      { id: "h1", title: "Laufen", done: true },
+      { id: "h4", title: "Putzen", done: false },
+    ],
+    "listHabitsForToday: nur heute fällige Abhak-Habits, schon gestempelte biweekly zählen, Skip ist nicht erledigt"
+  );
+}
+
+// ---------- insights ----------
+{
+  assertEqual(shiftIsoDate("2026-10-01", -1), "2026-09-30", "shiftIsoDate: über Monatsgrenze");
+  const strip = buildMoodStrip([{ date: "2026-10-04", mood: 4 }, { date: "2026-10-02", mood: 2 }], "2026-10-04", 3);
+  assertEqual(
+    strip,
+    [
+      { date: "2026-10-02", mood: 2 },
+      { date: "2026-10-03", mood: null },
+      { date: "2026-10-04", mood: 4 },
+    ],
+    "buildMoodStrip: ältester Tag zuerst, Lücken als null"
+  );
+  assertEqual(averageMood(strip), 3, "averageMood: ignoriert Tage ohne Eintrag");
+  assertEqual(averageMood([{ date: "x", mood: null }]), null, "averageMood: null ohne Daten");
+
+  const feedback = [
+    { area_id: "a", rating: 5 }, { area_id: "a", rating: 4 }, { area_id: "a", rating: 3 },
+    { area_id: "b", rating: 2 }, { area_id: "b", rating: 2 }, { area_id: "b", rating: 2 },
+    { area_id: "c", rating: 5 },
+    { area_id: null, rating: 1 },
+  ];
+  assertEqual(
+    averageRatingByArea(feedback),
+    [
+      { areaId: "a", avg: 4, count: 3 },
+      { areaId: "b", avg: 2, count: 3 },
+    ],
+    "averageRatingByArea: bestes zuerst, Bereiche mit <3 Bewertungen und ohne Bereich raus"
+  );
+
+  const reflections = [
+    { date: "d1", mood: 5 }, { date: "d2", mood: 4 }, { date: "d3", mood: 3 },
+    { date: "d4", mood: 2 }, { date: "d5", mood: 2 }, { date: "d6", mood: 2 },
+  ];
+  const completions = [
+    { date: "d1", skipped: false }, { date: "d2", skipped: false }, { date: "d3", skipped: false },
+    { date: "d4", skipped: true },
+  ];
+  assertEqual(
+    moodByHabitDays(reflections, completions),
+    { withAvg: 4, withCount: 3, withoutAvg: 2, withoutCount: 3 },
+    "moodByHabitDays: Skip zählt nicht als Habit-Tag"
+  );
+  assertEqual(moodByHabitDays(reflections.slice(0, 4), completions), null, "moodByHabitDays: null bei zu wenig Daten");
 }
 
 const summary = document.getElementById("summary");

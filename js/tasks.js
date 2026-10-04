@@ -24,6 +24,7 @@ export async function listTasks({
   plannedFrom,
   plannedTo,
   isPinned,
+  isHabit,
 } = {}) {
   let query = supabase.from("tasks").select("*").order("created_at", { ascending: true });
   if (areaId) query = query.eq("area_id", areaId);
@@ -36,6 +37,7 @@ export async function listTasks({
   if (plannedFrom) query = query.gte("planned_date", plannedFrom);
   if (plannedTo) query = query.lte("planned_date", plannedTo);
   if (isPinned !== undefined) query = query.eq("is_pinned", isPinned);
+  if (isHabit) query = query.not("habit_weekdays", "is", null);
   const { data, error } = await query;
   if (error) throw error;
   return data;

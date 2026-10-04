@@ -86,6 +86,26 @@ export function findHabitsDueToday(allTasks, todayIso) {
   return results;
 }
 
+// Anzeige-Gegenstück zu findHabitsDueToday (das ist ein Planungs-Helfer und liefert nur noch NICHT
+// eingeplante Habits als {motherId,targetId}): alle heute fälligen Abhak-Habits mit Titel und ob es
+// heute schon eine echte (nicht übersprungene) Completion gibt. Ein schon heute gestempeltes
+// biweekly/monthly-Habit (habit_last_due_date === heute) zählt weiter als fällig.
+export function listHabitsForToday(allTasks, completions, todayIso) {
+  const todayCode = weekdayCodeFromIso(todayIso);
+  const doneIds = new Set(
+    completions.filter((c) => c.date === todayIso && !c.skipped).map((c) => c.task_id)
+  );
+  return allTasks
+    .filter(
+      (t) =>
+        isHabitTask(t) &&
+        !t.habit_unit &&
+        t.habit_weekdays.includes(todayCode) &&
+        (t.habit_last_due_date === todayIso || isRecurrenceDue(t, todayIso))
+    )
+    .map((t) => ({ id: t.id, title: t.title, done: doneIds.has(t.id) }));
+}
+
 // Setzt planned_date/status der heute fälligen Ziel-Aufgaben (Mutter oder ausgewähltes Pool-Kind,
 // siehe findHabitsDueToday) auf heute/'planned', und stempelt habit_last_due_date der jeweiligen
 // Mutter(n) auf heute — unabhängig davon, ob die Mutter selbst oder ein Kind eingeplant wurde.
@@ -123,6 +143,12 @@ export async function autoplanDueHabits(allTasks, todayIso) {
 // listAllViewingLogEntries in js/watchlist.js).
 export async function listAllHabitCompletions() {
   const { data, error } = await supabase.from("habit_completions").select("*");
+  if (error) throw error;
+  return data;
+}
+
+export async function listHabitCompletionsSince(fromIso) {
+  const { data, error } = await supabase.from("habit_completions").select("*").gte("date", fromIso);
   if (error) throw error;
   return data;
 }

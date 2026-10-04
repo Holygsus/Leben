@@ -776,6 +776,44 @@ body {
   white-space: nowrap;
 }
 
+/* Rückblick-Kachel (js/insights.js): volle Breite, nicht klickbar. Balkenhöhe = Stimmung 1–5. */
+.cockpit-tile-insight {
+  grid-column: 1 / -1;
+  cursor: default;
+}
+.cockpit-tile-insight:hover {
+  border-color: var(--color-border);
+  transform: none;
+}
+.insight-mood-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+.insight-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 32px;
+}
+.insight-bar {
+  width: 8px;
+  height: calc(var(--mood, 1) * 20%);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--tile-color) calc(30% + var(--mood, 1) * 14%), transparent);
+}
+.insight-bar.is-empty {
+  height: 3px;
+  background: var(--color-border);
+}
+.insight-line {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+.insight-muted {
+  color: var(--color-text-subtle);
+}
+
 /* „Heute nicht"-Skip am Fernsehprogramm-Slot: dezenter als der Tausch-Button, damit die
    Als-geschaut-Aktion (der Titel selbst) die primäre bleibt. */
 .watchlist-skip-btn {
