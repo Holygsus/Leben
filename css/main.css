@@ -1148,6 +1148,12 @@ body.has-bg-image .task-item {
   border: 1px solid var(--color-border);
 }
 
+/* Gleicher Stolperstein wie bei #toast: display:flex schlägt sonst das [hidden]-Attribut, das Panel
+   wäre dauerhaft offen statt erst per "+" aufzuklappen. */
+.quick-capture-panel[hidden] {
+  display: none;
+}
+
 .quick-capture-actions {
   display: flex;
   gap: var(--space-2);
@@ -3794,4 +3800,428 @@ body.has-bg-image .task-item {
 
 .followup-title {
   flex: 1 1 auto;
+}
+
+/* ---------- Fernsehprogramm (Sender-Autopilot, broadcast_program) ----------
+   Ein Abend auf einmal: Tagesleiste mit Farbpunkten, darunter die Sendungen des Tages als Zeilen,
+   die erst beim Antippen Aktionen zeigen. Uhrzeiten in Monospace als Videotext-Anklang, Aktionen
+   in den Farben der Fernbedienungstasten (grün = gesehen, rot = überspringen). */
+.tv-program {
+  margin-top: var(--space-4);
+}
+
+.tv-program,
+.tv-upcoming {
+  --k-stamm: var(--color-accent);
+  --k-doku: var(--color-success);
+  --k-film: var(--color-cat-gesundheit);
+  --k-schnupper: var(--color-accent-warm);
+  --k-premiere: var(--color-accent-warm);
+  --k-live: var(--color-danger);
+  --k-vorschau: var(--color-warning);
+  --k-wiederholung: var(--color-text-subtle);
+}
+
+.tv-mono,
+.tv-time {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.tv-week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.tv-day {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  padding: 6px 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  min-height: var(--touch-target);
+}
+
+.tv-day-name {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: var(--color-text-subtle);
+}
+
+.tv-day-num {
+  font-weight: 600;
+}
+
+.tv-day.is-today .tv-day-num {
+  color: var(--color-accent);
+}
+
+.tv-day[aria-selected="true"] {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  box-shadow: var(--shadow-sm);
+}
+
+.tv-dots {
+  display: flex;
+  gap: 2px;
+  height: 5px;
+}
+
+.tv-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--k, var(--color-text-subtle));
+}
+
+.tv-dots i.is-done {
+  opacity: 0.3;
+}
+
+.tv-prog {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.tv-row {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.tv-row-main {
+  position: relative;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  width: 100%;
+  padding: 10px var(--space-3);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tv-row-main::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--k, var(--color-border));
+}
+
+.tv-time {
+  font-size: 1.05rem;
+  color: var(--color-text-muted);
+}
+
+.tv-row.is-on-air .tv-time {
+  color: var(--color-accent-warm);
+}
+
+.tv-title {
+  display: block;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.tv-meta {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.tv-why {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--k, var(--color-border)) 14%, transparent);
+}
+
+.tv-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #fff;
+  background: var(--k, var(--color-text-subtle));
+  white-space: nowrap;
+}
+
+.tv-badge.is-on-air {
+  background: var(--color-accent-warm);
+}
+
+.tv-badge.is-on-air::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  animation: tv-pulse 1.4s infinite;
+}
+
+@keyframes tv-pulse {
+  50% { opacity: 0.2; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tv-badge.is-on-air::before { animation: none; }
+}
+
+.tv-state {
+  font-size: 0.8rem;
+  color: var(--color-text-subtle);
+}
+
+.tv-row.is-done .tv-title {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--color-text-subtle);
+}
+
+.tv-row.is-displaced {
+  background: transparent;
+  border-style: dashed;
+}
+
+.tv-row.is-displaced .tv-row-main {
+  cursor: default;
+}
+
+.tv-row.is-displaced .tv-title {
+  color: var(--color-text-subtle);
+  font-weight: 500;
+}
+
+.tv-onair-bar {
+  display: block;
+  height: 3px;
+  background: var(--color-border);
+}
+
+.tv-onair-bar span {
+  display: block;
+  height: 100%;
+  background: var(--color-accent-warm);
+}
+
+.tv-acts,
+.tv-menu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 0 var(--space-3) var(--space-3) calc(52px + var(--space-3) * 2);
+}
+
+.tv-menu {
+  display: grid;
+}
+
+.tv-act {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.tv-act.is-more {
+  flex: 0 0 44px;
+}
+
+.tv-act .tv-key {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--c);
+  flex: none;
+}
+
+.tv-act.is-green { --c: #2bbf55; }
+.tv-act.is-red { --c: #e5463a; }
+
+.tv-menu-btn {
+  text-align: left;
+  padding: 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.tv-rating {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tv-rating button {
+  flex: 1 0 30px;
+  min-height: 40px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tv-upcoming {
+  margin-top: var(--space-5);
+}
+
+.tv-upcoming[hidden],
+.tv-learn-bars[hidden] {
+  display: none;
+}
+
+.tv-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--color-text-subtle);
+  margin-bottom: var(--space-2);
+}
+
+.tv-strip {
+  display: flex;
+  gap: var(--space-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tv-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.tv-chip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 7px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font-size: 0.82rem;
+}
+
+.tv-chip .tv-mono {
+  color: var(--color-text-muted);
+}
+
+.tv-learn {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+  margin-top: var(--space-4);
+  padding: 10px var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tv-learn-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: 0.88rem;
+}
+
+.tv-learn-sum {
+  color: var(--color-text-muted);
+  text-align: right;
+}
+
+.tv-up { color: var(--color-success); }
+.tv-down { color: var(--color-danger); }
+
+.tv-learn-bars {
+  display: grid;
+  gap: 6px;
+}
+
+.tv-bar {
+  display: grid;
+  grid-template-columns: 90px 1fr 36px;
+  gap: var(--space-2);
+  align-items: center;
+  font-size: 0.8rem;
+}
+
+.tv-bar-track {
+  position: relative;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-bg);
+  overflow: hidden;
+}
+
+.tv-bar-track i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--radius-full);
+}
+
+.tv-bar-val {
+  text-align: right;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tv-rebuild {
+  display: block;
+  margin: var(--space-2) auto 0;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  background: none;
+  color: var(--color-text-subtle);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.tv-learn-note {
+  font-size: 0.75rem;
+  color: var(--color-text-subtle);
 }

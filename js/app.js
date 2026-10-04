@@ -92,14 +92,22 @@ import {
   getEffectiveDuration,
   computeAverageRating,
   filterWatchlistItems,
-  currentWeekDates,
-  // autoplanWatchlistForDates: seit 2026-07-29 wieder aktiv, aber NUR im Fernsehprogramm-Tab
-  // (renderFernsehprogrammView), nicht in der Heute-Ansicht. Aktive Watchlist-Einträge füllen die
-  // Woche automatisch; renderTodayView filtert die entstehenden Watchlist-tasks-Zeilen weiterhin aus
-  // (siehe dortiger Filter), damit sie nur im TV-Tab und nicht in Heute/Tagesplan auftauchen. Details:
-  // wissensdatenbank/features/watchlist-fernsehprogramm.md, Abschnitt "Zugang & Grundmechanik".
-  autoplanWatchlistForDates,
-  applyWatchlistSwap,
+  // autoplanWatchlistForDates/applyWatchlistSwap (tasks-basierte Wochenbelegung) werden seit dem
+  // Sender-Autopiloten (migration-036.sql, broadcast_program) nicht mehr importiert — bleiben in
+  // js/watchlist.js samt Tests erhalten.
+  listBroadcastProgram,
+  listBroadcastSlots,
+  listUpcomingWatchEvents,
+  listInterestProfile,
+  buildBroadcastWeek,
+  logProgramSignal,
+  rollingDates,
+  weekStartsFor,
+  timeToMinutes,
+  findOnAirIndex,
+  defaultOpenIndex,
+  findDisplacedSlots,
+  summarizeInterestProfile,
 } from "./watchlist.js";
 import { listBirthdays, createBirthday, updateBirthday, deleteBirthday, daysUntilNextOccurrence, nextOccurrence } from "./birthdays.js";
 import { listRecipes, createRecipe, updateRecipe, deleteRecipe, formatIngredientsForShoppingList } from "./recipes.js";
@@ -1457,12 +1465,13 @@ async function renderCockpitView() {
   container.innerHTML = await res.text();
 
   const today = todayISO();
-  const [allTasks, games, watchlistItems, transactions, pantryItems] = await Promise.all([
+  const [allTasks, games, watchlistItems, transactions, pantryItems, todayProgram] = await Promise.all([
     listTasks(),
     listGames(),
     listWatchlistItems(),
     listTransactions(),
     listPantryItems(),
+    listBroadcastProgram(today, today),
   ]);
   if (myGeneration !== renderGeneration) return;
 
@@ -1486,11 +1495,15 @@ async function renderCockpitView() {
       new Date(a.created_at) - new Date(b.created_at)
   )[0];
 
-  // Watchlist: heutiges Fernsehprogramm (verplanter Eintrag von heute), sonst "—".
+  // Watchlist: laufende bzw. nächste offene Sendung aus dem heutigen broadcast_program, sonst "—".
   const itemsById = new Map(watchlistItems.map((i) => [i.id, i]));
-  const todayWatch = allTasks.find((t) => isWatchlistTask(t) && t.planned_date === today);
-  const watchItem = todayWatch ? itemsById.get(todayWatch.watchlist_item_id) : null;
-  const watchGlance = todayWatch ? `${watchItem ? watchItem.title : todayWatch.title}${buildCurrentEpisodeLabel(watchItem)}` : "—";
+  const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+  const watchIdx = defaultOpenIndex(todayProgram, itemsById, true, nowMinutes);
+  const todayWatch = watchIdx !== -1 ? todayProgram[watchIdx] : null;
+  const watchItem = todayWatch?.watchlist_item_id ? itemsById.get(todayWatch.watchlist_item_id) : null;
+  const watchGlance = todayWatch
+    ? `${todayWatch.start_time.slice(0, 5)} ${watchItem ? watchItem.title : todayWatch.event?.title ?? "Termin"}${buildCurrentEpisodeLabel(watchItem)}`
+    : "—";
 
   // Gaming: aktuell gespieltes Spiel, sonst "—".
   const playing = games.find((g) => g.status === "playing");
@@ -6860,7 +6873,7 @@ function wireTransactionQuickCapture() {
 
 /* ---------- Fernsehprogramm ---------- */
 
-const watchlistViewState = { items: [], allTasks: [], logEntries: [] };
+const watchlistViewState = { items: [], logEntries: [] };
 
 const WATCHLIST_TYPE_LABEL = { serie: "Serie", anime: "Anime", film: "Film", doku: "Doku", youtube: "YouTube" };
 
@@ -6959,38 +6972,63 @@ const WATCHLIST_STATUS_LABEL = {
   wartet_auf_neue_staffel: "Wartet auf neue Staffel",
 };
 
+// Programm-State des Sender-Autopiloten. selected bleibt über Re-Renders (nach einer Aktion) stehen,
+// open = Index der aufgeklappten Zeile im gewählten Tag, menu = null | "more" | "rate".
+const tvState = { dates: [], selected: null, entries: [], slots: [], events: [], profile: [], open: -1, menu: null };
+
+const TV_SLOT_LABEL = {
+  stamm: "Stamm",
+  film: "Film",
+  doku: "Doku",
+  schnupper: "Schnupper",
+  premiere: "Premiere",
+  live: "Live",
+  vorschau: "Vorschau",
+  wiederholung: "Wiederholung",
+};
+
 async function renderFernsehprogrammView() {
   const myGeneration = renderGeneration;
   const container = document.getElementById("view-content");
   const res = await fetch("views/fernsehprogramm.html");
   if (myGeneration !== renderGeneration) return;
   container.innerHTML = await res.text();
-  showLoading("watchlist-week-list");
+  showLoading("tv-prog");
 
-  const [items, allTasks, logEntries] = await Promise.all([listWatchlistItems(), listTasks(), listAllViewingLogEntries()]);
-  // Update 2026-07-29, Nutzer-Entscheidung (kippt die Governance-Entscheidung 2026-07-25, siehe
-  // wissensdatenbank/features/watchlist-fernsehprogramm.md, Abschnitt "Zugang & Grundmechanik"):
-  // aktive Watchlist-Einträge sollen wieder automatisch die Woche füllen — aber NUR hier im
-  // Fernsehprogramm-Tab, nicht in Heute (renderTodayView filtert Watchlist-tasks-Zeilen weiterhin
-  // aus). autoplanWatchlistForDates legt für jeden Wochentag ohne bestehende Watchlist-Zeile eine an
-  // (garantierter erster Slot pro Tag + zweiter Slot bei Budget-Kapazität, siehe planMissingSlots)
-  // und liest die tatsächlichen tasks direkt aus der DB — die neu entstandenen Zeilen mergen wir in
-  // allTasks, damit renderWatchlistWeek sie ohne zweiten Round-Trip sieht.
-  const newSlots = await autoplanWatchlistForDates(items, currentWeekDates(todayISO()));
+  // Seit 2026-10-04 (migration-036.sql) kommt das Programm aus broadcast_program, das
+  // build_broadcast_week() serverseitig baut — die frühere tasks-basierte Wochenbelegung
+  // (autoplanWatchlistForDates) läuft hier nicht mehr. Rollendes 7-Tage-Fenster statt Kalenderwoche,
+  // siehe rollingDates() in js/watchlist.js.
+  const today = todayISO();
+  const dates = rollingDates(today);
+  const [items, logEntries, entries, slots, events, profile] = await Promise.all([
+    listWatchlistItems(),
+    listAllViewingLogEntries(),
+    listBroadcastProgram(dates[0], dates[dates.length - 1]),
+    listBroadcastSlots(),
+    listUpcomingWatchEvents(),
+    listInterestProfile(),
+  ]);
+  if (myGeneration !== renderGeneration) return;
   watchlistViewState.items = items;
-  watchlistViewState.allTasks = [...allTasks, ...newSlots];
   watchlistViewState.logEntries = logEntries;
+  Object.assign(tvState, { dates, entries, slots, events, profile, menu: null });
+  if (!dates.includes(tvState.selected)) tvState.selected = today;
+  tvState.open = defaultOpenIndex(tvEntriesForSelected(), tvItemsById(), tvState.selected === today, tvNowMinutes());
 
-  renderWatchlistWeek();
+  renderTvWeek();
+  renderTvProgram();
+  renderTvUpcoming();
+  renderTvLearn();
+  wireTvRebuild();
   renderWatchlistOverview();
   wireWatchlistFilters();
   wireWatchlistQuickAddForm();
   wireWatchlistPanelToggle();
 }
 
-// Watchlist-Übersicht ist standardmäßig eingeklappt — beim Öffnen des Tabs soll nur "Diese Woche"
-// (das eigentliche Fernsehprogramm) direkt sichtbar sein, die volle Watchlist bleibt über den
-// Toggle erreichbar.
+// Watchlist-Übersicht ist standardmäßig eingeklappt — beim Öffnen des Tabs soll nur das Programm
+// direkt sichtbar sein, die volle Watchlist bleibt über den Toggle erreichbar.
 function wireWatchlistPanelToggle() {
   const panel = document.getElementById("watchlist-panel");
   document.getElementById("watchlist-toggle").addEventListener("click", () => {
@@ -6998,166 +7036,323 @@ function wireWatchlistPanelToggle() {
   });
 }
 
-function renderWatchlistWeek() {
-  const list = document.getElementById("watchlist-week-list");
-  const empty = document.getElementById("watchlist-week-empty-state");
-  const weekDates = currentWeekDates(todayISO());
-  const itemsById = new Map(watchlistViewState.items.map((i) => [i.id, i]));
-  // Map<date, task[]> statt Map<date, task> — planMissingSlots legt bis zu zwei Slots pro Tag an,
-  // ein einfaches Map-Überschreiben würde den zweiten Slot unsichtbar machen.
-  const tasksByDate = new Map();
-  for (const t of watchlistViewState.allTasks.filter(
-    (t) => isWatchlistTask(t) && weekDates.includes(t.planned_date)
-  )) {
-    if (!tasksByDate.has(t.planned_date)) tasksByDate.set(t.planned_date, []);
-    tasksByDate.get(t.planned_date).push(t);
-  }
+function tvItemsById() {
+  return new Map(watchlistViewState.items.map((i) => [i.id, i]));
+}
 
-  list.innerHTML = weekDates
+function tvNowMinutes() {
+  const now = new Date();
+  return now.getHours() * 60 + now.getMinutes();
+}
+
+function tvEntriesForDate(date) {
+  return tvState.entries.filter((e) => e.air_date === date);
+}
+
+function tvEntriesForSelected() {
+  return tvEntriesForDate(tvState.selected);
+}
+
+function renderTvWeek() {
+  const today = todayISO();
+  const el = document.getElementById("tv-week");
+  el.innerHTML = tvState.dates
     .map((date) => {
-      const label = WEEKDAY_LABEL[weekdayCodeFromIso(date)];
-      const tasks = tasksByDate.get(date);
-      if (!tasks || tasks.length === 0) {
-        return `<li class="task-item"><span class="task-title">${label} — <span class="status-message">frei</span></span></li>`;
-      }
-      // Bereits abgeschlossene Slots: als erledigt zeigen, keine Aktionen mehr. Watchlist-Tasks
-      // erscheinen seit der Governance-Entscheidung 2026-07-25 nicht mehr in Heute, daher wird die
-      // Folge hier im Tab abgeschlossen (siehe wissensdatenbank/features/watchlist-fernsehprogramm.md).
-      // Zweiter Slot desselben Tages bekommt "↳ " als Prefix statt des Wochentagsnamens.
-      return tasks.map((task, idx) => {
-        const item = itemsById.get(task.watchlist_item_id);
-        const prefix = idx === 0 ? `${label} — ` : "↳ ";
-        const titleText = `${prefix}${escapeHtml(item ? item.title : task.title)}${buildCurrentEpisodeLabel(item)}`;
-        if (task.status === "done") {
-          return `<li class="task-item watchlist-slot-done"><span class="task-title">✓ ${titleText}</span></li>`;
-        }
-        // Klick auf den Eintrag selbst löst Sichtung + Bewertung aus (wie früher der Aufgaben-Abschluss
-        // in Heute) — der Titel ist der Button, kein separates ✓ mehr. Tausch-Button bleibt daneben.
-        return `
-          <li class="task-item">
-            <button type="button" class="task-title task-title-btn watchlist-watched-btn" data-task-id="${task.id}" aria-label="Als geschaut abschließen und bewerten">${titleText}</button>
-            <button type="button" class="icon-btn watchlist-skip-btn" data-task-id="${task.id}" aria-label="Heute nicht schauen" title="Heute nicht">⊘</button>
-            <button type="button" class="icon-btn watchlist-swap-btn" data-task-id="${task.id}" aria-label="Tauschen">⇄</button>
-          </li>`;
-      }).join("");
+      const dots = tvEntriesForDate(date)
+        .map((e) => `<i class="${e.status !== "geplant" ? "is-done" : ""}" style="--k:var(--k-${e.slot_kind})"></i>`)
+        .join("");
+      return `
+        <button type="button" class="tv-day ${date === today ? "is-today" : ""}" role="tab" aria-selected="${date === tvState.selected}" data-date="${date}">
+          <span class="tv-day-name">${WEEKDAY_LABEL[weekdayCodeFromIso(date)]}</span>
+          <span class="tv-day-num">${Number(date.slice(8, 10))}</span>
+          <span class="tv-dots">${dots}</span>
+        </button>`;
     })
     .join("");
-  empty.hidden = tasksByDate.size > 0;
-
-  list.querySelectorAll(".watchlist-swap-btn").forEach((btn) => {
-    btn.addEventListener("click", () => openWatchlistSwapPicker(btn.dataset.taskId));
-  });
-  list.querySelectorAll(".watchlist-watched-btn").forEach((btn) => {
-    btn.addEventListener("click", () => completeWatchlistSlot(btn.dataset.taskId));
-  });
-  list.querySelectorAll(".watchlist-skip-btn").forEach((btn) => {
-    btn.addEventListener("click", () => skipWatchlistSlot(btn.dataset.taskId));
-  });
-}
-
-// Schließt einen verplanten Watchlist-Slot direkt im Fernsehprogramm-Tab ab: Sichtung + Bewertung
-// über den bestehenden Rating-Dialog loggen (schiebt current_episode weiter), Task auf done setzen.
-// Ersatz für den früheren Heute-Checkbox-Pfad, seit Watchlist-Tasks nicht mehr in Heute auftauchen.
-async function completeWatchlistSlot(taskId) {
-  const task = watchlistViewState.allTasks.find((t) => t.id === taskId);
-  if (!task) return;
-  await withErrorToast(async () => {
-    await promptWatchlistRating(task);
-    await completeTaskCascade(task, watchlistViewState.allTasks);
-    await renderFernsehprogrammView();
-  });
-}
-
-// „Heute nicht"-Skip: räumt den Slot ohne Rating-Dialog weg. Loggt kind='skipped' (keine echte
-// Sichtung, current_episode bleibt unangetastet — identisch zu submitNotWatched in
-// promptWatchlistRating), setzt den Task auf done, sodass der Slot aus der aktiven Liste verschwindet.
-// Siehe wissensdatenbank/features/aufgaben-ueberspringen.md (War Room 2026-08-14).
-async function skipWatchlistSlot(taskId) {
-  const task = watchlistViewState.allTasks.find((t) => t.id === taskId);
-  if (!task) return;
-  const item = watchlistViewState.items.find((i) => i.id === task.watchlist_item_id);
-  await withErrorToast(async () => {
-    await logViewing({
-      watchlistItemId: task.watchlist_item_id,
-      rating: null,
-      season: item?.current_season ?? null,
-      episode: item?.current_episode ?? null,
-      kind: "skipped",
+  el.querySelectorAll(".tv-day").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      tvState.selected = btn.dataset.date;
+      tvState.open = defaultOpenIndex(tvEntriesForSelected(), tvItemsById(), btn.dataset.date === todayISO(), tvNowMinutes());
+      tvState.menu = null;
+      renderTvWeek();
+      renderTvProgram();
     });
-    await completeTaskCascade(task, watchlistViewState.allTasks);
-    await renderFernsehprogrammView();
   });
 }
 
-// Zeigt Tauschpartner für einen bereits verplanten Slot: andere verplante Tage dieser Woche
-// (Datum↔Datum-Tausch) sowie unverplante 'aktive' Items (verplant↔unverplant-Tausch) — siehe
-// buildSwapOperations() in js/watchlist.js für die eigentliche Tausch-Logik.
-function openWatchlistSwapPicker(taskId) {
-  const root = document.getElementById("modal-root");
-  document.body.style.overflow = "hidden";
+function tvEntryTitle(entry, item) {
+  if (item) return item.title;
+  return entry.event?.title || "Termin";
+}
 
-  const close = () => {
-    root.innerHTML = "";
-    document.body.style.overflow = "";
-    document.removeEventListener("keydown", onKeydown);
-    closeActiveModal = null;
-  };
-  const onKeydown = (e) => {
-    if (e.key === "Escape") close();
-  };
-  document.addEventListener("keydown", onKeydown);
-  closeActiveModal = close;
+function tvEntryMeta(entry, item) {
+  if (!item) return entry.event?.competition || TV_SLOT_LABEL[entry.slot_kind] || "";
+  const parts = [WATCHLIST_TYPE_LABEL[item.type] || item.type];
+  const episode = buildCurrentEpisodeLabel(item).replace(/^ · /, "");
+  if (entry.slot_kind === "schnupper" && item.current_episode == null) parts.push("Folge 1");
+  else if (episode) parts.push(episode);
+  parts.push(`${getEffectiveDuration(item)} Min`);
+  return parts.join(" · ");
+}
 
-  const weekDates = currentWeekDates(todayISO());
-  const currentTask = watchlistViewState.allTasks.find((t) => t.id === taskId);
-  const itemsById = new Map(watchlistViewState.items.map((i) => [i.id, i]));
-  const scheduledThisWeek = watchlistViewState.allTasks.filter(
-    (t) => isWatchlistTask(t) && weekDates.includes(t.planned_date)
-  );
-  const otherScheduled = scheduledThisWeek.filter((t) => t.id !== taskId);
-  const scheduledItemIds = new Set(scheduledThisWeek.map((t) => t.watchlist_item_id));
-  const unscheduledItems = watchlistViewState.items.filter((i) => i.status === "aktiv" && !scheduledItemIds.has(i.id));
+function tvRightSide(entry, item, isOnAir) {
+  if (isOnAir) return `<span class="tv-badge is-on-air">LÄUFT</span>`;
+  if (entry.status === "gesehen") return `<span class="tv-state">✓</span>`;
+  if (entry.status === "uebersprungen") return `<span class="tv-state">übersprungen</span>`;
+  if (entry.status === "verdraengt") return `<span class="tv-state">verdrängt</span>`;
+  if (entry.slot_kind === "live") return `<span class="tv-badge">LIVE</span>`;
+  if (entry.slot_kind === "schnupper" || entry.slot_kind === "premiere") return `<span class="tv-badge">NEU</span>`;
+  if (item && isSeasonFinale(item)) return `<span class="tv-badge" style="--k:var(--color-accent-warm)">FINALE</span>`;
+  return "";
+}
 
-  const optionButtonsHtml =
-    [
-      ...otherScheduled.map((t) => {
-        const item = itemsById.get(t.watchlist_item_id);
-        const label = WEEKDAY_LABEL[weekdayCodeFromIso(t.planned_date)];
-        return `<button type="button" class="btn btn-secondary watchlist-swap-option" data-kind="scheduled" data-task-id="${t.id}" data-date="${t.planned_date}" data-item-id="${t.watchlist_item_id}">${label} — ${escapeHtml(item ? item.title : t.title)}</button>`;
-      }),
-      ...unscheduledItems.map(
-        (i) =>
-          `<button type="button" class="btn btn-secondary watchlist-swap-option" data-kind="unscheduled" data-item-id="${i.id}">${escapeHtml(i.title)} (unverplant)</button>`
-      ),
-    ].join("") || `<p class="empty-state">Keine Tauschpartner verfügbar.</p>`;
-
-  root.innerHTML = `
-    <div class="modal-backdrop" id="swap-backdrop">
-      <div class="modal-card" role="dialog" aria-modal="true" aria-label="Tauschen">
-        <h2 class="modal-view-title">Womit tauschen?</h2>
-        ${optionButtonsHtml}
-        <div class="modal-actions">
-          <button class="btn btn-secondary" type="button" id="swap-cancel">Abbrechen</button>
-        </div>
-      </div>
+function tvActionsHtml(entry, item) {
+  if (entry.slot_kind === "schnupper" && item) {
+    return `
+      <div class="tv-acts">
+        <button type="button" class="tv-act is-green" data-act="sample_keep"><span class="tv-key"></span>👍 Weiterschauen</button>
+        <button type="button" class="tv-act is-red" data-act="sample_drop"><span class="tv-key"></span>👎 Absetzen</button>
+        <button type="button" class="tv-act is-more" data-act="more" aria-label="Mehr" aria-expanded="${tvState.menu !== null}">⋯</button>
+      </div>`;
+  }
+  return `
+    <div class="tv-acts">
+      <button type="button" class="tv-act is-green" data-act="watched"><span class="tv-key"></span>Gesehen</button>
+      <button type="button" class="tv-act is-red" data-act="skipped"><span class="tv-key"></span>Heute nicht</button>
+      ${item ? `<button type="button" class="tv-act is-more" data-act="more" aria-label="Mehr" aria-expanded="${tvState.menu !== null}">⋯</button>` : ""}
     </div>`;
-  document.getElementById("swap-backdrop").addEventListener("click", (e) => {
-    if (e.target.id === "swap-backdrop") close();
+}
+
+function tvMenuHtml(entry, item) {
+  if (!item || !tvState.menu) return "";
+  if (tvState.menu === "rate") {
+    const chips = Array.from({ length: 10 }, (_, i) => `<button type="button" data-rate="${i + 1}">${i + 1}</button>`).join("");
+    return `<div class="tv-menu"><div class="tv-rating" role="group" aria-label="Bewertung 1–10">${chips}</div></div>`;
+  }
+  const isSample = entry.slot_kind === "schnupper";
+  return `
+    <div class="tv-menu">
+      ${isSample ? `<button type="button" class="tv-menu-btn" data-act="skipped">Heute nicht</button>` : ""}
+      <button type="button" class="tv-menu-btn" data-act="rate">Gesehen und bewerten …</button>
+      ${isSample ? "" : `<button type="button" class="tv-menu-btn" data-act="binged">🔥 Gebinged (mehrere Folgen am Stück)</button>`}
+      ${isSample ? "" : `<button type="button" class="tv-menu-btn" data-act="abandoned">Abgebrochen</button>`}
+      <button type="button" class="tv-menu-btn" data-act="detail">Details zur Sendung</button>
+    </div>`;
+}
+
+function renderTvProgram() {
+  const prog = document.getElementById("tv-prog");
+  const empty = document.getElementById("tv-empty-state");
+  const itemsById = tvItemsById();
+  const entries = tvEntriesForSelected();
+  const isToday = tvState.selected === todayISO();
+  const nowMin = tvNowMinutes();
+  const onAir = isToday ? findOnAirIndex(entries, itemsById, nowMin) : -1;
+
+  const rows = entries.map((entry, idx) => {
+    const item = entry.watchlist_item_id ? itemsById.get(entry.watchlist_item_id) : null;
+    const isOpen = idx === tvState.open && entry.status === "geplant";
+    const isOnAir = idx === onAir;
+    let progress = "";
+    if (isOnAir) {
+      const start = timeToMinutes(entry.start_time);
+      const duration = item ? getEffectiveDuration(item) : 120;
+      const pct = Math.min(100, Math.round(((nowMin - start) / duration) * 100));
+      progress = `<span class="tv-onair-bar" aria-hidden="true"><span style="width:${pct}%"></span></span>`;
+    }
+    const why = entry.reason && (isOpen || isOnAir) ? `<span class="tv-why">${escapeHtml(entry.reason)}</span>` : "";
+    return {
+      minutes: timeToMinutes(entry.start_time),
+      html: `
+        <div class="tv-row ${isOnAir ? "is-on-air" : ""} ${entry.status !== "geplant" ? "is-done" : ""}" style="--k:var(--k-${entry.slot_kind})">
+          <button type="button" class="tv-row-main" data-idx="${idx}" aria-expanded="${isOpen}">
+            <span class="tv-time">${entry.start_time.slice(0, 5)}</span>
+            <span>
+              <span class="tv-title">${escapeHtml(tvEntryTitle(entry, item))}</span>
+              <span class="tv-meta">${escapeHtml(tvEntryMeta(entry, item))}</span>
+              ${why}
+            </span>
+            ${tvRightSide(entry, item, isOnAir)}
+          </button>
+          ${progress}
+          ${isOpen ? tvActionsHtml(entry, item) + tvMenuHtml(entry, item) : ""}
+        </div>`,
+    };
   });
-  document.getElementById("swap-cancel").addEventListener("click", close);
-  root.querySelectorAll(".watchlist-swap-option").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const slotA = { taskId: currentTask.id, plannedDate: currentTask.planned_date, watchlistItemId: currentTask.watchlist_item_id };
-      const slotB =
-        btn.dataset.kind === "scheduled"
-          ? { taskId: btn.dataset.taskId, plannedDate: btn.dataset.date, watchlistItemId: btn.dataset.itemId }
-          : { watchlistItemId: btn.dataset.itemId };
-      await withErrorToast(async () => {
-        await applyWatchlistSwap(slotA, slotB);
-        close();
-        await renderFernsehprogrammView();
-      });
+
+  // Verdrängte Slots als gestrichelte Platzhalter einsortieren, damit eine Lücke erklärt ist.
+  for (const { slot, blocker } of findDisplacedSlots(tvState.slots, entries, tvState.selected)) {
+    const blockerTitle = tvEntryTitle(blocker, blocker.watchlist_item_id ? itemsById.get(blocker.watchlist_item_id) : null);
+    rows.push({
+      minutes: timeToMinutes(slot.start_time),
+      html: `
+        <div class="tv-row is-displaced" style="--k:var(--k-${slot.slot_kind})">
+          <div class="tv-row-main">
+            <span class="tv-time">${slot.start_time.slice(0, 5)}</span>
+            <span>
+              <span class="tv-title">${escapeHtml(slot.slot_name)}</span>
+              <span class="tv-meta">verdrängt durch ${escapeHtml(blockerTitle)}</span>
+            </span>
+            <span></span>
+          </div>
+        </div>`,
     });
+  }
+  rows.sort((a, b) => a.minutes - b.minutes);
+  prog.innerHTML = rows.map((r) => r.html).join("");
+
+  // Leerer Tag: Wenn im ganzen Fenster noch kein Programm existiert (frisch eingerichtet oder Cron
+  // noch nicht gelaufen), direkt "Programm erstellen" anbieten statt nur "Sendepause".
+  const windowEmpty = tvState.entries.length === 0;
+  empty.hidden = rows.length > 0;
+  document.getElementById("tv-empty-title").textContent = windowEmpty ? "Noch kein Programm" : "Sendepause";
+  document.getElementById("tv-empty-text").textContent = windowEmpty
+    ? tvState.slots.length === 0
+      ? "Es gibt noch kein Sendeschema (broadcast_slots)."
+      : "Der Autopilot baut es sonntags automatisch — oder jetzt sofort."
+    : "Für diesen Tag ist nichts eingeplant.";
+  const buildBtn = document.getElementById("tv-build");
+  buildBtn.hidden = !(windowEmpty && tvState.slots.length > 0);
+  buildBtn.onclick = () => rebuildTvProgram();
+
+  prog.querySelectorAll(".tv-row-main[data-idx]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = Number(btn.dataset.idx);
+      tvState.open = tvState.open === idx ? -1 : idx;
+      tvState.menu = null;
+      renderTvProgram();
+    });
+  });
+  prog.querySelectorAll("[data-act]").forEach((btn) => {
+    btn.addEventListener("click", () => handleTvAction(btn.dataset.act));
+  });
+  prog.querySelectorAll("[data-rate]").forEach((btn) => {
+    btn.addEventListener("click", () => handleTvAction("watched", Number(btn.dataset.rate)));
+  });
+}
+
+const TV_ACTION_TOAST = {
+  watched: (t) => `✓ ${t} gesehen`,
+  skipped: (t) => `${t} übersprungen`,
+  binged: (t) => `🔥 ${t} gebinged`,
+  abandoned: (t) => `${t} abgebrochen`,
+  sample_keep: (t) => `👍 ${t} ist jetzt aktiv`,
+  sample_drop: (t) => `👎 ${t} abgesetzt`,
+};
+
+async function handleTvAction(act, rating = null) {
+  const entries = tvEntriesForSelected();
+  const entry = entries[tvState.open];
+  if (!entry) return;
+  const item = entry.watchlist_item_id ? tvItemsById().get(entry.watchlist_item_id) : null;
+
+  if (act === "more") {
+    tvState.menu = tvState.menu ? null : "more";
+    return renderTvProgram();
+  }
+  if (act === "rate") {
+    tvState.menu = "rate";
+    return renderTvProgram();
+  }
+  if (act === "detail") {
+    if (item) await openWatchlistDetail(item.id);
+    return;
+  }
+
+  await withErrorToast(async () => {
+    await logProgramSignal({ entry, item, kind: act, rating });
+    const title = tvEntryTitle(entry, item);
+    let message = TV_ACTION_TOAST[act](title);
+    // Komfortzonen-Regel aus watch_learn_from_log: Selbst Eingetragenes wird durchs Überspringen
+    // nicht abgewertet — das einmal sichtbar machen, damit "Heute nicht" sich nicht wie Strafe anfühlt.
+    if (act === "skipped" && item?.source === "selbst") message += " – wird nicht abgewertet";
+    showToast(message);
+    await renderFernsehprogrammView();
+  });
+}
+
+function renderTvUpcoming() {
+  const wrap = document.getElementById("tv-upcoming");
+  const strip = document.getElementById("tv-upcoming-strip");
+  const today = todayISO();
+  // Termine aus watch_events plus Staffelstarts, die nur als next_season_release_date am Item hängen.
+  const chips = tvState.events.map((ev) => {
+    const d = new Date(ev.starts_at);
+    const dayLabel = WEEKDAY_LABEL[weekdayCodeFromIso(isoFromDate(d))];
+    const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    const kind = ev.kind === "sport" ? "live" : ev.kind === "release" ? "premiere" : ev.kind === "trailer" ? "vorschau" : ev.kind;
+    const badge = { live: "LIVE", premiere: "NEU", vorschau: "▶" }[kind] || "";
+    return { at: d.getTime(), html: `<span class="tv-chip"><span class="tv-mono">${dayLabel} ${time}</span>${badge ? `<span class="tv-badge" style="--k:var(--k-${kind})">${badge}</span>` : ""}${escapeHtml(ev.title)}</span>` };
+  });
+  for (const item of watchlistViewState.items) {
+    const date = item.next_season_release_date;
+    if (!date || date <= today || daysBetween(today, date) > 30) continue;
+    if (tvState.events.some((ev) => ev.watchlist_item_id === item.id)) continue;
+    chips.push({
+      at: new Date(date + "T00:00:00").getTime(),
+      html: `<span class="tv-chip"><span class="tv-mono">${WEEKDAY_LABEL[weekdayCodeFromIso(date)]} ${Number(date.slice(8, 10))}.</span><span class="tv-badge" style="--k:var(--k-premiere)">NEU</span>${escapeHtml(item.title)}</span>`,
+    });
+  }
+  chips.sort((a, b) => a.at - b.at);
+  wrap.hidden = chips.length === 0;
+  strip.innerHTML = chips.map((c) => c.html).join("");
+}
+
+function isoFromDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function daysBetween(fromIso, toIso) {
+  return Math.round((new Date(toIso + "T00:00:00") - new Date(fromIso + "T00:00:00")) / 86400000);
+}
+
+function renderTvLearn() {
+  const btn = document.getElementById("tv-learn");
+  const sum = document.getElementById("tv-learn-sum");
+  const bars = document.getElementById("tv-learn-bars");
+  const { up, down, all } = summarizeInterestProfile(tvState.profile);
+
+  if (all.length === 0) {
+    sum.textContent = "noch keine Signale";
+    bars.innerHTML = `<span class="tv-learn-note">Jedes ✓, 👍/👎 und „Heute nicht“ formt dein Profil. Selbst Eingetragenes wird durchs Überspringen nie abgewertet.</span>`;
+  } else {
+    const label = (r) => escapeHtml(WATCHLIST_TYPE_LABEL[r.value] || r.value);
+    sum.innerHTML = [
+      up.length ? `<b class="tv-up">▲</b> ${up.map(label).join(" · ")}` : "",
+      down.length ? `<b class="tv-down">▼</b> ${down.map(label).join(" · ")}` : "",
+    ].filter(Boolean).join("&nbsp;&nbsp;");
+    const top = all.slice(0, 6).concat(all.slice(6).filter((r) => Number(r.weight) < 0).slice(-2));
+    const max = Math.max(...top.map((r) => Math.abs(Number(r.weight))), 1);
+    bars.innerHTML =
+      top
+        .map((r) => {
+          const w = Number(r.weight);
+          const pct = (Math.abs(w) / max) * 50;
+          const style = `left:${w >= 0 ? 50 : 50 - pct}%;width:${pct}%;background:var(${w >= 0 ? "--color-success" : "--color-danger"})`;
+          return `<span class="tv-bar"><span>${label(r)}</span><span class="tv-bar-track"><i style="${style}"></i></span><span class="tv-bar-val">${w > 0 ? "+" : ""}${w.toFixed(1)}</span></span>`;
+        })
+        .join("") + `<span class="tv-learn-note">Selbst Eingetragenes wird durchs Überspringen nie abgewertet.</span>`;
+  }
+  btn.addEventListener("click", () => {
+    bars.hidden = !bars.hidden;
+    btn.setAttribute("aria-expanded", String(!bars.hidden));
+  });
+}
+
+function wireTvRebuild() {
+  document.getElementById("tv-rebuild").addEventListener("click", () => {
+    if (!confirm("Programm neu mischen? Bereits Gesehenes bleibt, alles noch Geplante wird neu verteilt.")) return;
+    rebuildTvProgram();
+  });
+}
+
+// build_broadcast_week baut wochenweise (Mo-Start) — das rollende Fenster kann zwei Wochen berühren.
+async function rebuildTvProgram() {
+  await withErrorToast(async () => {
+    let count = 0;
+    for (const weekStart of weekStartsFor(tvState.dates)) count += await buildBroadcastWeek(weekStart);
+    showToast(count > 0 ? `Programm steht: ${count} Sendungen` : "Nichts zum Einplanen gefunden");
+    await renderFernsehprogrammView();
   });
 }
 

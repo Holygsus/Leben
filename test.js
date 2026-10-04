@@ -9,6 +9,15 @@ import {
   currentWeekDates,
   planMissingSlots,
   buildSwapOperations,
+  advancesEpisode,
+  timeToMinutes,
+  isoWeekdayFromIso,
+  rollingDates,
+  weekStartsFor,
+  findOnAirIndex,
+  defaultOpenIndex,
+  findDisplacedSlots,
+  summarizeInterestProfile,
 } from "./js/watchlist.js";
 import { findHabitsDueToday, sumCounterForDate, weekAverageCounter } from "./js/habits.js";
 import { computeBudgetTrend, computeCategoryBreakdown, slugifyCategoryKey } from "./js/finance.js";
@@ -385,6 +394,76 @@ function assertEqual(actual, expected, label) {
     buildSwapOperations(unscheduled, scheduledA),
     [{ taskId: "t1", updates: { watchlist_item_id: "i3" } }],
     "buildSwapOperations: Reihenfolge der Slots spielt keine Rolle"
+  );
+}
+
+// ---------- Watchlist: Sender-Autopilot (broadcast_program) ----------
+{
+  assertEqual(timeToMinutes("20:15:00"), 1215, "timeToMinutes: HH:MM:SS -> Minuten");
+  assertEqual(isoWeekdayFromIso("2026-10-05"), 1, "isoWeekdayFromIso: Montag = 1");
+  assertEqual(isoWeekdayFromIso("2026-10-04"), 7, "isoWeekdayFromIso: Sonntag = 7");
+  assertEqual(
+    rollingDates("2026-10-04", 3),
+    ["2026-10-04", "2026-10-05", "2026-10-06"],
+    "rollingDates: Fenster ab heute, über Monats-/Wochengrenzen"
+  );
+  assertEqual(
+    weekStartsFor(rollingDates("2026-10-04")),
+    ["2026-09-28", "2026-10-05"],
+    "weekStartsFor: Sonntags-Fenster berührt zwei Wochen"
+  );
+
+  assertEqual(advancesEpisode({ type: "serie" }, "watched"), true, "advancesEpisode: Serie + watched");
+  assertEqual(advancesEpisode({ type: "film" }, "watched"), false, "advancesEpisode: Film hat keine Folgen");
+  assertEqual(advancesEpisode({ type: "anime" }, "skipped"), false, "advancesEpisode: Skip lässt Folge stehen");
+
+  const items = new Map([
+    ["a", { id: "a", type: "anime", duration_minutes: 24 }],
+    ["s", { id: "s", type: "serie", duration_minutes: null }],
+  ]);
+  const day = [
+    { start_time: "18:30:00", status: "geplant", watchlist_item_id: "a" },
+    { start_time: "20:15:00", status: "geplant", watchlist_item_id: "s" },
+    { start_time: "22:15:00", status: "geplant", watchlist_item_id: null },
+  ];
+  assertEqual(findOnAirIndex(day, items, 18 * 60 + 40), 0, "findOnAirIndex: innerhalb der Item-Dauer");
+  assertEqual(findOnAirIndex(day, items, 18 * 60 + 55), -1, "findOnAirIndex: nach Ende (24 Min) läuft nichts");
+  assertEqual(findOnAirIndex(day, items, 20 * 60 + 59), 1, "findOnAirIndex: Typ-Standard 45 Min greift ohne duration");
+  assertEqual(findOnAirIndex(day, items, 23 * 60 + 30), 2, "findOnAirIndex: Termin ohne Item läuft 120 Min");
+  assertEqual(defaultOpenIndex(day, items, true, 19 * 60), 1, "defaultOpenIndex: sonst nächste offene Sendung");
+  assertEqual(defaultOpenIndex(day, items, false, 19 * 60), -1, "defaultOpenIndex: andere Tage zugeklappt");
+  assertEqual(
+    findOnAirIndex([{ ...day[0], status: "gesehen" }], items, 18 * 60 + 40),
+    -1,
+    "findOnAirIndex: Abgehaktes läuft nicht mehr"
+  );
+
+  const slots = [
+    { id: "x1", weekday: 6, start_time: "15:30:00", slot_kind: "live" },
+    { id: "x4", weekday: 6, start_time: "16:15:00", slot_kind: "stamm" },
+    { id: "x2", weekday: 6, start_time: "22:15:00", slot_kind: "wiederholung" },
+    { id: "x3", weekday: 5, start_time: "20:15:00", slot_kind: "film" },
+  ];
+  const sat = [
+    { slot_id: null, event_id: "e1", slot_kind: "live", start_time: "15:30:00", event: { ends_at: null } },
+  ];
+  assertEqual(
+    findDisplacedSlots(slots, sat, "2026-10-10").map((d) => d.slot.id),
+    ["x4"],
+    "findDisplacedSlots: nur Slots im Termin-Fenster, am passenden Wochentag, ohne live/frei"
+  );
+
+  const summary = summarizeInterestProfile([
+    { value: "Anime", weight: 4 },
+    { value: "Horror", weight: -2 },
+    { value: "Doku", weight: 3 },
+    { value: "Sitcom", weight: -1 },
+    { value: "Neutral", weight: 0 },
+  ]);
+  assertEqual(
+    [summary.up.map((r) => r.value), summary.down.map((r) => r.value), summary.all.length],
+    [["Anime", "Doku"], ["Horror"], 4],
+    "summarizeInterestProfile: Top 2 hoch, stärkstes Negativ, Nullen raus"
   );
 }
 
