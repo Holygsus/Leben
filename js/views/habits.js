@@ -1,5 +1,5 @@
 // Ansicht "Habits" (#/habits).
-import { listTasks, updateTask, createTask, deleteTask } from "../tasks.js";
+import { listHabitTasksWithPool, updateTask, createTask, deleteTask } from "../tasks.js";
 import { listAreas } from "../areas.js";
 import {
   WEEKDAY_CODES,
@@ -7,14 +7,17 @@ import {
   isCounterHabit,
   weekdayCodeFromIso,
   RECURRENCE_LABEL,
-  listAllHabitCompletions,
+  STREAK_MAX_LOOKBACK_DAYS,
+  listHabitCompletionsSince,
+  listHabitCompletionsForTasks,
   computeHabitStreak,
   logCounterTap,
   deleteCounterEntry,
-  listAllCounterLog,
+  listCounterLogSince,
   sumCounterForDate,
   weekAverageCounter,
 } from "../habits.js";
+import { shiftIsoDate } from "../insights.js";
 import { todayISO, weekStartISO } from "../ui/dates.js";
 import { WEEKDAY_LABEL, STREAK_ICON_FLAME, escapeHtml, buildEmptyState } from "../ui/dom.js";
 import { showToast, showConfirm, withErrorToast } from "../ui/modals.js";
@@ -30,18 +33,35 @@ export async function renderHabitsView() {
   const res = await fetch("views/habits.html");
   if (myGeneration !== state.renderGeneration) return;
   container.innerHTML = await res.text();
-  const [tasks, areas, completions, counterLog] = await Promise.all([
-    listTasks(),
+  // Nur Habits + Pool-Kinder statt aller Aufgaben, und Erledigungen nur so weit zurück, wie
+  // Streak (STREAK_MAX_LOOKBACK_DAYS), Monatsbalken, Wochenring und 7-Tage-Heatmap reichen. Ausnahme:
+  // biweekly/monthly zeigen die Gesamtzahl aller Erledigungen — für die die komplette Historie.
+  // Zähl-Log nur ab Wochenbeginn (heute + Ø diese Woche).
+  const [tasks, areas, recentCompletions, counterLog] = await Promise.all([
+    listHabitTasksWithPool(),
     listAreas(),
-    listAllHabitCompletions(),
-    listAllCounterLog(),
+    listHabitCompletionsSince(shiftIsoDate(todayISO(), -STREAK_MAX_LOOKBACK_DAYS)),
+    listCounterLogSince(weekStartISO()),
   ]);
+  const totalCountHabitIds = tasks
+    .filter((t) => isHabitTask(t) && (t.habit_recurrence || "weekly") !== "weekly")
+    .map((t) => t.id);
+  const completions = totalCountHabitIds.length
+    ? mergeCompletions(recentCompletions, await listHabitCompletionsForTasks(totalCountHabitIds))
+    : recentCompletions;
   habitsViewState.allTasks = tasks;
   habitsViewState.areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
   habitsViewState.completions = completions;
   habitsViewState.counterLog = counterLog;
   renderHabitList();
   wireHabitQuickAddForm();
+}
+
+// Vereinigt zwei Erledigungs-Listen ohne Doppelte (gleiche Zeile kann in beiden Abfragen stecken) —
+// Duplikate würden z.B. den Wochenring doppelt zählen.
+function mergeCompletions(base, extra) {
+  const seen = new Set(base.map((c) => c.id));
+  return [...base, ...extra.filter((c) => !seen.has(c.id))];
 }
 
 // Direkter Habit-Einstieg im Habit-Tab selbst (implementieren-jetzt.md, Triage 2026-07-21) — bisher
@@ -418,6 +438,14 @@ function renderHabitList() {
       // habit_last_due_date bewusst NICHT mitschicken — ein Intervall-Wechsel allein darf den
       // Anker nicht zurücksetzen (siehe isRecurrenceDue in habits.js).
       await updateTask(task.id, { habit_recurrence: nextRecurrence });
+      // Beim Wechsel auf biweekly/monthly zeigt das Badge ab dem nächsten Re-Render die Gesamtzahl
+      // aller Erledigungen — geladen ist aber für wöchentliche Habits nur das Streak-Fenster.
+      if (nextRecurrence !== "weekly") {
+        habitsViewState.completions = mergeCompletions(
+          habitsViewState.completions,
+          await listHabitCompletionsForTasks([task.id])
+        );
+      }
       task.habit_recurrence = nextRecurrence;
     });
   };

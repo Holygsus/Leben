@@ -153,6 +153,22 @@ export async function listHabitCompletionsSince(fromIso) {
   return data;
 }
 
+// Komplette Historie ausgewählter Habits — für biweekly/monthly, deren Badge die Gesamtzahl aller
+// Erledigungen zeigt (computeHabitStreak, type "total") und daher nicht auf ein Zeitfenster
+// begrenzt werden darf. In Blöcken, damit die GET-URL nicht zu lang wird.
+export async function listHabitCompletionsForTasks(taskIds) {
+  const chunks = [];
+  for (let i = 0; i < taskIds.length; i += 100) chunks.push(taskIds.slice(i, i + 100));
+  const results = await Promise.all(
+    chunks.map(async (chunk) => {
+      const { data, error } = await supabase.from("habit_completions").select("*").in("task_id", chunk);
+      if (error) throw error;
+      return data;
+    })
+  );
+  return results.flat();
+}
+
 // Loggt einen expliziten Skip-Eintrag für ein Habit (migration-026). Verwendet upsert statt insert,
 // damit ein bereits vorhandener Eintrag (z.B. bei doppeltem Klick) überschrieben statt verdoppelt
 // wird. note ist optional — leer lassen, wenn der Nutzer keine Notiz eingegeben hat.
@@ -173,7 +189,7 @@ export async function logHabitSkip(habitTaskId, { date, note } = {}) {
 // 'biweekly'/'monthly' würde dieselbe Tages-Logik falsche Lücken zwischen den Fällig-Terminen
 // sehen (der einzige Fälligkeits-Anker, habit_last_due_date, kennt nur den letzten Termin, keine
 // Historie) — dort zeigen wir stattdessen nur die Gesamtzahl an Erledigungen.
-const STREAK_MAX_LOOKBACK_DAYS = 366;
+export const STREAK_MAX_LOOKBACK_DAYS = 366;
 
 export function computeHabitStreak(task, completions, todayIso = localTodayIso()) {
   const taskCompletions = completions.filter((c) => c.task_id === task.id);
@@ -240,6 +256,14 @@ export async function deleteCounterEntry(id) {
 // Batch-Fetch aller Zähl-Log-Zeilen (Muster listAllHabitCompletions) — ein Request für den Habit-Tab.
 export async function listAllCounterLog() {
   const { data, error } = await supabase.from("habit_counter_log").select("*");
+  if (error) throw error;
+  return data;
+}
+
+// Zähl-Log ab einem Datum — die Habits-Ansicht braucht nur heute und die laufende Woche
+// (sumCounterForDate/weekAverageCounter), nicht die gesamte Historie.
+export async function listCounterLogSince(fromIso) {
+  const { data, error } = await supabase.from("habit_counter_log").select("*").gte("date", fromIso);
   if (error) throw error;
   return data;
 }

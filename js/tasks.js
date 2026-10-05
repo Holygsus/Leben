@@ -427,3 +427,12 @@ export async function listTaskWithFamily(taskId) {
   for (const [id, t] of descendants) byId.set(id, t);
   return sortByCreatedAt([...byId.values()]);
 }
+
+// Habits-Ansicht: alle Habit-Aufgaben plus ihre Pool-Kinder (jeder Status — die Pool-Liste zeigt
+// auch erledigte).
+export async function listHabitTasksWithPool() {
+  const habits = await listTasks({ isHabit: true });
+  const byId = new Map(habits.map((t) => [t.id, t]));
+  for (const child of await selectTasksIn("parent_task_id", habits.map((t) => t.id))) byId.set(child.id, child);
+  return sortByCreatedAt([...byId.values()]);
+}
