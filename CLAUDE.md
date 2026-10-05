@@ -8,8 +8,16 @@ github.com/Holygsus/Leben, eingebettet in den größeren Workspace — siehe
 ## Architektur
 
 - Ein JS-Modul pro Domäne: `js/tasks.js`, `js/finance.js`, `js/wishlist.js`, `js/planner.js`,
-  `js/auth.js`, `js/areas.js`, `js/supabase.js`, `js/app.js` (Orchestrierung/Views). Neue Features
-  folgen diesem Muster statt alles in `app.js` zu häufen.
+  `js/auth.js`, `js/areas.js`, `js/supabase.js`. Neue Features folgen diesem Muster statt alles in
+  `app.js` zu häufen.
+- `js/app.js` ist nur noch Bootstrap/Router/Navigations-Shell. Jede Ansicht hat ein eigenes Modul
+  `js/views/<name>.js` mit ihrer `render*View()`-Funktion und den nur dort genutzten Helfern;
+  view-übergreifende UI-Helfer liegen unter `js/ui/` (`dom.js`, `modals.js`, `dates.js`,
+  `date-chips.js`, `task-actions.js`, `task-helpers.js`, `popups.js`, `nav.js`).
+- Geteilter veränderlicher State (`renderGeneration`, `closeActiveModal`, `followupPopupSnoozed`,
+  `currentUsername`, `todayRemainingCount`) liegt auf dem `state`-Objekt in `js/ui/state.js` und
+  wird überall als `state.<name>` gelesen/geschrieben — ES-Module-Bindings sind von außen nicht
+  zuweisbar (eine Zuweisung an einen importierten `export let` wirft einen TypeError).
 - `config.js` enthält den `SUPABASE_URL` sowie den `anon`/`publishable` Key und ist **bewusst
   eingecheckt** (Commit `8971fc7`) — GitHub Pages ist reines Static Hosting, der Key muss also
   ohnehin im ausgelieferten JS landen. Der Schutz läuft über RLS-Policies in der DB, nicht über
@@ -17,7 +25,8 @@ github.com/Holygsus/Leben, eingebettet in den größeren Workspace — siehe
   echter Secret-Key gehört trotzdem niemals hierhin oder ins Repo — nur anon/publishable sind für
   den Client bestimmt.
 - Views liegen als eigene HTML-Dateien unter `views/` (`overview.html`, `today.html`, `plan.html`,
-  `finance.html`), gerendert über `render*View()`-Funktionen in `js/app.js`.
+  `finance.html`), gerendert über die `render*View()`-Funktionen in `js/views/`. Neue
+  JS-Module ebenfalls in `SHELL_ASSETS` von `sw.js` eintragen (siehe unten).
 
 ## Datenbank-Workflow
 
