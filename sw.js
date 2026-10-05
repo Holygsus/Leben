@@ -1,12 +1,13 @@
 // Cached nur die statische App-Hülle (HTML/CSS/JS) für schnelleres Laden/Offline-Start.
 // Supabase- und CDN-Requests (anderer Origin) werden bewusst NICHT abgefangen — Daten sollen
 // immer frisch vom Netzwerk kommen, nur das Grundgerüst der App wird lokal vorgehalten.
-const CACHE_NAME = "leben-os-shell-v65";
+const CACHE_NAME = "leben-os-shell-v66";
 
 const SHELL_ASSETS = [
   "index.html",
   "manifest.json",
   "favicon.svg",
+  "config.js",
   "css/reset.css",
   "css/variables.css",
   "css/main.css",
