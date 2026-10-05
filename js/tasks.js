@@ -323,3 +323,93 @@ export async function planTaskCascade(rootTask, plannedDate, allTasks) {
     .in("id", ids);
   if (error) throw error;
 }
+
+// ---------- Gezielte Lade-Varianten statt listTasks() ohne Filter ----------
+// Die Aufrufer (Heute, Aufgaben-Detail, Habits) brauchen nicht alle Aufgaben aller Zeiten — aber
+// Baum-Aufbau (buildTaskTree) und Kaskaden (complete/reopenTaskCascade, resolveHabitTaskId,
+// showCompleteUndoToast) brauchen VOLLSTÄNDIGE Teilbäume und Elternketten, auch mit erledigten
+// Aufgaben darin. Fehlt ein erledigter Elternteil, fällt sein Kind aus dem Baum; fehlt ein
+// erledigtes Kind, wird es beim Wieder-Öffnen nicht mitkaskadiert. Darum laden die Varianten unten
+// ihre Grundmenge und ergänzen dann gezielt Vor- und Nachfahren.
+
+// Lange ID-Listen in Blöcken abfragen — sonst wird die GET-URL der PostgREST-Anfrage zu lang.
+const IN_CHUNK_SIZE = 100;
+
+async function selectTasksIn(column, ids, applyFilters = (query) => query) {
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += IN_CHUNK_SIZE) chunks.push(ids.slice(i, i + IN_CHUNK_SIZE));
+  const results = await Promise.all(
+    chunks.map(async (chunk) => {
+      const { data, error } = await applyFilters(supabase.from("tasks").select("*").in(column, chunk));
+      if (error) throw error;
+      return data;
+    })
+  );
+  return results.flat();
+}
+
+// Gleiche Reihenfolge wie listTasks() (created_at aufsteigend) für zusammengeführte Teilmengen.
+// created_at kommt von PostgREST als ISO-String mit einheitlichem Offset, der lexikografische
+// Vergleich ist damit chronologisch (auch bei gekürzten Nachkommastellen: "+" < "." < Ziffern).
+function sortByCreatedAt(tasks) {
+  return tasks.sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
+}
+
+// Lädt rekursiv alle Nachfahren der Aufgaben in byId nach (Ebene für Ebene), die noch fehlen.
+// childFilter schränkt die Kind-Abfrage optional ein (Heute: nur erledigte — alle nicht erledigten
+// sind dort schon in der Grundmenge).
+async function addDescendants(byId, rootIds, childFilter) {
+  const visited = new Set();
+  let frontier = rootIds;
+  while (frontier.length) {
+    frontier.forEach((id) => visited.add(id));
+    const children = await selectTasksIn("parent_task_id", frontier, childFilter);
+    const next = [];
+    for (const child of children) {
+      if (byId.has(child.id)) continue;
+      byId.set(child.id, child);
+      if (!visited.has(child.id)) next.push(child.id);
+    }
+    frontier = next;
+  }
+}
+
+// Lädt die Elternkette jeder Aufgabe in byId bis zur Wurzel nach (maxDepth begrenzt optional auf
+// direkte Eltern). Ein bereits angefragter, aber nicht gefundener Elternteil wird nicht erneut
+// angefragt (Schutz gegen Endlosschleifen bei inkonsistenten Daten).
+async function addAncestors(byId, maxDepth = Infinity) {
+  const requested = new Set();
+  for (let depth = 0; depth < maxDepth; depth++) {
+    const missing = [
+      ...new Set(
+        [...byId.values()].map((t) => t.parent_task_id).filter((id) => id && !byId.has(id) && !requested.has(id))
+      ),
+    ];
+    if (missing.length === 0) return;
+    missing.forEach((id) => requested.add(id));
+    for (const parent of await selectTasksIn("id", missing)) byId.set(parent.id, parent);
+  }
+}
+
+// Heute-Ansicht: alle nicht erledigten Aufgaben (überfällig, Termine, Quick-Win-Kandidaten,
+// Habit-Pool-Kinder), alles heute Geplante (auch erledigt), alle Habit-Mütter (auch erledigte —
+// autoplanDueHabits plant sie am nächsten fälligen Tag wieder ein), plus deren vollständige
+// Teilbäume und Elternketten. Erledigte Alt-Aufgaben ohne Bezug zu heute bleiben draußen.
+// status.is.null hält NULL-Status-Zeilen (Schema erlaubt sie) wie bei listTasks() mit drin.
+export async function listTasksForToday(todayIso) {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("*")
+    .or(`status.neq.done,status.is.null,planned_date.eq.${todayIso},habit_weekdays.not.is.null`)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  const byId = new Map(data.map((t) => [t.id, t]));
+  const descendants = new Map(byId);
+  await Promise.all([
+    addDescendants(descendants, [...byId.keys()], (query) => query.eq("status", "done")),
+    addAncestors(byId),
+  ]);
+  for (const [id, t] of descendants) byId.set(id, t);
+  // Vorfahren der nachgeladenen Nachfahren liegen per Konstruktion schon in der Menge.
+  return sortByCreatedAt([...byId.values()]);
+}
