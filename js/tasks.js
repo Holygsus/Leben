@@ -413,3 +413,17 @@ export async function listTasksForToday(todayIso) {
   // Vorfahren der nachgeladenen Nachfahren liegen per Konstruktion schon in der Menge.
   return sortByCreatedAt([...byId.values()]);
 }
+
+// Aufgaben-Detail (Ansichtsmodus): die Aufgabe, ihr direkter Elternteil (Zurück-Link,
+// resolveHabitTaskId) und ihr kompletter Teilbaum (Unteraufgaben-Liste, Kaskaden). Leeres Array,
+// wenn die Aufgabe nicht (mehr) existiert — wie listTasks().find() ohne Treffer.
+export async function listTaskWithFamily(taskId) {
+  const { data: task, error } = await supabase.from("tasks").select("*").eq("id", taskId).maybeSingle();
+  if (error) throw error;
+  if (!task) return [];
+  const byId = new Map([[task.id, task]]);
+  const descendants = new Map(byId);
+  await Promise.all([addDescendants(descendants, [task.id]), addAncestors(byId, 1)]);
+  for (const [id, t] of descendants) byId.set(id, t);
+  return sortByCreatedAt([...byId.values()]);
+}

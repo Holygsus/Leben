@@ -1,6 +1,7 @@
 // Aufgaben-Detail-Modal (aus Heute/Übersicht geöffnet).
 import {
   listTasks,
+  listTaskWithFamily,
   updateTask,
   createTask,
   collectDescendantIds,
@@ -37,9 +38,9 @@ import { renderTodayTaskSection, refreshTodayTaskList } from "./today.js";
 // appendTaskRowContent/buildTaskNameEl), daher hier anhand der vorhandenen DOM-Elemente erkennen,
 // welche Ansicht gerade aktiv ist, statt fest auf reloadOverview() zu verdrahten (das würde
 // crashen, wenn die Übersicht-Elemente gar nicht im DOM sind).
-// allTasks (optional): falls der Aufrufer die Aufgaben gerade schon selbst per listTasks() neu
-// geladen hat (z.B. renderTaskDetailCard fürs Modal), wird dieser Stand für Heute direkt
-// übernommen statt ihn eine zweite Runde erneut zu fetchen.
+// allTasks (optional): falls der Aufrufer gerade schon die VOLLE Aufgabenliste per listTasks() neu
+// geladen hat, wird dieser Stand für Heute direkt übernommen statt ihn erneut zu fetchen.
+// renderTaskDetailCard liefert im Ansichtsmodus nur einen Teilbaum und gibt dann undefined zurück.
 function refreshOpenViewsAfterTaskChange(allTasks) {
   if (document.getElementById("area-tree")) reloadOverview();
   if (document.getElementById("task-list")) {
@@ -105,12 +106,21 @@ async function renderTaskDetailCard(taskId, close, editMode = false) {
   // Kommentare nur für den View-Modus relevant (siehe renderTaskDetailView) — trotzdem hier schon
   // parallel mitgeladen, damit ein Wechsel zwischen Ansicht/Bearbeiten keinen zusätzlichen Request
   // braucht.
-  const [allTasks, comments] = await Promise.all([listTasks(), listComments(taskId)]);
+  // Die Ansicht braucht nur Aufgabe, Elternteil und Teilbaum (listTaskWithFamily). Der
+  // Bearbeiten-Modus bietet dagegen alle Aufgaben des (wählbaren) Bereichs als Elternteil an
+  // (taskOptionsHtml) und lädt deshalb weiterhin die volle Liste.
+  const [allTasks, comments] = await Promise.all([
+    editMode ? listTasks() : listTaskWithFamily(taskId),
+    listComments(taskId),
+  ]);
+  // Nur die volle Liste taugt als neuer Stand für Heute (refreshOpenViewsAfterTaskChange) — ein
+  // Teilbaum würde dort alle übrigen Aufgaben verschwinden lassen, dann lädt Heute selbst neu.
+  const fullTaskList = editMode ? allTasks : undefined;
   const task = allTasks.find((t) => t.id === taskId);
   const card = document.getElementById("modal-card");
   if (!task || !card) {
     close();
-    return allTasks;
+    return fullTaskList;
   }
 
   const parentTask = task.parent_task_id ? allTasks.find((t) => t.id === task.parent_task_id) : null;
@@ -121,9 +131,9 @@ async function renderTaskDetailCard(taskId, close, editMode = false) {
 
   if (editMode) renderTaskDetailEdit(card, task, allTasks, parentTask, children, backButtonHtml, close);
   else renderTaskDetailView(card, task, allTasks, children, comments, backButtonHtml, close);
-  // Rückgabe erlaubt refreshOpenViewsAfterTaskChange(), den bereits geladenen Stand für Heute
-  // wiederzuverwenden statt ihn direkt danach nochmal per listTasks() zu holen.
-  return allTasks;
+  // Rückgabe erlaubt refreshOpenViewsAfterTaskChange(), einen bereits geladenen vollen Stand für
+  // Heute wiederzuverwenden statt ihn direkt danach nochmal zu holen (siehe fullTaskList).
+  return fullTaskList;
 }
 
 // Baut die Notizen/Kommentare-Liste (wissensdatenbank/features/task-comments.md, Variante B) —
