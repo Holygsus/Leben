@@ -2,6 +2,7 @@
 import { weekdayCodeFromIso } from "../habits.js";
 import {
   listWatchlistItems,
+  getWatchlistItem,
   createWatchlistItem,
   updateWatchlistItem,
   deleteWatchlistItem,
@@ -777,8 +778,7 @@ async function openWatchlistDetail(itemId) {
 }
 
 async function renderWatchlistDetailCard(itemId, close) {
-  const [items, log] = await Promise.all([listWatchlistItems(), listViewingLog(itemId)]);
-  const item = items.find((i) => i.id === itemId);
+  const [item, log] = await Promise.all([getWatchlistItem(itemId), listViewingLog(itemId)]);
   const card = document.getElementById("watchlist-detail-card");
   if (!item || !card) {
     close();
@@ -919,8 +919,7 @@ async function renderWatchlistDetailCard(itemId, close) {
 // ohne Staffel-Rollover, der bleibt manuell über next_season_release_date (siehe Plan). Gibt die
 // neue Log-Zeilen-ID zurück, damit showCompleteUndoToast sie bei Rückgängig mit entfernen kann.
 export async function promptWatchlistRating(task) {
-  const items = await listWatchlistItems();
-  const item = items.find((i) => i.id === task.watchlist_item_id);
+  const item = task.watchlist_item_id ? await getWatchlistItem(task.watchlist_item_id) : null;
   if (!item) return null;
 
   return new Promise((resolve) => {
