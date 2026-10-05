@@ -1136,3 +1136,97 @@ left join (select trip_id,
            from tasks where trip_id is not null group by trip_id) m on m.trip_id = t.id
 left join (select trip_id, sum(amount) open_commitments from committed_expenses
            where status = 'open' group by trip_id) c on c.trip_id = t.id;
+
+-- ---------------------------------------------------------------------------------------------
+-- Wunschliste als Roguelike-Shop (Migration 20261004235410_wishlist_roguelike_shop): Monats-Runs,
+-- Münzbuch (coin_ledger) als gemeinsamer Spar-Stapel, berechnete Views coin_balance und shop
+-- (Wunschliste + Reisen mit Preisstufe, Fortschritt und 14 Tage Abkühlzeit).
+alter table wishlist_items
+  add column if not exists shop_since timestamptz,
+  add column if not exists bought_at timestamptz,
+  add column if not exists bought_price numeric,
+  add column if not exists note text;
+
+create or replace function public.wishlist_shop_since() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if new.status in ('active','ready') and new.shop_since is null then
+    new.shop_since := now();
+  end if;
+  if new.status = 'bought' and new.bought_at is null then
+    new.bought_at := now();
+  end if;
+  new.updated_at := now();
+  return new;
+end $$;
+drop trigger if exists wishlist_shop_since on wishlist_items;
+create trigger wishlist_shop_since before insert or update on wishlist_items
+  for each row execute function public.wishlist_shop_since();
+
+create table if not exists runs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id),
+  run_month date not null,
+  surplus numeric not null default 0,
+  note text,
+  closed_at timestamptz default now(),
+  unique (user_id, run_month)
+);
+alter table runs enable row level security;
+drop policy if exists "runs: own data" on runs;
+create policy "runs: own data" on runs for all
+  using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+create table if not exists coin_ledger (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id),
+  amount numeric not null,
+  kind text not null check (kind in ('run_end','purchase','correction','bonus')),
+  run_id uuid references runs(id) on delete set null,
+  wishlist_item_id uuid references wishlist_items(id) on delete set null,
+  trip_id uuid references trips(id) on delete set null,
+  note text,
+  created_at timestamptz default now()
+);
+create index if not exists coin_ledger_user_idx on coin_ledger(user_id);
+alter table coin_ledger enable row level security;
+drop policy if exists "coin_ledger: own data" on coin_ledger;
+create policy "coin_ledger: own data" on coin_ledger for all
+  using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+create or replace view coin_balance with (security_invoker = true) as
+select user_id, sum(amount) as balance,
+       sum(amount) filter (where kind = 'run_end') as earned_total,
+       -sum(amount) filter (where kind = 'purchase') as spent_total,
+       count(distinct run_id) as runs
+from coin_ledger group by user_id;
+
+create or replace view shop with (security_invoker = true) as
+with bal as (select user_id, balance from coin_balance),
+items as (
+  select w.user_id, w.id, 'wish'::text as source, w.title, w.category, w.priority,
+         w.current_price as price, w.shop_since, w.status as raw_status, w.product_url as url
+  from wishlist_items w
+  union all
+  select t.user_id, t.id, 'trip', coalesce(t.title, t.destination), 'enjoy', t.priority,
+         t.budget_target, t.created_at, t.status, null
+  from trips t
+  where t.status in ('traum','geplant') and t.budget_target is not null
+)
+select i.*,
+  case when i.price is null then null
+       when i.price < 100 then 'klein'
+       when i.price < 500 then 'mittel'
+       else 'gross' end as tier,
+  coalesce(b.balance, 0) as coins,
+  case when i.price > 0 then least(100, round(coalesce(b.balance,0) / i.price * 100)) end as progress_pct,
+  greatest(0, 14 - (current_date - i.shop_since::date)) as cooldown_days_left,
+  case
+    when i.raw_status in ('bought') then 'gekauft'
+    when i.source = 'wish' and i.raw_status = 'inactive' then 'idee'
+    when i.price is null then 'idee'
+    when i.shop_since is not null and current_date - i.shop_since::date < 14 then 'abkuehlen'
+    when coalesce(b.balance,0) >= i.price then 'leistbar'
+    else 'sparen'
+  end as shop_state
+from items i left join bal b on b.user_id = i.user_id;
