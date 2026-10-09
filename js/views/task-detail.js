@@ -158,6 +158,11 @@ function renderTaskDetailView(card, task, allTasks, children, comments, backButt
   if (isTaskOverdue(task)) badges.push(`<span class="badge badge-overdue">${BADGE_ICON_OVERDUE}Überfällig</span>`);
   if (isHabitTask(task)) badges.push(`<span class="badge badge-habit">${BADGE_ICON_HABIT}Habit</span>`);
 
+  // Herkunft eines Stamms (Abzweigung/Folgevorschlag, followup_source_id): innerhalb eines Stamms
+  // zeigt schon der Zurück-Button die Struktur, darum nur bei Top-Level-Aufgaben.
+  const originTask =
+    !task.parent_task_id && task.followup_source_id ? allTasks.find((t) => t.id === task.followup_source_id) : null;
+
   card.innerHTML = `
     ${backButtonHtml}
     <div class="modal-view-header">
@@ -167,6 +172,7 @@ function renderTaskDetailView(card, task, allTasks, children, comments, backButt
       <button type="button" class="icon-btn" id="td-edit" aria-label="Bearbeiten"></button>
     </div>
     <div class="modal-badges">${badges.join("")}</div>
+    ${originTask ? `<button type="button" class="task-title-btn td-origin" id="td-origin">entstanden aus: ${escapeHtml(originTask.title)}</button>` : ""}
 
     <div class="modal-subtasks">
       <div class="tree-subheading">Unteraufgaben${children.length ? ` (${doneChildren}/${children.length} erledigt)` : ""}</div>
@@ -226,6 +232,12 @@ function renderTaskDetailView(card, task, allTasks, children, comments, backButt
     document
       .getElementById("td-back")
       .addEventListener("click", () => renderTaskDetailCard(task.parent_task_id, close, false));
+  }
+
+  if (originTask) {
+    document
+      .getElementById("td-origin")
+      .addEventListener("click", () => renderTaskDetailCard(originTask.id, close, false));
   }
 
   document.getElementById("td-edit").addEventListener("click", () => renderTaskDetailCard(task.id, close, true));

@@ -158,9 +158,10 @@ create table if not exists task_followup_suggestions (
   effort integer check (effort in (5, 10, 30, 60)),
   status text default 'open' check (status in ('open', 'muted', 'accepted', 'dismissed')),
   created_at timestamptz default now(),
-  -- Themenbaum: 'folge' = nächster Schritt nach einer erledigten Aufgabe, 'erstaufgabe' = neue
-  -- Top-Level-Kopfaufgabe. placement: sibling = Schritt unter derselben Kopfaufgabe, deepen = neue
-  -- Kopfaufgabe topic_title darunter, new_root = neue Top-Level-Kopfaufgabe topic_title.
+  -- Stammbaum: 'folge' = nächster Schritt nach einer erledigten Aufgabe, 'erstaufgabe' = neuer
+  -- Stamm ohne Ursprungsaufgabe. placement: sibling = Schritt unter derselben Kopfaufgabe, deepen =
+  -- neue Kopfaufgabe topic_title darunter, new_root = neue Top-Level-Kopfaufgabe topic_title
+  -- (bei 'folge' eine Abzweigung, Herkunft bleibt über tasks.followup_source_id erhalten).
   kind text not null default 'folge'
     constraint task_followup_suggestions_kind_check check (kind in ('folge', 'erstaufgabe')),
   placement text not null default 'sibling'
@@ -174,8 +175,8 @@ create table if not exists task_followup_suggestions (
   created_task_id uuid references tasks(id) on delete set null,
   constraint task_followup_suggestions_folge_source_check
     check (kind <> 'folge' or source_task_id is not null),
-  constraint task_followup_suggestions_new_root_kind_check
-    check ((placement = 'new_root') = (kind = 'erstaufgabe')),
+  constraint task_followup_suggestions_erstaufgabe_placement_check
+    check (kind <> 'erstaufgabe' or placement = 'new_root'),
   constraint task_followup_suggestions_topic_title_check
     check (placement not in ('deepen', 'new_root') or topic_title is not null)
 );

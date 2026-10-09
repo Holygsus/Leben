@@ -3851,8 +3851,14 @@ body.has-bg-image .task-item {
 }
 
 /* Mehrzeilige Optionen (Vertiefung, Mutteraufgaben): Checkbox oben statt mittig ausrichten. */
-.followup-option:has(.followup-reason, .followup-step) {
+.followup-option:has(.followup-topic, .followup-reason) {
   align-items: flex-start;
+}
+
+.td-origin {
+  align-self: flex-start;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
 }
 
 .followup-topic {

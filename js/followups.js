@@ -63,7 +63,8 @@ export async function resolveFollowupGroup(group, acceptedIds) {
   // Themenbaum (wissensdatenbank/features/folgeaufgaben-vorschlaege.md): die Kopfaufgabe des
   // erledigten Schritts ist dessen Mutter; Altbestand ohne Mutter → die Ursprungsaufgabe selbst.
   // sibling hängt den neuen Schritt direkt darunter, deepen legt darunter eine neue Kopfaufgabe
-  // topic_title an und den Schritt in diese.
+  // topic_title an und den Schritt in diese. new_root (Abzweigung) löst sich vom Stamm: neue
+  // Top-Level-Kopfaufgabe im Bereich des Vorschlags, Herkunft nur noch über followup_source_id.
   const headId = group.sourceTask.parentTaskId || group.sourceTask.id;
   let head = null;
   if (group.suggestions.some((s) => accepted.has(s.id))) {
@@ -77,7 +78,7 @@ export async function resolveFollowupGroup(group, acceptedIds) {
   }
   for (const s of group.suggestions) {
     if (accepted.has(s.id)) {
-      const createdTaskId = await createFromSuggestion(s, head);
+      const createdTaskId = await createFromSuggestion(s, s.placement === "new_root" ? null : head);
       await updateSuggestion(s.id, { status: "accepted", created_task_id: createdTaskId });
     } else {
       await updateSuggestion(s.id, { status: "dismissed" });
@@ -90,7 +91,8 @@ export async function resolveFollowupGroup(group, acceptedIds) {
   if (error) throw error;
 }
 
-// Legt die Aufgabe(n) zu einem Vorschlag an. parent = Kopfaufgabe {id, area_id}, unter die der
+// Legt die Aufgabe(n) zu einem Vorschlag an. Rollen: parent_task_id = Struktur innerhalb eines
+// Stamms, followup_source_id = Herkunft (auch über Stammgrenzen hinweg, z. B. bei Abzweigungen). parent = Kopfaufgabe {id, area_id}, unter die der
 // Vorschlag gehört (null bei new_root → Top-Level im Bereich area_id des Vorschlags). Gibt bei
 // deepen/new_root die ID der neuen Kopfaufgabe zurück (für created_task_id), bei sibling null.
 // Unter einer Kopfaufgabe erbt alles deren Bereich: die Übersicht baut den Baum je Bereich, ein

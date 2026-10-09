@@ -330,8 +330,8 @@ export function openFollowupPopup(groups) {
                 <input type="checkbox" data-suggestion-id="${escapeHtml(s.id)}" />
                 ${s.frame ? `<span class="followup-frame">${escapeHtml(s.frame)}</span>` : ""}
                 <span class="followup-title">${
-                  s.placement === "deepen" && s.topic_title
-                    ? `<span class="followup-topic">Neues Unterthema: ${escapeHtml(s.topic_title)}</span> → erster Schritt: ${escapeHtml(s.title)}`
+                  (s.placement === "deepen" || s.placement === "new_root") && s.topic_title
+                    ? `<span class="followup-topic">${s.placement === "deepen" ? "Neues Unterthema" : "Neuer Stamm"}: ${escapeHtml(s.topic_title)}</span> → erster Schritt: ${escapeHtml(s.title)}`
                     : escapeHtml(s.title)
                 }${s.reason ? `<span class="followup-reason">${escapeHtml(s.reason)}</span>` : ""}</span>
               </label>`

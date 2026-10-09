@@ -1,5 +1,6 @@
--- Themenbaum: Folgevorschläge mit Platzierung (sibling/deepen) und Erstaufgaben (new_root) für
--- neue Kopfaufgaben ohne Ursprungsaufgabe. Pulse schreibt diese Felder, die App übernimmt danach.
+-- Themenbaum/Stammbaum: Folgevorschläge mit Platzierung (sibling = Schritt, deepen = Vertiefung,
+-- new_root = Abzweigung zu einem neuen Stamm) und Erstaufgaben (immer new_root, ohne
+-- Ursprungsaufgabe). Pulse schreibt diese Felder, die App übernimmt danach.
 alter table task_followup_suggestions alter column source_task_id drop not null;
 
 alter table task_followup_suggestions
@@ -19,8 +20,8 @@ alter table task_followup_suggestions
     check (placement in ('sibling', 'deepen', 'new_root')),
   add constraint task_followup_suggestions_folge_source_check
     check (kind <> 'folge' or source_task_id is not null),
-  add constraint task_followup_suggestions_new_root_kind_check
-    check ((placement = 'new_root') = (kind = 'erstaufgabe')),
+  add constraint task_followup_suggestions_erstaufgabe_placement_check
+    check (kind <> 'erstaufgabe' or placement = 'new_root'),
   add constraint task_followup_suggestions_topic_title_check
     check (placement not in ('deepen', 'new_root') or topic_title is not null);
 
