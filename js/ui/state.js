@@ -23,6 +23,8 @@ export const state = {
   // In-Memory-Snooze: klickt der Nutzer das Popup weg, ohne zu entscheiden, poppt es nicht bei jedem
   // Re-Render erneut auf — bleibt aber über die Cockpit-Kachel und beim nächsten App-Start erreichbar.
   followupPopupSnoozed: false,
+  // Dasselbe für das zweite Fenster "Neue Mutteraufgaben" (Erstaufgaben).
+  erstaufgabenPopupSnoozed: false,
 };
 
 // renderShell() lebt in app.js (Router), wird aber auch aus ui/popups.js aufgerufen. Statt eines

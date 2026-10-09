@@ -17,11 +17,11 @@ import {
 import { listWatchlistItems, isWatchlistTask, listBroadcastProgram, defaultOpenIndex } from "../watchlist.js";
 import { listPantryItems } from "../pantry.js";
 import { listGames } from "../games.js";
-import { listOpenFollowupGroups, countOpenFollowups } from "../followups.js";
+import { listOpenFollowupGroups, countOpenFollowups, listOpenErstaufgaben, countOpenErstaufgaben } from "../followups.js";
 import { todayISO } from "../ui/dates.js";
 import { escapeHtml } from "../ui/dom.js";
 import { withErrorToast } from "../ui/modals.js";
-import { openFollowupPopup } from "../ui/popups.js";
+import { openFollowupPopup, openErstaufgabenPopup } from "../ui/popups.js";
 import { state } from "../ui/state.js";
 import { buildCurrentEpisodeLabel } from "./fernsehprogramm.js";
 import { pantryExpiryStatus } from "./kuehlschrank.js";
@@ -122,7 +122,10 @@ export async function renderCockpitView() {
 
   // Folgevorschläge: Kachel nur zeigen, wenn welche offen sind. Klick öffnet direkt das Popup
   // (kein eigener Tab/Route), siehe wissensdatenbank/features/folgeaufgaben-vorschlaege.md.
-  const openFollowups = await countOpenFollowups().catch(() => 0);
+  const [openFollowups, openErstaufgaben] = await Promise.all([
+    countOpenFollowups().catch(() => 0),
+    countOpenErstaufgaben().catch(() => 0),
+  ]);
   if (myGeneration !== state.renderGeneration) return;
 
   const habitsHasDue = dueHabits.length > 0;
@@ -154,6 +157,17 @@ export async function renderCockpitView() {
     tile.addEventListener("click", async () => {
       state.followupPopupSnoozed = false;
       openFollowupPopup(await listOpenFollowupGroups());
+    });
+    grid.append(tile);
+  }
+  if (openErstaufgaben > 0) {
+    const tile = buildCockpitTile("Neue Mutteraufgaben", `${openErstaufgaben} offen`, null, {
+      color: "var(--color-accent-warm)",
+      hero: true,
+    });
+    tile.addEventListener("click", async () => {
+      state.erstaufgabenPopupSnoozed = false;
+      openErstaufgabenPopup(await listOpenErstaufgaben());
     });
     grid.append(tile);
   }

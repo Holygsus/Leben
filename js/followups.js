@@ -11,6 +11,7 @@ export async function listOpenFollowupGroups() {
   const { data: suggestions, error } = await supabase
     .from("task_followup_suggestions")
     .select("*")
+    .eq("kind", "folge")
     .eq("status", "open")
     .order("created_at", { ascending: true });
   if (error) throw error;
@@ -48,6 +49,7 @@ export async function countOpenFollowups() {
   const { data, error } = await supabase
     .from("task_followup_suggestions")
     .select("source_task_id")
+    .eq("kind", "folge")
     .eq("status", "open");
   if (error) throw error;
   return new Set((data || []).map((s) => s.source_task_id)).size;
@@ -58,23 +60,27 @@ export async function countOpenFollowups() {
 // acceptedIds = Menge der angehakten Vorschlags-IDs (kann leer sein → nichts übernommen).
 export async function resolveFollowupGroup(group, acceptedIds) {
   const accepted = new Set(acceptedIds);
-  // Übernommene Folgeaufgaben nesten unter der MUTTER (Themenbaum-Staffelung, siehe
-  // wissensdatenbank/features/folgeaufgaben-vorschlaege.md): ist die Ursprungsaufgabe selbst eine
-  // Unteraufgabe, hängt die Folgeaufgabe unter dieselbe Mutter (Geschwister); ist sie schon eine
-  // Mutter/Top-Level, direkt darunter. So bleibt der Baum sichtbar statt flach zu zerfallen.
-  const motherId = group.sourceTask.parentTaskId || group.sourceTask.id;
+  // Themenbaum (wissensdatenbank/features/folgeaufgaben-vorschlaege.md): die Kopfaufgabe des
+  // erledigten Schritts ist dessen Mutter; Altbestand ohne Mutter → die Ursprungsaufgabe selbst.
+  // sibling hängt den neuen Schritt direkt darunter, deepen legt darunter eine neue Kopfaufgabe
+  // topic_title an und den Schritt in diese.
+  const headId = group.sourceTask.parentTaskId || group.sourceTask.id;
+  let head = null;
+  if (group.suggestions.some((s) => accepted.has(s.id))) {
+    const { data, error: headError } = await supabase
+      .from("tasks")
+      .select("id, area_id")
+      .eq("id", headId)
+      .maybeSingle();
+    if (headError) throw headError;
+    head = data || { id: headId, area_id: null };
+  }
   for (const s of group.suggestions) {
     if (accepted.has(s.id)) {
-      await createTask({
-        title: s.title,
-        areaId: s.area_id,
-        effort: s.effort,
-        parentTaskId: motherId,
-        followupSourceId: s.source_task_id,
-      });
-      await updateSuggestionStatus(s.id, "accepted");
+      const createdTaskId = await createFromSuggestion(s, head);
+      await updateSuggestion(s.id, { status: "accepted", created_task_id: createdTaskId });
     } else {
-      await updateSuggestionStatus(s.id, "dismissed");
+      await updateSuggestion(s.id, { status: "dismissed" });
     }
   }
   const { error } = await supabase
@@ -84,10 +90,87 @@ export async function resolveFollowupGroup(group, acceptedIds) {
   if (error) throw error;
 }
 
-async function updateSuggestionStatus(id, status) {
+// Legt die Aufgabe(n) zu einem Vorschlag an. parent = Kopfaufgabe {id, area_id}, unter die der
+// Vorschlag gehört (null bei new_root → Top-Level im Bereich area_id des Vorschlags). Gibt bei
+// deepen/new_root die ID der neuen Kopfaufgabe zurück (für created_task_id), bei sibling null.
+// Unter einer Kopfaufgabe erbt alles deren Bereich: die Übersicht baut den Baum je Bereich, ein
+// Kind mit abweichendem area_id wäre dort unsichtbar (vgl. cascadeAreaChange in js/tasks.js).
+async function createFromSuggestion(suggestion, parent) {
+  const s = parent ? { ...suggestion, area_id: parent.area_id } : suggestion;
+  const parentId = parent ? parent.id : null;
+  const followupSourceId = s.source_task_id || null;
+  if (s.placement === "deepen" || s.placement === "new_root") {
+    // effort nur auf dem Schritt — die Kopfaufgabe ist ein Container, kein Plan-Kandidat.
+    const head = await createTask({
+      title: s.topic_title,
+      areaId: s.area_id,
+      isBrainstorm: !s.area_id,
+      parentTaskId: parentId,
+      followupSourceId,
+    });
+    await createTask({
+      title: s.title,
+      areaId: s.area_id,
+      isBrainstorm: !s.area_id,
+      effort: s.effort,
+      parentTaskId: head.id,
+      followupSourceId,
+    });
+    return head.id;
+  }
+  await createTask({
+    title: s.title,
+    areaId: s.area_id,
+    isBrainstorm: !s.area_id,
+    effort: s.effort,
+    parentTaskId: parentId,
+    followupSourceId,
+  });
+  return null;
+}
+
+// ----- Erstaufgaben ("Neue Mutteraufgaben") -----
+// kind='erstaufgabe', placement='new_root': Pulse schlägt ein ganz neues Thema vor. Übernehmen legt
+// eine Top-Level-Kopfaufgabe topic_title mit dem ersten Schritt title darunter an.
+
+export async function listOpenErstaufgaben() {
+  const { data, error } = await supabase
+    .from("task_followup_suggestions")
+    .select("*")
+    .eq("kind", "erstaufgabe")
+    .eq("status", "open")
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function countOpenErstaufgaben() {
+  const { count, error } = await supabase
+    .from("task_followup_suggestions")
+    .select("id", { count: "exact", head: true })
+    .eq("kind", "erstaufgabe")
+    .eq("status", "open");
+  if (error) throw error;
+  return count || 0;
+}
+
+// Übernimmt die angehakten Erstaufgaben, verwirft alle übrigen angezeigten.
+export async function resolveErstaufgaben(suggestions, acceptedIds) {
+  const accepted = new Set(acceptedIds);
+  for (const s of suggestions) {
+    if (accepted.has(s.id)) {
+      const createdTaskId = await createFromSuggestion(s, null);
+      await updateSuggestion(s.id, { status: "accepted", created_task_id: createdTaskId });
+    } else {
+      await updateSuggestion(s.id, { status: "dismissed" });
+    }
+  }
+}
+
+async function updateSuggestion(id, updates) {
   const { error } = await supabase
     .from("task_followup_suggestions")
-    .update({ status })
+    .update(updates)
     .eq("id", id);
   if (error) throw error;
 }
