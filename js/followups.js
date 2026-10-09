@@ -94,7 +94,8 @@ export async function resolveFollowupGroup(group, acceptedIds) {
 // Legt die Aufgabe(n) zu einem Vorschlag an. Rollen: parent_task_id = Struktur innerhalb eines
 // Stamms, followup_source_id = Herkunft (auch über Stammgrenzen hinweg, z. B. bei Abzweigungen). parent = Kopfaufgabe {id, area_id}, unter die der
 // Vorschlag gehört (null bei new_root → Top-Level im Bereich area_id des Vorschlags). Gibt bei
-// deepen/new_root die ID der neuen Kopfaufgabe zurück (für created_task_id), bei sibling null.
+// deepen/new_root die ID der neuen Kopfaufgabe zurück, bei sibling die des neuen Schritts (für
+// created_task_id — so lässt sich auch bei normalen Schritten messen, ob Übernommenes erledigt wird).
 // Unter einer Kopfaufgabe erbt alles deren Bereich: die Übersicht baut den Baum je Bereich, ein
 // Kind mit abweichendem area_id wäre dort unsichtbar (vgl. cascadeAreaChange in js/tasks.js).
 async function createFromSuggestion(suggestion, parent) {
@@ -120,7 +121,7 @@ async function createFromSuggestion(suggestion, parent) {
     });
     return head.id;
   }
-  await createTask({
+  const step = await createTask({
     title: s.title,
     areaId: s.area_id,
     isBrainstorm: !s.area_id,
@@ -128,7 +129,7 @@ async function createFromSuggestion(suggestion, parent) {
     parentTaskId: parentId,
     followupSourceId,
   });
-  return null;
+  return step.id;
 }
 
 // ----- Erstaufgaben ("Neue Mutteraufgaben") -----
