@@ -150,19 +150,43 @@ create index if not exists task_comments_task_id_idx on task_comments (task_id);
 create table if not exists task_followup_suggestions (
   id uuid default gen_random_uuid() primary key,
   user_id uuid references auth.users not null,
-  source_task_id uuid references tasks(id) on delete cascade not null,
+  -- null nur bei kind='erstaufgabe' (neue Kopfaufgabe ohne Ursprungsaufgabe).
+  source_task_id uuid references tasks(id) on delete cascade,
   area_id uuid references areas on delete set null,
   title text not null,
   frame text,
   effort integer check (effort in (5, 10, 30, 60)),
   status text default 'open' check (status in ('open', 'muted', 'accepted', 'dismissed')),
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  -- Stammbaum: 'folge' = nächster Schritt nach einer erledigten Aufgabe, 'erstaufgabe' = neuer
+  -- Stamm ohne Ursprungsaufgabe. placement: sibling = Schritt unter derselben Kopfaufgabe, deepen =
+  -- neue Kopfaufgabe topic_title darunter, new_root = neue Top-Level-Kopfaufgabe topic_title
+  -- (bei 'folge' eine Abzweigung, Herkunft bleibt über tasks.followup_source_id erhalten).
+  kind text not null default 'folge'
+    constraint task_followup_suggestions_kind_check check (kind in ('folge', 'erstaufgabe')),
+  placement text not null default 'sibling'
+    constraint task_followup_suggestions_placement_check check (placement in ('sibling', 'deepen', 'new_root')),
+  topic_title text,
+  reason text,
+  -- Reine Referenzen in ein anderes Supabase-Projekt (Gedächtnispalast), bewusst ohne FK.
+  palace_place_id uuid,
+  spark_id uuid,
+  -- Setzt die App beim Übernehmen (bei deepen/new_root die neu angelegte Kopfaufgabe).
+  created_task_id uuid references tasks(id) on delete set null,
+  constraint task_followup_suggestions_folge_source_check
+    check (kind <> 'folge' or source_task_id is not null),
+  constraint task_followup_suggestions_erstaufgabe_placement_check
+    check (kind <> 'erstaufgabe' or placement = 'new_root'),
+  constraint task_followup_suggestions_topic_title_check
+    check (placement not in ('deepen', 'new_root') or topic_title is not null)
 );
 
 create index if not exists task_followup_suggestions_source_task_id_idx
   on task_followup_suggestions (source_task_id);
 create index if not exists task_followup_suggestions_user_status_idx
   on task_followup_suggestions (user_id, status);
+create index if not exists task_followup_suggestions_user_kind_status_idx
+  on task_followup_suggestions (user_id, kind, status);
 
 -- Weicher Themen-Dämpfer: wie oft ein Vorschlags-Thema angeboten-und-nie-gewählt wurde. Kein
 -- Zähler, der Wiederholungen erzwingt — nur Dämpfer-Eingabe für den Skill. Nur der Skill greift zu.

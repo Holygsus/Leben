@@ -221,7 +221,9 @@ export async function completeTaskCascade(rootTask, allTasks) {
         .update({ followup_status: "suggested" })
         .eq("id", rootTask.id);
       if (flagError) throw flagError;
-    } else {
+    } else if (!allTasks.some((t) => t.parent_task_id === rootTask.id)) {
+      // Kopfaufgaben (Themenbaum-Container mit Kindern) bekommen kein 'pending': Folgevorschläge
+      // entstehen an den einzelnen Schritten, nicht am Thema als Ganzes.
       const { error: flagError } = await supabase
         .from("tasks")
         .update({ followup_status: "pending" })

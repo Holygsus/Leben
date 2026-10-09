@@ -3571,6 +3571,8 @@ body.has-bg-image .task-item {
 
 .tree-node-name {
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-weight: 500;
 }
 
@@ -3822,6 +3824,13 @@ body.has-bg-image .task-item {
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-1) 0;
+  /* .checkbox-label ist nowrap — lange Vorschlagstitel liefen sonst rechts aus dem Modal. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.followup-option input[type="checkbox"] {
+  flex: 0 0 auto;
 }
 
 .followup-frame {
@@ -3838,6 +3847,33 @@ body.has-bg-image .task-item {
 
 .followup-title {
   flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Mehrzeilige Optionen (Vertiefung, Mutteraufgaben): Checkbox oben statt mittig ausrichten. */
+.followup-option:has(.followup-topic, .followup-reason) {
+  align-items: flex-start;
+}
+
+.td-origin {
+  align-self: flex-start;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.followup-topic {
+  font-weight: 600;
+}
+
+.followup-step,
+.followup-reason {
+  display: block;
+}
+
+.followup-reason {
+  margin-top: 2px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
 }
 
 /* ---------- Fernsehprogramm (Sender-Autopilot, broadcast_program) ----------

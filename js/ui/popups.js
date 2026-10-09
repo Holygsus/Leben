@@ -2,7 +2,7 @@
 import { createThought } from "../thoughts.js";
 import { createTaskFeedback } from "../feedback.js";
 import { getReflectionForDate, createReflection } from "../reflections.js";
-import { listOpenFollowupGroups, resolveFollowupGroup } from "../followups.js";
+import { listOpenFollowupGroups, resolveFollowupGroup, listOpenErstaufgaben, resolveErstaufgaben } from "../followups.js";
 import { todayISO } from "./dates.js";
 import { escapeHtml } from "./dom.js";
 import { showToast, withErrorToast } from "./modals.js";
@@ -31,7 +31,7 @@ let thoughtNudgeOpen = false;
 
 export function maybeShowThoughtNudge() {
   // Nie zwei Popups gleichzeitig — modal-root wird von Reflexion/Folgeaufgaben/Feedback geteilt.
-  if (thoughtNudgeOpen || reflectionPopupOpen || followupPopupOpen) return;
+  if (thoughtNudgeOpen || reflectionPopupOpen || followupPopupOpen || erstaufgabenPopupOpen) return;
   if (document.getElementById("modal-root").innerHTML.trim()) return;
   if (new Date().getHours() >= 22) return;
   const today = todayISO();
@@ -262,13 +262,22 @@ export function openTaskFeedbackSheet(task) {
 
 let followupPopupOpen = false;
 
+// Render-Hook (renderShell): erst die Folgevorschläge, danach — bzw. allein, wenn keine offen oder
+// das Popup weggeklickt ist — die "Neue Mutteraufgaben". Das zweite Fenster wird außerdem direkt
+// beim Schließen des ersten nachgeschoben (siehe openFollowupPopup).
 export async function maybeShowFollowupPopup() {
-  if (followupPopupOpen || state.followupPopupSnoozed) return;
+  if (followupPopupOpen || erstaufgabenPopupOpen) return;
   // Kein zweites Modal über ein bereits offenes (z. B. die Tagesreflexion) legen.
   if (state.closeActiveModal) return;
-  const groups = await listOpenFollowupGroups().catch(() => []);
-  if (!groups.length) return;
-  openFollowupPopup(groups);
+  if (!state.followupPopupSnoozed) {
+    const groups = await listOpenFollowupGroups().catch(() => []);
+    if (groups.length) {
+      if (followupPopupOpen || erstaufgabenPopupOpen || state.closeActiveModal) return;
+      openFollowupPopup(groups);
+      return;
+    }
+  }
+  await maybeShowErstaufgabenPopup();
 }
 
 // Öffnet das "Neue Vorschläge"-Popup direkt im Abschluss-Moment, wenn completeTaskCascade beim
@@ -295,6 +304,8 @@ export function openFollowupPopup(groups) {
   const snooze = () => {
     state.followupPopupSnoozed = true;
     close();
+    // Zweites Fenster direkt im Anschluss (nach Bestätigen übernimmt das der renderShell()-Hook).
+    maybeShowErstaufgabenPopup();
   };
   const onKeydown = (e) => {
     if (e.key === "Escape") snooze();
@@ -318,7 +329,11 @@ export function openFollowupPopup(groups) {
               <label class="checkbox-label followup-option">
                 <input type="checkbox" data-suggestion-id="${escapeHtml(s.id)}" />
                 ${s.frame ? `<span class="followup-frame">${escapeHtml(s.frame)}</span>` : ""}
-                <span class="followup-title">${escapeHtml(s.title)}</span>
+                <span class="followup-title">${
+                  (s.placement === "deepen" || s.placement === "new_root") && s.topic_title
+                    ? `<span class="followup-topic">${s.placement === "deepen" ? "Neues Unterthema" : "Neuer Stamm"}: ${escapeHtml(s.topic_title)}</span> → erster Schritt: ${escapeHtml(s.title)}`
+                    : escapeHtml(s.title)
+                }${s.reason ? `<span class="followup-reason">${escapeHtml(s.reason)}</span>` : ""}</span>
               </label>`
               )
               .join("")}
@@ -351,6 +366,89 @@ export function openFollowupPopup(groups) {
       }
       close();
       showToast(created ? `${created} Folgeaufgabe(n) übernommen.` : "Vorschläge geschlossen.");
+      renderShell();
+    });
+  });
+}
+
+// ----- "Neue Mutteraufgaben" (Erstaufgaben, kind='erstaufgabe') -----
+// Pulse schlägt ganz neue Themen vor; Übernehmen legt je Kandidat eine Top-Level-Kopfaufgabe mit
+// erstem Schritt an (js/followups.js resolveErstaufgaben). Gleicher Stil wie "Neue Vorschläge",
+// eigener Snooze (state.erstaufgabenPopupSnoozed).
+
+let erstaufgabenPopupOpen = false;
+
+export async function maybeShowErstaufgabenPopup() {
+  if (followupPopupOpen || erstaufgabenPopupOpen || state.erstaufgabenPopupSnoozed) return;
+  if (state.closeActiveModal) return;
+  const candidates = await listOpenErstaufgaben().catch(() => []);
+  if (!candidates.length) return;
+  // Während des Ladens kann ein anderes Popup aufgegangen sein.
+  if (followupPopupOpen || erstaufgabenPopupOpen || state.closeActiveModal) return;
+  openErstaufgabenPopup(candidates);
+}
+
+export function openErstaufgabenPopup(candidates) {
+  if (!candidates.length) return;
+  erstaufgabenPopupOpen = true;
+  const root = document.getElementById("modal-root");
+  document.body.style.overflow = "hidden";
+
+  const close = () => {
+    root.innerHTML = "";
+    document.body.style.overflow = "";
+    document.removeEventListener("keydown", onKeydown);
+    state.closeActiveModal = null;
+    erstaufgabenPopupOpen = false;
+  };
+  const snooze = () => {
+    state.erstaufgabenPopupSnoozed = true;
+    close();
+  };
+  const onKeydown = (e) => {
+    if (e.key === "Escape") snooze();
+  };
+  document.addEventListener("keydown", onKeydown);
+  state.closeActiveModal = snooze;
+
+  root.innerHTML = `
+    <div class="modal-backdrop" id="erstaufgaben-backdrop">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-label="Neue Mutteraufgaben">
+        <h2>Neue Mutteraufgaben</h2>
+        <p class="followup-intro">Welche neuen Themen willst du anfangen?</p>
+        ${candidates
+          .map(
+            (s) => `
+          <label class="checkbox-label followup-option">
+            <input type="checkbox" data-suggestion-id="${escapeHtml(s.id)}" />
+            ${s.frame ? `<span class="followup-frame">${escapeHtml(s.frame)}</span>` : ""}
+            <span class="followup-title">
+              <span class="followup-topic">${escapeHtml(s.topic_title || s.title)}</span>
+              <span class="followup-step">Erster Schritt: ${escapeHtml(s.title)}${s.effort ? ` · ${s.effort} min` : ""}</span>
+              ${s.reason ? `<span class="followup-reason">${escapeHtml(s.reason)}</span>` : ""}
+            </span>
+          </label>`
+          )
+          .join("")}
+        <div class="modal-actions">
+          <button class="btn" type="button" id="erstaufgaben-confirm">Bestätigen</button>
+          <button class="btn btn-secondary" type="button" id="erstaufgaben-later">Später</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById("erstaufgaben-backdrop").addEventListener("click", (e) => {
+    if (e.target.id === "erstaufgaben-backdrop") snooze();
+  });
+  document.getElementById("erstaufgaben-later").addEventListener("click", snooze);
+
+  document.getElementById("erstaufgaben-confirm").addEventListener("click", async () => {
+    const acceptedIds = [...root.querySelectorAll("input[type=checkbox]:checked")].map((c) => c.dataset.suggestionId);
+    await withErrorToast(async () => {
+      // Wie bei den Folgevorschlägen: alles Angezeigte wird entschieden, Nicht-Angehaktes verworfen.
+      await resolveErstaufgaben(candidates, acceptedIds);
+      close();
+      showToast(acceptedIds.length ? `${acceptedIds.length} neue Mutteraufgabe(n) angelegt.` : "Vorschläge geschlossen.");
       renderShell();
     });
   });
