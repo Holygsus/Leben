@@ -159,23 +159,26 @@ Pulse-Einträge zu ihren Belegen passen. Läuft jedes Mal, wenn der Pulse etwas 
 
 ### 6. Pulse-Log und Pulse-Briefing
 
-Pulse-Log schreiben (siehe unten), dann das **Pulse-Briefing**: eine kurze Zusammenfassung mit
-den Key Facts, was dieser Lauf gemacht hat. Deutsch, handytauglich, im Bild bleiben (keine
-Tabellen-, SQL- oder Agenten-Erzählung). Nur Zeilen mit Inhalt, leere weglassen:
+Pulse-Log schreiben (siehe unten), dann das **Pulse-Briefing**: die Key Facts und Erkenntnisse
+des Laufs, im Ton des Weekly (Skill `life-os-weekly-review`, Abschnitt „Ton“), nur viel kürzer.
+Kein Inventar dessen, was angelegt wurde, kein Fortschrittszähler-Ton. Das Popup zeigt die
+Vorschläge ohnehin.
 
-```
-Pulse 09.10.
-• Folgevorschläge: 4 zu Padel (inkl. Boss-Level), 2 zu KI – im Popup
-• Neue Mutteraufgaben: 3 Kandidaten zur Auswahl (Musik, Leben OS, Schach)
-• Events: Padel spielen (18:30) am Sa 11.10. – an dem Tag steht schon Kino mit Lynn (20 Uhr) an
-• Funke: Schach × Astronomie (Belege: …)
-• Palast: Padel und KI nachgezogen, Lynn ergänzt, Prüfer: sauber
-• Offen: „nächste Woche“ bei Padel – welcher Tag?
-```
+- **2–5 Sätze.** Trocken, Beobachtung als Fakt, nie als Frage. Konkrete Namen statt Zahlen.
+- **Handlungen als vollzogen**: „Padel am Samstag steht im Plan“, nicht „Soll ich …?“.
+- **Höchstens eine Erkenntnis**, wenn die Daten eine hergeben (Muster, Kontrast, Gegenbeweis
+  zur Klein-machen-Tendenz). Lieber keine als eine erzwungene.
+- **Nur Nötiges extra**: eine echte Rückfrage (unklares Datum), ein voller Tag, warum weniger
+  kam (Wachstumsbremse, Wiedereinstieg). Sonst nichts.
+- Leerer Tag → ein Satz („Ruhiger Tag, nichts Neues.“) bzw. beim automatischen Lauf gar nichts.
 
-- Bei Events: Steht an dem Tag schon etwas an, im selben Punkt kurz darauf hinweisen.
-- Wachstumsbremse oder Wiedereinstieg aktiv → eine Zeile, warum weniger kam.
-- Leerer Tag → ein Satz („Pulse: nichts Neues.“) bzw. beim automatischen Lauf gar nichts.
+Beispiele:
+> „Padel läuft: zweite 4/5 in Folge, deine Frage nach den Schlagtechniken ist jetzt der erste
+> Vorschlag. Samstag 18:30 steht im Plan, um 20 Uhr ist schon Kino mit Lynn, knapp, aber machbar.
+> Bei Warhammer stehen drei Einstiege zur Wahl.“
+
+> „Drittes Mal in zwei Wochen, dass du bei KI nach Effizienz fragst statt nach Grundlagen. Das
+> ist kein Anfängerinteresse mehr. Die Vorschläge zielen jetzt auf Prompting statt Basiswissen.“
 
 ## Prompt-Vorlage für Subagents
 
