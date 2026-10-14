@@ -416,18 +416,36 @@ export function openErstaufgabenPopup(candidates) {
       <div class="modal-card" role="dialog" aria-modal="true" aria-label="Neue Mutteraufgaben">
         <h2>Neue Mutteraufgaben</h2>
         <p class="followup-intro">Welche neuen Themen willst du anfangen?</p>
-        ${candidates
-          .map(
-            (s) => `
+        ${groupErstaufgaben(candidates)
+          .map((g) =>
+            g.steps.length === 1
+              ? `
           <label class="checkbox-label followup-option">
-            <input type="checkbox" data-suggestion-id="${escapeHtml(s.id)}" />
-            ${s.frame ? `<span class="followup-frame">${escapeHtml(s.frame)}</span>` : ""}
+            <input type="checkbox" data-suggestion-id="${escapeHtml(g.steps[0].id)}" />
+            ${g.steps[0].frame ? `<span class="followup-frame">${escapeHtml(g.steps[0].frame)}</span>` : ""}
             <span class="followup-title">
-              <span class="followup-topic">${escapeHtml(s.topic_title || s.title)}</span>
-              <span class="followup-step">Erster Schritt: ${escapeHtml(s.title)}${s.effort ? ` · ${s.effort} min` : ""}</span>
-              ${s.reason ? `<span class="followup-reason">${escapeHtml(s.reason)}</span>` : ""}
+              <span class="followup-topic">${escapeHtml(g.topic)}</span>
+              <span class="followup-step">Erster Schritt: ${escapeHtml(g.steps[0].title)}${g.steps[0].effort ? ` · ${g.steps[0].effort} min` : ""}</span>
+              ${g.steps[0].reason ? `<span class="followup-reason">${escapeHtml(g.steps[0].reason)}</span>` : ""}
             </span>
           </label>`
+              : `
+          <div class="followup-group">
+            <h3 class="followup-source-title">${escapeHtml(g.topic)} · ${g.steps.length} Zweige</h3>
+            ${g.steps
+              .map(
+                (s) => `
+            <label class="checkbox-label followup-option">
+              <input type="checkbox" data-suggestion-id="${escapeHtml(s.id)}" />
+              ${s.frame ? `<span class="followup-frame">${escapeHtml(s.frame)}</span>` : ""}
+              <span class="followup-title">
+                <span class="followup-step">${escapeHtml(s.title)}${s.effort ? ` · ${s.effort} min` : ""}</span>
+                ${s.reason ? `<span class="followup-reason">${escapeHtml(s.reason)}</span>` : ""}
+              </span>
+            </label>`
+              )
+              .join("")}
+          </div>`
           )
           .join("")}
         <div class="modal-actions">
@@ -448,10 +466,25 @@ export function openErstaufgabenPopup(candidates) {
       // Wie bei den Folgevorschlägen: alles Angezeigte wird entschieden, Nicht-Angehaktes verworfen.
       await resolveErstaufgaben(candidates, acceptedIds);
       close();
-      showToast(acceptedIds.length ? `${acceptedIds.length} neue Mutteraufgabe(n) angelegt.` : "Vorschläge geschlossen.");
+      const acceptedTopics = new Set(
+        candidates.filter((c) => acceptedIds.includes(c.id)).map((c) => c.topic_title || c.title)
+      ).size;
+      showToast(acceptedTopics ? `${acceptedTopics} neue Mutteraufgabe(n) angelegt.` : "Vorschläge geschlossen.");
       renderShell();
     });
   });
+}
+
+// Bündelt Erstaufgaben nach topic_title (Zweige desselben Themas, Spinnennetz-Regel), Reihenfolge
+// nach erstem Auftreten. Ohne topic_title steht der Vorschlag für sich.
+function groupErstaufgaben(candidates) {
+  const groups = new Map();
+  for (const s of candidates) {
+    const topic = s.topic_title || s.title;
+    if (!groups.has(topic)) groups.set(topic, { topic, steps: [] });
+    groups.get(topic).steps.push(s);
+  }
+  return [...groups.values()];
 }
 
 // Attribut-sichere Variante der Ursprungs-ID für den Selektor oben (UUIDs sind unkritisch, aber so
