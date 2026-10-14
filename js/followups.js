@@ -67,6 +67,8 @@ export async function resolveFollowupGroup(group, acceptedIds) {
   // Top-Level-Kopfaufgabe im Bereich des Vorschlags, Herkunft nur noch über followup_source_id.
   const headId = group.sourceTask.parentTaskId || group.sourceTask.id;
   let head = null;
+  // Gleiche topic_title innerhalb einer Gruppe → eine gemeinsame Kopfaufgabe statt Dubletten.
+  const headCache = new Map();
   if (group.suggestions.some((s) => accepted.has(s.id))) {
     const { data, error: headError } = await supabase
       .from("tasks")
@@ -78,7 +80,7 @@ export async function resolveFollowupGroup(group, acceptedIds) {
   }
   for (const s of group.suggestions) {
     if (accepted.has(s.id)) {
-      const createdTaskId = await createFromSuggestion(s, s.placement === "new_root" ? null : head);
+      const createdTaskId = await createFromSuggestion(s, s.placement === "new_root" ? null : head, headCache);
       await updateSuggestion(s.id, { status: "accepted", created_task_id: createdTaskId });
     } else {
       await updateSuggestion(s.id, { status: "dismissed" });
@@ -97,19 +99,27 @@ export async function resolveFollowupGroup(group, acceptedIds) {
 // deepen/new_root die ID der neuen Kopfaufgabe zurück (für created_task_id), bei sibling null.
 // Unter einer Kopfaufgabe erbt alles deren Bereich: die Übersicht baut den Baum je Bereich, ein
 // Kind mit abweichendem area_id wäre dort unsichtbar (vgl. cascadeAreaChange in js/tasks.js).
-async function createFromSuggestion(suggestion, parent) {
+// headCache (optional): Map über einen Annahme-Vorgang hinweg. Mehrere Vorschläge mit gleicher
+// topic_title am gleichen Ort (Zweige eines Themas, Spinnennetz-Regel) teilen sich so eine
+// Kopfaufgabe, statt je eine eigene anzulegen.
+async function createFromSuggestion(suggestion, parent, headCache = new Map()) {
   const s = parent ? { ...suggestion, area_id: parent.area_id } : suggestion;
   const parentId = parent ? parent.id : null;
   const followupSourceId = s.source_task_id || null;
   if (s.placement === "deepen" || s.placement === "new_root") {
     // effort nur auf dem Schritt — die Kopfaufgabe ist ein Container, kein Plan-Kandidat.
-    const head = await createTask({
-      title: s.topic_title,
-      areaId: s.area_id,
-      isBrainstorm: !s.area_id,
-      parentTaskId: parentId,
-      followupSourceId,
-    });
+    const headKey = `${parentId || "root"}|${s.area_id || ""}|${s.topic_title}`;
+    let head = headCache.get(headKey);
+    if (!head) {
+      head = await createTask({
+        title: s.topic_title,
+        areaId: s.area_id,
+        isBrainstorm: !s.area_id,
+        parentTaskId: parentId,
+        followupSourceId,
+      });
+      headCache.set(headKey, head);
+    }
     await createTask({
       title: s.title,
       areaId: s.area_id,
@@ -133,7 +143,8 @@ async function createFromSuggestion(suggestion, parent) {
 
 // ----- Erstaufgaben ("Neue Mutteraufgaben") -----
 // kind='erstaufgabe', placement='new_root': Pulse schlägt ein ganz neues Thema vor. Übernehmen legt
-// eine Top-Level-Kopfaufgabe topic_title mit dem ersten Schritt title darunter an.
+// eine Top-Level-Kopfaufgabe topic_title mit dem ersten Schritt title darunter an. Mehrere Zeilen mit
+// gleicher topic_title sind Zweige desselben Themas: eine Kopfaufgabe, jeder angehakte Zweig darunter.
 
 export async function listOpenErstaufgaben() {
   const { data, error } = await supabase
@@ -159,9 +170,10 @@ export async function countOpenErstaufgaben() {
 // Übernimmt die angehakten Erstaufgaben, verwirft alle übrigen angezeigten.
 export async function resolveErstaufgaben(suggestions, acceptedIds) {
   const accepted = new Set(acceptedIds);
+  const headCache = new Map();
   for (const s of suggestions) {
     if (accepted.has(s.id)) {
-      const createdTaskId = await createFromSuggestion(s, null);
+      const createdTaskId = await createFromSuggestion(s, null, headCache);
       await updateSuggestion(s.id, { status: "accepted", created_task_id: createdTaskId });
     } else {
       await updateSuggestion(s.id, { status: "dismissed" });
