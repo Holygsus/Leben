@@ -16,6 +16,13 @@ export async function listWatchlistItems({ status, type } = {}) {
   return data;
 }
 
+// Einzelner Eintrag per ID (null, falls nicht vorhanden) — statt listWatchlistItems().find().
+export async function getWatchlistItem(id) {
+  const { data, error } = await supabase.from("watchlist_items").select("*").eq("id", id).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 export async function createWatchlistItem({ title, type = "serie", genres = [], platform = null, durationMinutes = null }) {
   const userId = await getCurrentUserId();
   const { data, error } = await supabase

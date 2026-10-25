@@ -1045,9 +1045,11 @@ async function withLockedAreaControls(action) {
   }
 }
 
+// Beide Aufrufer (renderOverviewView/reloadOverview) haben die Bereiche direkt davor per
+// loadOverviewData() frisch geladen — kein zweiter listAreas()-Request nötig.
 async function renderAreaManageList() {
   const list = document.getElementById("area-manage-list");
-  const areas = await listAreas();
+  const areas = overviewState.areas;
   list.innerHTML = "";
 
   if (areas.length === 0) {

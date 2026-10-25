@@ -1,6 +1,6 @@
 // Ansicht "Rezepte" (#/rezepte).
 import { createTask, deleteTask } from "../tasks.js";
-import { listRecipes, createRecipe, updateRecipe, deleteRecipe, formatIngredientsForShoppingList } from "../recipes.js";
+import { listRecipes, getRecipe, createRecipe, updateRecipe, deleteRecipe, formatIngredientsForShoppingList } from "../recipes.js";
 import { listPantryItems } from "../pantry.js";
 import { escapeHtml } from "../ui/dom.js";
 import { showToast, showConfirm, friendlyErrorMessage, withErrorToast } from "../ui/modals.js";
@@ -193,8 +193,7 @@ function buildIngredientRow(ingredient = { name: "", amount: "" }) {
 // vorher war die Ansicht immer im Editier-Modus, kein Lese-/Bearbeiten-Unterschied). Ein explizit
 // übergebener mode gewinnt immer (z.B. "Bearbeiten"-Button oder Rücksprung nach dem Speichern).
 async function renderRecipeDetailCard(recipeId, close, mode) {
-  const recipes = await listRecipes();
-  const recipe = recipes.find((r) => r.id === recipeId);
+  const recipe = await getRecipe(recipeId);
   const card = document.getElementById("recipe-detail-card");
   if (!recipe || !card) {
     close();

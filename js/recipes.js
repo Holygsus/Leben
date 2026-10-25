@@ -7,6 +7,13 @@ export async function listRecipes() {
   return data;
 }
 
+// Einzelnes Rezept per ID (null, falls nicht vorhanden) — statt listRecipes().find().
+export async function getRecipe(id) {
+  const { data, error } = await supabase.from("recipes").select("*").eq("id", id).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 export async function createRecipe({ title, ingredients = [], instructions = null }) {
   const userId = await getCurrentUserId();
   const { data, error } = await supabase
