@@ -1,6 +1,6 @@
 // Ansicht "Heute" (#/today) inkl. Begrüßung, Einstellungen, Geburtstage, Quick Win und Schnellerfassung.
 import { updateUsername } from "../auth.js";
-import { listTasks, updateTask, createTask, buildTaskTree, completeTaskCascade, reopenTaskCascade } from "../tasks.js";
+import { listTasksForToday, updateTask, createTask, buildTaskTree, completeTaskCascade, reopenTaskCascade } from "../tasks.js";
 import { listAreas } from "../areas.js";
 import { createThought } from "../thoughts.js";
 import { listWishlistItems, getSavingsPotBalance } from "../wishlist.js";
@@ -44,16 +44,17 @@ export async function renderTodayView() {
   container.innerHTML = await res.text();
   showLoading("task-list");
 
-  // Ein einzelner ungefilterter Fetch reicht: Heute, überfällig, Termine und Quick-Win-Kandidaten
-  // werden alle clientseitig aus derselben Liste abgeleitet (spart Roundtrips und macht die
-  // Mutteraufgaben-Gruppierung trivial, weil der volle Baum schon vorliegt).
+  // Heute, überfällig, Termine und Quick-Win-Kandidaten werden alle clientseitig aus derselben Liste
+  // abgeleitet. listTasksForToday() lädt dafür nur, was die Ansicht braucht (alles nicht Erledigte,
+  // heute Geplantes, Habits — samt vollständiger Teilbäume/Elternketten für Gruppierung und
+  // Kaskaden), statt jedes Mal alle erledigten Alt-Aufgaben mitzuschleppen.
   // Ungefiltert holen (nicht nur status:"active") — filterBuyReady() muss auch bereits manuell auf
   // "ready" gesetzte Wünsche sehen können, sonst fehlen die im Kaufbereit-Widget.
   // listWatchlistItems() wurde hier früher nur für die Watchlist-Auto-Einplanung geladen — die ist
   // per Governance-Entscheidung 2026-07-25 deaktiviert (siehe unten), daher entfällt der Fetch.
   const [areas, allTasks, wishlistItems, potBalance, birthdays] = await Promise.all([
     listAreas(),
-    listTasks(),
+    listTasksForToday(todayISO()),
     listWishlistItems(),
     getSavingsPotBalance(),
     listBirthdays(),
@@ -122,7 +123,7 @@ function rerenderTodayTaskListFromCache() {
 // Aufgaben-Teil neu, ohne die komplette Ansicht neu zu fetchen.
 export async function refreshTodayTaskList() {
   if (!document.getElementById("task-list")) return;
-  todayViewState.allTasks = await listTasks();
+  todayViewState.allTasks = await listTasksForToday(todayISO());
   renderTodayTaskSection();
 }
 
