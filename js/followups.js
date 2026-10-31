@@ -80,8 +80,7 @@ export async function resolveFollowupGroup(group, acceptedIds) {
   }
   for (const s of group.suggestions) {
     if (accepted.has(s.id)) {
-      const createdTaskId = await createFromSuggestion(s, s.placement === "new_root" ? null : head, headCache);
-      await updateSuggestion(s.id, { status: "accepted", created_task_id: createdTaskId });
+      await acceptSuggestion(s, s.placement === "new_root" ? null : head, headCache);
     } else {
       await updateSuggestion(s.id, { status: "dismissed" });
     }
@@ -110,7 +109,7 @@ async function createFromSuggestion(suggestion, parent, headCache = new Map()) {
   if (s.placement === "deepen" || s.placement === "new_root") {
     // effort nur auf dem Schritt — die Kopfaufgabe ist ein Container, kein Plan-Kandidat.
     const headKey = `${parentId || "root"}|${s.area_id || ""}|${s.topic_title}`;
-    let head = headCache.get(headKey);
+    let head = headCache.get(headKey) || (await findExistingHead(s, parentId));
     if (!head) {
       head = await createTask({
         title: s.topic_title,
@@ -119,8 +118,8 @@ async function createFromSuggestion(suggestion, parent, headCache = new Map()) {
         parentTaskId: parentId,
         followupSourceId,
       });
-      headCache.set(headKey, head);
     }
+    headCache.set(headKey, head);
     await createTask({
       title: s.title,
       areaId: s.area_id,
@@ -140,6 +139,48 @@ async function createFromSuggestion(suggestion, parent, headCache = new Map()) {
     followupSourceId,
   });
   return step.id;
+}
+
+// Sucht eine schon angelegte Kopfaufgabe gleichen Themas am gleichen Ort, z. B. aus einer früheren,
+// mittendrin abgebrochenen Annahme (headCache gilt nur für einen Vorgang, das Popup kommt danach mit
+// den Resten wieder). Weg dorthin: angenommene deepen/new_root-Vorschläge mit gleicher topic_title,
+// deren created_task_id die Kopfaufgabe ist. Gelöschte Aufgaben fallen von selbst heraus
+// (created_task_id ist on delete set null), erledigte bewusst auch — dann beginnt ein neuer Stamm.
+async function findExistingHead(s, parentId) {
+  if (!s.topic_title) return null;
+  const { data: rows, error } = await supabase
+    .from("task_followup_suggestions")
+    .select("created_task_id")
+    .eq("status", "accepted")
+    .eq("topic_title", s.topic_title)
+    .in("placement", ["deepen", "new_root"])
+    .not("created_task_id", "is", null);
+  if (error) throw error;
+  const ids = [...new Set((rows || []).map((r) => r.created_task_id))];
+  if (ids.length === 0) return null;
+  let query = supabase.from("tasks").select("id, area_id").in("id", ids).neq("status", "done");
+  query = parentId ? query.eq("parent_task_id", parentId) : query.is("parent_task_id", null);
+  query = s.area_id ? query.eq("area_id", s.area_id) : query.is("area_id", null);
+  const { data: heads, error: headError } = await query.limit(1);
+  if (headError) throw headError;
+  return heads && heads.length ? heads[0] : null;
+}
+
+// Nimmt einen Vorschlag an: erst per bedingtem Update von 'open' auf 'accepted' beanspruchen, dann
+// anlegen. Läuft dieselbe Annahme ein zweites Mal (Abbruch mittendrin + Popup erneut, Doppeltipp),
+// ist der Vorschlag schon beansprucht und es entsteht nichts doppelt. Bricht es genau zwischen
+// Beanspruchen und Anlegen ab, fehlt im schlimmsten Fall dieser eine Schritt — keine Dublette.
+async function acceptSuggestion(s, parent, headCache) {
+  const { data: claimed, error } = await supabase
+    .from("task_followup_suggestions")
+    .update({ status: "accepted" })
+    .eq("id", s.id)
+    .eq("status", "open")
+    .select("id");
+  if (error) throw error;
+  if (!claimed || claimed.length === 0) return;
+  const createdTaskId = await createFromSuggestion(s, parent, headCache);
+  await updateSuggestion(s.id, { created_task_id: createdTaskId });
 }
 
 // ----- Erstaufgaben ("Neue Mutteraufgaben") -----
@@ -174,8 +215,7 @@ export async function resolveErstaufgaben(suggestions, acceptedIds) {
   const headCache = new Map();
   for (const s of suggestions) {
     if (accepted.has(s.id)) {
-      const createdTaskId = await createFromSuggestion(s, null, headCache);
-      await updateSuggestion(s.id, { status: "accepted", created_task_id: createdTaskId });
+      await acceptSuggestion(s, null, headCache);
     } else {
       await updateSuggestion(s.id, { status: "dismissed" });
     }
