@@ -352,7 +352,11 @@ export function openFollowupPopup(groups) {
   });
   document.getElementById("followup-later").addEventListener("click", snooze);
 
-  document.getElementById("followup-confirm").addEventListener("click", async () => {
+  const followupConfirm = document.getElementById("followup-confirm");
+  followupConfirm.addEventListener("click", async () => {
+    // Gesperrt, solange gespeichert wird: ein zweiter Tipp würde dieselbe Annahme parallel starten.
+    if (followupConfirm.disabled) return;
+    followupConfirm.disabled = true;
     await withErrorToast(async () => {
       let created = 0;
       for (const group of groups) {
@@ -368,6 +372,7 @@ export function openFollowupPopup(groups) {
       showToast(created ? `${created} Folgeaufgabe(n) übernommen.` : "Vorschläge geschlossen.");
       renderShell();
     });
+    followupConfirm.disabled = false;
   });
 }
 
@@ -460,7 +465,10 @@ export function openErstaufgabenPopup(candidates) {
   });
   document.getElementById("erstaufgaben-later").addEventListener("click", snooze);
 
-  document.getElementById("erstaufgaben-confirm").addEventListener("click", async () => {
+  const erstConfirm = document.getElementById("erstaufgaben-confirm");
+  erstConfirm.addEventListener("click", async () => {
+    if (erstConfirm.disabled) return;
+    erstConfirm.disabled = true;
     const acceptedIds = [...root.querySelectorAll("input[type=checkbox]:checked")].map((c) => c.dataset.suggestionId);
     await withErrorToast(async () => {
       // Wie bei den Folgevorschlägen: alles Angezeigte wird entschieden, Nicht-Angehaktes verworfen.
@@ -472,6 +480,7 @@ export function openErstaufgabenPopup(candidates) {
       showToast(acceptedTopics ? `${acceptedTopics} neue Mutteraufgabe(n) angelegt.` : "Vorschläge geschlossen.");
       renderShell();
     });
+    erstConfirm.disabled = false;
   });
 }
 
