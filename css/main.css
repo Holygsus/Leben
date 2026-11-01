@@ -4299,3 +4299,252 @@ body.has-bg-image .task-item {
   font-size: 0.75rem;
   color: var(--color-text-subtle);
 }
+
+/* ---------- Heute kompakt + Filter (H3, 1-3-3-1 03fa43f5, 01.11.2026) ----------
+   Ziel: erste offene Aufgabe auf dem ersten Bildschirm (390×844). Alles hier ist auf die
+   Heute-Ansicht gescoped (.today-greeting, .progress-strip, .today-filter, .today-list), andere
+   Listen in der App bleiben unverändert. */
+
+.today-greeting {
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: 0;
+}
+
+.today-greeting-row {
+  align-items: center;
+}
+
+.today-greeting h1 {
+  font-size: var(--font-size-xl);
+  margin-bottom: 0;
+  line-height: 1.2;
+}
+
+.today-greeting .greeting-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.today-greeting .today-date {
+  font-size: var(--font-size-sm);
+}
+
+/* Fortschritt + Aufwand in einer Leiste: kleiner Ring, Zählung, rechts die Restminuten. */
+.progress-strip {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  gap: var(--space-3);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+}
+
+.progress-strip .progress-ring {
+  width: 40px;
+  height: 40px;
+}
+
+.progress-strip .progress-ring-hole {
+  width: 30px;
+  height: 30px;
+  font-size: 0.6875rem;
+}
+
+.progress-strip .progress-hero-copy {
+  flex: 1;
+  min-width: 0;
+  gap: 0;
+}
+
+.progress-strip .progress-hero-copy strong {
+  font-size: var(--font-size-sm);
+}
+
+.progress-strip .progress-hero-copy span {
+  font-size: 0.75rem;
+}
+
+.progress-strip .today-effort {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  width: 84px;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-strip .today-effort[hidden] {
+  display: none;
+}
+
+.progress-strip .today-effort-bar {
+  width: 100%;
+  height: 6px;
+}
+
+/* Filter-Chips über der Liste */
+.today-filter {
+  margin-top: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.today-filter[hidden] {
+  display: none;
+}
+
+.filter-chip {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-chip b {
+  font-weight: 600;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.filter-chip[aria-pressed="true"],
+.filter-chip-select[data-active="true"] {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-contrast);
+}
+
+.filter-chip[aria-pressed="true"] b {
+  color: inherit;
+}
+
+.filter-chip-select {
+  width: auto;
+  max-width: 96px;
+  padding-right: 4px;
+  appearance: auto;
+}
+
+.today-filter-hidden {
+  margin-left: auto;
+  white-space: nowrap;
+  font-size: 0.6875rem;
+  color: var(--color-text-subtle);
+}
+
+/* Kompakte Zeilen (~40 px), ohne Schatten, Titel max. 2 Zeilen */
+.today-list {
+  margin-top: var(--space-2);
+  gap: 4px;
+}
+
+.today-list .task-list {
+  gap: 4px;
+}
+
+.today-list .task-item {
+  min-height: 40px;
+  padding: 6px var(--space-3);
+  gap: var(--space-2);
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+}
+
+.today-list .task-checkbox {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+}
+
+.today-list .task-area-dot {
+  width: 8px;
+  height: 8px;
+}
+
+.today-list .task-title {
+  font-size: var(--font-size-sm);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.today-list .task-item.is-done {
+  min-height: 32px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  opacity: 0.7;
+}
+
+.today-list .task-item.is-done .task-title {
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+}
+
+.today-list .task-group-children {
+  margin-top: 4px;
+  margin-left: var(--space-3);
+  padding-left: var(--space-2);
+}
+
+/* Mutter nur als Kontext: dünne Themen-Überschrift statt Karte. Ihre Kinder hängen ohne
+   Einrückung direkt darunter, die Überschrift trägt die Gruppierung. */
+.today-list .task-group.is-topic {
+  margin-top: var(--space-2);
+}
+
+.task-topic-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
+  padding: 0 var(--space-1);
+}
+
+.task-topic-title {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-topic-count {
+  font-size: 0.75rem;
+  color: var(--color-text-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.task-topic-heading .tree-toggle {
+  width: 24px;
+  height: 24px;
+}
+
+.today-list .task-group.is-topic > .task-group-children {
+  margin-top: 2px;
+  margin-left: 0;
+  padding-left: 0;
+  border-left: none;
+}

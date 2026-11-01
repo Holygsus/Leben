@@ -254,83 +254,180 @@ async function openSettingsPanel() {
   });
 }
 
+// ----- Filter der Heute-Liste (H3, 1-3-3-1 03fa43f5) -----
+// Offen (Standard) blendet Erledigtes aus, Alle zeigt alles, Bereich schränkt zusätzlich auf einen
+// Bereich ein. Die Wahl wird lokal gemerkt (reine Ansichts-Einstellung, kein Server-Zustand).
+const TODAY_FILTER_STORAGE_KEY = "leben-os:today-filter";
+
+function loadTodayFilter() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TODAY_FILTER_STORAGE_KEY) || "null");
+    return { mode: raw?.mode === "all" ? "all" : "open", areaId: raw?.areaId || null };
+  } catch {
+    return { mode: "open", areaId: null };
+  }
+}
+
+function saveTodayFilter(filter) {
+  try {
+    localStorage.setItem(TODAY_FILTER_STORAGE_KEY, JSON.stringify(filter));
+  } catch {
+    // Private-Browsing o. Ä. — dann gilt die Wahl eben nur bis zum nächsten Laden.
+  }
+}
+
+// Bereich einer Aufgabe: eigener area_id, sonst der nächste Vorfahre mit Bereich — Unteraufgaben
+// haben oft keinen eigenen Bereich und sollen trotzdem beim Bereichsfilter ihrer Mutter auftauchen.
+function effectiveAreaId(task, byId) {
+  let t = task;
+  for (let i = 0; t && i < 20; i++) {
+    if (t.area_id) return t.area_id;
+    t = t.parent_task_id ? byId.get(t.parent_task_id) : null;
+  }
+  return null;
+}
+
+function renderTodayFilter(filter, { openCount, allCount, hiddenCount, areaIds }, onChange) {
+  const bar = document.getElementById("today-filter");
+  if (!bar) return;
+  bar.hidden = allCount === 0;
+  const { areaNameById } = todayViewState;
+  const areaOptions = areaIds
+    .map((id) => [id, areaNameById[id] || "Ohne Namen"])
+    .sort((x, y) => x[1].localeCompare(y[1], "de"));
+  bar.innerHTML = `
+    <button type="button" class="filter-chip" data-mode="open" aria-pressed="${filter.mode === "open"}">Offen <b>${openCount}</b></button>
+    <button type="button" class="filter-chip" data-mode="all" aria-pressed="${filter.mode === "all"}">Alle <b>${allCount}</b></button>
+    <select class="filter-chip filter-chip-select" id="today-filter-area" aria-label="Bereich" data-active="${Boolean(filter.areaId)}">
+      <option value="">Bereich</option>
+      ${areaOptions.map(([id, name]) => `<option value="${id}"${id === filter.areaId ? " selected" : ""}>${escapeHtml(name)}</option>`).join("")}
+    </select>
+    <span class="today-filter-hidden"${hiddenCount ? "" : " hidden"}>${hiddenCount} ausgeblendet</span>`;
+  bar.querySelectorAll("button[data-mode]").forEach((btn) => {
+    btn.addEventListener("click", () => onChange({ ...filter, mode: btn.dataset.mode }));
+  });
+  bar.querySelector("#today-filter-area").addEventListener("change", (e) => {
+    onChange({ ...filter, areaId: e.target.value || null });
+  });
+}
+
 // tasks = für heute geplante Aufgaben, overdueTasks = nicht erledigte Aufgaben mit Plandatum in der
-// Vergangenheit. Beide zusammen bestimmen den Tagesfortschritt: überfällige, noch offene Top-Level-
-// Aufgaben zählen in den Nenner (und "offen") des Rings mit hinein — analog zur Nav-Badge-Logik
-// unten —, damit das Bild dem echten Pensum entspricht (sie stehen oben in der Liste ohnehin als
-// "Überfällig"). Erledigt können überfällige nie sein, also erhöhen sie nur den Nenner, nie den Zähler.
+// Vergangenheit. Beide zusammen bestimmen den Tagesfortschritt: überfällige, noch offene Aufgaben
+// zählen in den Nenner (und "offen") des Rings mit hinein — analog zur Nav-Badge-Logik —, damit das
+// Bild dem echten Pensum entspricht. Erledigt können überfällige nie sein, also erhöhen sie nur den
+// Nenner, nie den Zähler.
 // allTasks wird für die Mutteraufgaben-Gruppierung gebraucht: Kinder erben beim Einplanen
 // automatisch das Datum ihrer Mutter (siehe planTaskCascade), liegen also normalerweise mit im
-// today-Set — falls trotzdem nur eine Unteraufgabe einzeln eingeplant wurde, wird ihre Mutter aus
-// allTasks als reiner Gruppen-Header mitgerendert (zählt aber nicht in den Fortschritt hinein).
+// today-Set — falls nur Unteraufgaben einzeln eingeplant wurden (der Normalfall seit den Mini-Ästen),
+// wird ihre Mutter aus allTasks als dünne Themen-Überschrift mitgerendert.
 function renderTodayTasks(tasks, overdueTasks, allTasks, areaColorById, onChange, onToggle) {
   const list = document.getElementById("task-list");
   const emptyState = document.getElementById("empty-state");
   const doneCount = tasks.filter((t) => t.status === "done").length;
   updateNavBadge(tasks.length - doneCount + overdueTasks.length);
 
-  // Unteraufgaben zählen nicht in den Tagesfortschritt hinein (verfälscht sonst das Bild, wenn
-  // eine Mutteraufgabe viele Kinder hat) — nur für den Ring/Text, die Liste selbst zeigt weiterhin
-  // alle Aufgaben inkl. Unteraufgaben.
-  const topLevelTasks = tasks.filter((t) => !t.parent_task_id);
-  const topLevelDoneCount = topLevelTasks.filter((t) => t.status === "done").length;
-  // Überfällige, noch offene Top-Level-Aufgaben zählen mit in den Nenner (nie in den Zähler, da nie
-  // erledigt) — sonst zeigt der Ring "alles erledigt", obwohl oben noch Überfälliges in der Liste steht.
-  const overdueTopLevelOpen = overdueTasks.filter((t) => !t.parent_task_id && t.status !== "done").length;
-  const totalCount = topLevelTasks.length + overdueTopLevelOpen;
-  const pct = totalCount ? Math.round((topLevelDoneCount / totalCount) * 100) : 0;
-  const remaining = totalCount - topLevelDoneCount;
-  document.getElementById("progress-text").textContent = `${topLevelDoneCount} von ${totalCount} Aufgaben erledigt`;
+  // Gezählt wird jede geplante Aufgabe, deren Mutter nicht selbst mitgeplant ist — Kinder einer
+  // mitgeplanten Mutter stecken schon in deren Kaskade und würden das Bild sonst verzerren. Vorher
+  // zählten nur Aufgaben ganz ohne Mutter, was bei reinen Mini-Ästen "0 von 0" ergab (01.11.2026).
+  const todayIds = new Set(tasks.map((t) => t.id));
+  const overdueIds = new Set(overdueTasks.map((t) => t.id));
+  const countedTasks = tasks.filter((t) => !t.parent_task_id || !todayIds.has(t.parent_task_id));
+  const countedDoneCount = countedTasks.filter((t) => t.status === "done").length;
+  const overdueCountedOpen = overdueTasks.filter(
+    (t) => t.status !== "done" && (!t.parent_task_id || !(overdueIds.has(t.parent_task_id) || todayIds.has(t.parent_task_id)))
+  ).length;
+  const totalCount = countedTasks.length + overdueCountedOpen;
+  const pct = totalCount ? Math.round((countedDoneCount / totalCount) * 100) : 0;
+  const remaining = totalCount - countedDoneCount;
+  document.getElementById("progress-text").textContent = `${countedDoneCount} von ${totalCount} erledigt`;
   document.getElementById("progress-subtext").textContent =
-    totalCount === 0 ? "" : remaining > 0 ? `Noch ${remaining} offen für heute.` : "Alles erledigt für heute.";
+    totalCount === 0 ? "" : remaining > 0 ? `Noch ${remaining} offen` : "Alles erledigt für heute.";
   document.getElementById("progress-ring-pct").textContent = `${pct}%`;
   const ring = document.getElementById("progress-ring");
   ring.style.setProperty("--pct", pct);
-  ring.classList.toggle("is-complete", totalCount > 0 && topLevelDoneCount === totalCount);
+  ring.classList.toggle("is-complete", totalCount > 0 && countedDoneCount === totalCount);
 
-  // Aufwand-Leiste: aufsummierte Minuten der heute geplanten Top-Level-Aufgaben, Füllstand =
-  // bereits erledigte Minuten. Ohne Aufwandsangaben (Summe 0) bleibt die Leiste ausgeblendet.
+  // Aufwand: aufsummierte Minuten derselben gezählten Aufgaben, Füllstand = bereits erledigte
+  // Minuten. Ohne Aufwandsangaben (Summe 0) bleibt der Aufwand-Teil der Leiste ausgeblendet.
   const effortEl = document.getElementById("today-effort");
   if (effortEl) {
     const sumEffort = (arr) => arr.reduce((s, t) => s + (Number(t.effort) || 0), 0);
-    const totalMin = sumEffort(topLevelTasks);
+    const totalMin = sumEffort(countedTasks);
     if (totalMin > 0) {
-      const doneMin = sumEffort(topLevelTasks.filter((t) => t.status === "done"));
+      const doneMin = sumEffort(countedTasks.filter((t) => t.status === "done"));
       const openMin = totalMin - doneMin;
       effortEl.hidden = false;
-      document.getElementById("today-effort-sum").textContent = openMin > 0 ? `noch ~${openMin} min` : "geschafft";
+      document.getElementById("today-effort-sum").textContent = openMin > 0 ? `~${openMin} min` : "geschafft";
       document.getElementById("today-effort-fill").style.width = `${Math.round((doneMin / totalMin) * 100)}%`;
     } else {
       effortEl.hidden = true;
     }
   }
 
+  // ----- Filter anwenden -----
+  const byId = new Map(allTasks.map((t) => [t.id, t]));
+  const listedTasks = [...overdueTasks, ...tasks];
+  const areaIds = [...new Set(listedTasks.map((t) => effectiveAreaId(t, byId)).filter(Boolean))];
+  const filter = loadTodayFilter();
+  // Gemerkter Bereich ohne heutige Aufgaben → Filter stillschweigend lösen statt leerer Liste.
+  if (filter.areaId && !areaIds.includes(filter.areaId)) filter.areaId = null;
+  const passesArea = (t) => !filter.areaId || effectiveAreaId(t, byId) === filter.areaId;
+  const isVisible = (t) => passesArea(t) && (filter.mode === "all" || t.status !== "done");
+  const visibleCount = listedTasks.filter(isVisible).length;
+  renderTodayFilter(
+    filter,
+    {
+      openCount: listedTasks.filter((t) => t.status !== "done" && passesArea(t)).length,
+      allCount: listedTasks.filter(passesArea).length,
+      hiddenCount: listedTasks.length - visibleCount,
+      areaIds,
+    },
+    (next) => {
+      saveTodayFilter(next);
+      onToggle();
+    }
+  );
+
   list.innerHTML = "";
-  for (const task of [...overdueTasks].sort(compareByPriority)) {
+  for (const task of overdueTasks.filter(isVisible).sort(compareByPriority)) {
     list.appendChild(buildTaskItem(task, areaColorById, allTasks, onChange));
   }
 
   if (tasks.length === 0 && overdueTasks.length === 0) {
+    emptyState.textContent = "Nichts geplant für heute — leg über das + oben eine Aufgabe an.";
+    emptyState.hidden = false;
+    return;
+  }
+  if (visibleCount === 0) {
+    emptyState.textContent = filter.mode === "open" && !filter.areaId
+      ? "Alles erledigt für heute. Unter „Alle“ siehst du, was du geschafft hast."
+      : "Hier ist gerade nichts — anderen Filter wählen.";
     emptyState.hidden = false;
     return;
   }
   emptyState.hidden = true;
 
-  const todayIds = new Set(tasks.map((t) => t.id));
-  const tree = filterTreeNodes(buildTaskTree(allTasks, null), (node) => todayIds.has(node.id));
+  const visibleTodayIds = new Set(tasks.filter(isVisible).map((t) => t.id));
+  const tree = filterTreeNodes(buildTaskTree(allTasks, null), (node) => visibleTodayIds.has(node.id));
 
   // Ein überfälliger Elternteil steht schon oben in der flachen Überfällig-Liste — als
   // Gruppenkopf hier nochmal würde er doppelt erscheinen. Stattdessen werden seine heute-
   // geplanten Kinder direkt als eigene Gruppen aufgelistet (rekursiv, falls mehrere überfällige
   // Ebenen verschachtelt sind).
-  const overdueIds = new Set(overdueTasks.map((t) => t.id));
   // Höchste Priorität zuerst, auf jeder Baumebene einzeln sortiert — so behalten auch die
   // Kinder eines übersprungenen überfälligen Elternteils (die als eigene Gruppen auftauchen)
-  // ihre eigene Prioritäts-Reihenfolge.
+  // ihre eigene Prioritäts-Reihenfolge. Themen-Überschriften (ungeplante Mütter) kommen nach den
+  // direkt geplanten Einzelaufgaben, damit lose Aufgaben nicht zwischen Themenblöcken verschwinden.
+  // Unter "Alle" rutschen komplett erledigte Themenblöcke ans Ende, sonst stünden sie vor den offenen.
+  const isHeading = (node) => node.children.length > 0 && !todayIds.has(node.id);
+  const hasOpen = (node) => (todayIds.has(node.id) && node.status !== "done") || node.children.some(hasOpen);
+  const groupRank = (node) => (hasOpen(node) ? 0 : 2) + (isHeading(node) ? 1 : 0);
+  const ctx = { allTasks, areaColorById, onChange, onToggle, todayIds, byId };
   const appendGroups = (nodes) => {
-    for (const node of [...nodes].sort(compareByPriority)) {
+    const sorted = [...nodes].sort((x, y) => groupRank(x) - groupRank(y) || compareByPriority(x, y));
+    for (const node of sorted) {
       if (overdueIds.has(node.id)) appendGroups(node.children);
-      else list.appendChild(buildTodayGroupEl(node, allTasks, areaColorById, onChange, onToggle, todayIds));
+      else list.appendChild(buildTodayGroupEl(node, ctx));
     }
   };
   appendGroups(tree);
@@ -366,53 +463,96 @@ function toggleSkipNoteForm(row, task, onChange) {
   form.querySelector(".habit-skip-note").focus();
 }
 
-function buildTodayGroupEl(node, allTasks, areaColorById, onChange, onToggle, todayIds) {
+// Zähler für eine Themen-Überschrift: erledigte/alle heute geplanten Nachfahren (ungefiltert, damit
+// "2/5" auch unter "Offen" zeigt, wie weit das Thema heute schon ist).
+function countTodayDescendants(node, todayIds, allTasks) {
+  let done = 0;
+  let total = 0;
+  const walk = (id) => {
+    for (const t of allTasks) {
+      if (t.parent_task_id !== id) continue;
+      if (todayIds.has(t.id)) {
+        total++;
+        if (t.status === "done") done++;
+      }
+      walk(t.id);
+    }
+  };
+  walk(node.id);
+  return { done, total };
+}
+
+function buildTodayGroupEl(node, ctx) {
+  const { allTasks, areaColorById, onChange, onToggle, todayIds, byId } = ctx;
   const hasChildren = node.children.length > 0;
   const collapsed = hasChildren && todayCollapsedNodes.has(node.id);
-  // Kontext-Label-Mutter: hat selbst kein planned_date für heute, ist nur wegen eines Kindes im
-  // Baum. Checkbox wird deaktiviert (einzelne Kinder separat abhaken statt Kaskade auf alle).
+  // Kontext-Mutter: hat selbst kein planned_date für heute, ist nur wegen eines Kindes im Baum.
+  // Sie erscheint als dünne Themen-Überschrift (Bereichs-Punkt, Titel, Zähler) statt als Karte mit
+  // deaktivierter Checkbox — einzelne Kinder werden separat abgehakt.
   const isContextLabel = hasChildren && todayIds != null && !todayIds.has(node.id);
 
   const li = document.createElement("li");
   li.className = "task-group";
 
-  const row = document.createElement("div");
-  row.className = "task-item";
-  appendTaskRowContent(row, node, areaColorById, allTasks, onChange, isContextLabel);
-
-  // Habit-Zeilen in Heute bekommen einen leisen "Nicht gemacht"-Button (Skip-Eintrag, migration-026).
-  // Nur für isHabitTask-Knoten selbst (Ja/Nein-Habits) — Pool-Kinder folgen in einer späteren Runde.
-  // isContextLabel-Mütter werden ausgenommen: sie haben kein eigenes planned_date für heute.
-  if (isHabitTask(node) && !isContextLabel) {
-    const skipBtn = document.createElement("button");
-    skipBtn.type = "button";
-    skipBtn.className = "chip-btn habit-skip-btn";
-    skipBtn.textContent = "Nicht gemacht";
-    skipBtn.addEventListener("click", () => toggleSkipNoteForm(row, node, onChange));
-    row.appendChild(skipBtn);
-  }
-
-  if (hasChildren) {
-    const toggle = document.createElement("button");
+  const toggle = hasChildren ? document.createElement("button") : null;
+  if (toggle) {
     toggle.type = "button";
     toggle.className = "tree-toggle";
     toggle.textContent = collapsed ? "▸" : "▾";
     toggle.setAttribute("aria-label", collapsed ? "Aufklappen" : "Zuklappen");
+    toggle.setAttribute("aria-expanded", String(!collapsed));
     toggle.addEventListener("click", (e) => {
       e.stopPropagation();
       if (todayCollapsedNodes.has(node.id)) todayCollapsedNodes.delete(node.id);
       else todayCollapsedNodes.add(node.id);
       onToggle();
     });
-    row.prepend(toggle);
-
-    const count = document.createElement("span");
-    count.className = "count";
-    count.textContent = `${node.children.length} Unteraufgabe${node.children.length === 1 ? "" : "n"}`;
-    row.appendChild(count);
   }
 
-  li.appendChild(row);
+  if (isContextLabel) {
+    li.classList.add("is-topic");
+    const head = document.createElement("div");
+    head.className = "task-topic-heading";
+    const areaId = effectiveAreaId(node, byId);
+    const dot = document.createElement("span");
+    dot.className = "task-area-dot";
+    dot.style.background = areaColorById[areaId] || "var(--color-text-subtle)";
+    const title = document.createElement("button");
+    title.type = "button";
+    title.className = "task-topic-title";
+    title.textContent = node.title;
+    title.addEventListener("click", () => openTodayTaskDetail(node));
+    const { done, total } = countTodayDescendants(node, todayIds, allTasks);
+    const count = document.createElement("span");
+    count.className = "task-topic-count";
+    count.textContent = `${done}/${total}`;
+    head.append(dot, title, count, toggle);
+    li.appendChild(head);
+  } else {
+    const row = document.createElement("div");
+    row.className = "task-item";
+    appendTaskRowContent(row, node, areaColorById, allTasks, onChange);
+
+    // Habit-Zeilen in Heute bekommen einen leisen "Nicht gemacht"-Button (Skip-Eintrag, migration-026).
+    // Nur für isHabitTask-Knoten selbst (Ja/Nein-Habits) — Pool-Kinder folgen in einer späteren Runde.
+    if (isHabitTask(node)) {
+      const skipBtn = document.createElement("button");
+      skipBtn.type = "button";
+      skipBtn.className = "chip-btn habit-skip-btn";
+      skipBtn.textContent = "Nicht gemacht";
+      skipBtn.addEventListener("click", () => toggleSkipNoteForm(row, node, onChange));
+      row.appendChild(skipBtn);
+    }
+
+    if (toggle) {
+      row.prepend(toggle);
+      const count = document.createElement("span");
+      count.className = "count";
+      count.textContent = `${node.children.length} Unteraufgabe${node.children.length === 1 ? "" : "n"}`;
+      row.appendChild(count);
+    }
+    li.appendChild(row);
+  }
 
   if (hasChildren && !collapsed) {
     const childList = document.createElement("ul");
@@ -424,12 +564,26 @@ function buildTodayGroupEl(node, allTasks, areaColorById, onChange, onToggle, to
       (a, b) => (a.status === "done" ? 1 : 0) - (b.status === "done" ? 1 : 0)
     );
     for (const child of orderedChildren) {
-      childList.appendChild(buildTodayGroupEl(child, allTasks, areaColorById, onChange, onToggle, todayIds));
+      childList.appendChild(buildTodayGroupEl(child, ctx));
     }
     li.appendChild(childList);
   }
 
   return li;
+}
+
+async function openTodayTaskDetail(task) {
+  // overviewState.areas ist leer, wenn Übersicht diese Session noch nicht besucht wurde — ohne
+  // sie fehlt im Detail-Modal das Bereichs-Badge (siehe renderTaskDetailView).
+  if (overviewState.areas.length === 0) {
+    try {
+      overviewState.areas = await listAreas();
+    } catch (err) {
+      showToast(friendlyErrorMessage(err), true);
+      return;
+    }
+  }
+  openTaskDetail(task);
 }
 
 function buildTaskItem(task, areaColorById, allTasks, onChange) {
@@ -443,9 +597,9 @@ function buildTaskItem(task, areaColorById, allTasks, onChange) {
 // gemeinsame Basis für flache Zeilen (buildTaskItem) und Gruppen-Header (buildTodayGroupEl). Die
 // Checkbox nutzt immer completeTaskCascade/reopenTaskCascade mit dem vollen allTasks-Kontext, auch
 // für Aufgaben ohne Kinder (dort ist das Ergebnis identisch zum einfachen Statuswechsel).
-// isContextLabel: true wenn der Task in der Heute-Ansicht nur als Kontext-Label erscheint (kein
-// eigenes planned_date für heute, nur wegen geplanter Kinder im Baum) — Checkbox dann deaktiviert.
-function appendTaskRowContent(el, task, areaColorById, allTasks, onChange, isContextLabel = false) {
+// Kontext-Mütter (ohne eigenes planned_date für heute) rendert buildTodayGroupEl als
+// Themen-Überschrift, sie landen also nie hier.
+function appendTaskRowContent(el, task, areaColorById, allTasks, onChange) {
   const isStale = isTaskStale(task);
   const isOverdue = isTaskOverdue(task);
   const isDueSoon = isTaskDueSoon(task);
@@ -471,52 +625,34 @@ function appendTaskRowContent(el, task, areaColorById, allTasks, onChange, isCon
   checkbox.setAttribute("aria-pressed", String(task.status === "done"));
   checkbox.setAttribute("aria-label", task.title);
   checkbox.textContent = task.status === "done" ? "✓" : "";
-  if (isContextLabel) {
-    // Kontext-Label-Mutter: erscheint in Heute nur wegen geplanter Kinder, hat kein eigenes
-    // planned_date für heute. Checkbox deaktivieren — einzelne Unteraufgaben separat abhaken.
-    checkbox.disabled = true;
-    checkbox.setAttribute("aria-disabled", "true");
-    checkbox.setAttribute("title", "Nur als Kontext — einzelne Unteraufgaben abhaken");
-  } else {
-    checkbox.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      await withErrorToast(async () => {
-        let unmutedFollowups = false;
-        if (task.status === "done") {
-          await reopenTaskCascade(task, allTasks);
-        } else {
-          unmutedFollowups = await completeTaskCascade(task, allTasks);
-          // Nur in der Heute-Ansicht (dieser Checkbox-Pfad ist ihr einziger Aufrufer) — Bewertung
-          // direkt beim Abhaken abfragen, nicht erst später im Fernsehprogramm-Tab (Spec-Vorgabe).
-          const ratingLogId = isWatchlistTask(task) ? await promptWatchlistRating(task) : null;
-          showCompleteUndoToast(task, allTasks, onChange, ratingLogId);
-          // Task-Feedback beim Abhaken (Betriebsmodell): leichtes Rating + Notiz. Habits ausgenommen
-          // (schließen wiederholt ab), Watchlist hat ihre eigene Bewertung oben. Sequenziell vor dem
-          // Folgeaufgaben-Popup, damit sich die beiden Modals im modal-root nicht überschreiben.
-          if (!isWatchlistTask(task) && !isHabitTask(task)) await openTaskFeedbackSheet(task);
-        }
-        onChange();
-        await triggerFollowupPopupAfterCompletion(unmutedFollowups);
-      });
+  checkbox.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    await withErrorToast(async () => {
+      let unmutedFollowups = false;
+      if (task.status === "done") {
+        await reopenTaskCascade(task, allTasks);
+      } else {
+        unmutedFollowups = await completeTaskCascade(task, allTasks);
+        // Nur in der Heute-Ansicht (dieser Checkbox-Pfad ist ihr einziger Aufrufer) — Bewertung
+        // direkt beim Abhaken abfragen, nicht erst später im Fernsehprogramm-Tab (Spec-Vorgabe).
+        const ratingLogId = isWatchlistTask(task) ? await promptWatchlistRating(task) : null;
+        showCompleteUndoToast(task, allTasks, onChange, ratingLogId);
+        // Task-Feedback beim Abhaken (Betriebsmodell): leichtes Rating + Notiz. Habits ausgenommen
+        // (schließen wiederholt ab), Watchlist hat ihre eigene Bewertung oben. Sequenziell vor dem
+        // Folgeaufgaben-Popup, damit sich die beiden Modals im modal-root nicht überschreiben.
+        if (!isWatchlistTask(task) && !isHabitTask(task)) await openTaskFeedbackSheet(task);
+      }
+      onChange();
+      await triggerFollowupPopupAfterCompletion(unmutedFollowups);
     });
-  }
+  });
 
   const title = document.createElement("span");
   title.className = "task-title task-title-btn";
   title.textContent = task.title;
-  title.addEventListener("click", async (e) => {
+  title.addEventListener("click", (e) => {
     e.stopPropagation();
-    // overviewState.areas ist leer, wenn Übersicht diese Session noch nicht besucht wurde — ohne
-    // sie fehlt im Detail-Modal das Bereichs-Badge (siehe renderTaskDetailView).
-    if (overviewState.areas.length === 0) {
-      try {
-        overviewState.areas = await listAreas();
-      } catch (err) {
-        showToast(friendlyErrorMessage(err), true);
-        return;
-      }
-    }
-    openTaskDetail(task);
+    openTodayTaskDetail(task);
   });
 
   el.append(dot, checkbox, title);
@@ -603,6 +739,10 @@ function renderBirthdaysWidget(birthdays) {
     }
   };
   renderItems(withinWindow);
+  // Leeres Widget (kein Geburtstag in den nächsten 30 Tagen) ausblenden — es kostete in Heute nur
+  // Platz über der Aufgabenliste. Verwalten bleibt über das +-Menü (Geburtstag) erreichbar.
+  const widget = document.getElementById("birthdays-widget");
+  if (widget) widget.hidden = withinWindow.length === 0;
 
   const remaining = sorted.length - withinWindow.length;
   if (remaining > 0) {
