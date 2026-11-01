@@ -173,6 +173,8 @@ create table if not exists task_followup_suggestions (
   spark_id uuid,
   -- Setzt die App beim Übernehmen (bei deepen/new_root die neu angelegte Kopfaufgabe).
   created_task_id uuid references tasks(id) on delete set null,
+  -- Setzt die App beim Übernehmen: der angelegte Schritt (Kind). Bei sibling gleich created_task_id.
+  created_step_id uuid references tasks(id) on delete set null,
   constraint task_followup_suggestions_folge_source_check
     check (kind <> 'folge' or source_task_id is not null),
   constraint task_followup_suggestions_erstaufgabe_placement_check
