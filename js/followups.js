@@ -94,9 +94,11 @@ export async function resolveFollowupGroup(group, acceptedIds) {
 
 // Legt die Aufgabe(n) zu einem Vorschlag an. Rollen: parent_task_id = Struktur innerhalb eines
 // Stamms, followup_source_id = Herkunft (auch über Stammgrenzen hinweg, z. B. bei Abzweigungen). parent = Kopfaufgabe {id, area_id}, unter die der
-// Vorschlag gehört (null bei new_root → Top-Level im Bereich area_id des Vorschlags). Gibt bei
-// deepen/new_root die ID der neuen Kopfaufgabe zurück, bei sibling die des neuen Schritts (für
-// created_task_id — so lässt sich auch bei normalen Schritten messen, ob Übernommenes erledigt wird).
+// Vorschlag gehört (null bei new_root → Top-Level im Bereich area_id des Vorschlags). Gibt
+// { taskId, stepId } zurück: taskId ist bei deepen/new_root die Kopfaufgabe, bei sibling der neue
+// Schritt (für created_task_id — so lässt sich auch bei normalen Schritten messen, ob Übernommenes
+// erledigt wird). stepId ist immer der angelegte Schritt (für created_step_id, Bauplan 8309c961 C1:
+// der Daily ordnet Kinder so über die ID statt über den Titel zu).
 // Unter einer Kopfaufgabe erbt alles deren Bereich: die Übersicht baut den Baum je Bereich, ein
 // Kind mit abweichendem area_id wäre dort unsichtbar (vgl. cascadeAreaChange in js/tasks.js).
 // headCache (optional): Map über einen Annahme-Vorgang hinweg. Mehrere Vorschläge mit gleicher
@@ -120,7 +122,7 @@ async function createFromSuggestion(suggestion, parent, headCache = new Map()) {
       });
     }
     headCache.set(headKey, head);
-    await createTask({
+    const step = await createTask({
       title: s.title,
       areaId: s.area_id,
       isBrainstorm: !s.area_id,
@@ -128,7 +130,7 @@ async function createFromSuggestion(suggestion, parent, headCache = new Map()) {
       parentTaskId: head.id,
       followupSourceId,
     });
-    return head.id;
+    return { taskId: head.id, stepId: step.id };
   }
   const step = await createTask({
     title: s.title,
@@ -138,7 +140,7 @@ async function createFromSuggestion(suggestion, parent, headCache = new Map()) {
     parentTaskId: parentId,
     followupSourceId,
   });
-  return step.id;
+  return { taskId: step.id, stepId: step.id };
 }
 
 // Sucht eine schon angelegte Kopfaufgabe gleichen Themas am gleichen Ort, z. B. aus einer früheren,
@@ -179,8 +181,8 @@ async function acceptSuggestion(s, parent, headCache) {
     .select("id");
   if (error) throw error;
   if (!claimed || claimed.length === 0) return;
-  const createdTaskId = await createFromSuggestion(s, parent, headCache);
-  await updateSuggestion(s.id, { created_task_id: createdTaskId });
+  const created = await createFromSuggestion(s, parent, headCache);
+  await updateSuggestion(s.id, { created_task_id: created.taskId, created_step_id: created.stepId });
 }
 
 // ----- Erstaufgaben ("Neue Mutteraufgaben") -----
