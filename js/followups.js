@@ -80,8 +80,7 @@ export async function resolveFollowupGroup(group, acceptedIds) {
   }
   for (const s of group.suggestions) {
     if (accepted.has(s.id)) {
-      const createdTaskId = await createFromSuggestion(s, s.placement === "new_root" ? null : head, headCache);
-      await updateSuggestion(s.id, { status: "accepted", created_task_id: createdTaskId });
+      await acceptSuggestion(s, s.placement === "new_root" ? null : head, headCache);
     } else {
       await updateSuggestion(s.id, { status: "dismissed" });
     }
@@ -95,9 +94,11 @@ export async function resolveFollowupGroup(group, acceptedIds) {
 
 // Legt die Aufgabe(n) zu einem Vorschlag an. Rollen: parent_task_id = Struktur innerhalb eines
 // Stamms, followup_source_id = Herkunft (auch über Stammgrenzen hinweg, z. B. bei Abzweigungen). parent = Kopfaufgabe {id, area_id}, unter die der
-// Vorschlag gehört (null bei new_root → Top-Level im Bereich area_id des Vorschlags). Gibt bei
-// deepen/new_root die ID der neuen Kopfaufgabe zurück, bei sibling die des neuen Schritts (für
-// created_task_id — so lässt sich auch bei normalen Schritten messen, ob Übernommenes erledigt wird).
+// Vorschlag gehört (null bei new_root → Top-Level im Bereich area_id des Vorschlags). Gibt
+// { taskId, stepId } zurück: taskId ist bei deepen/new_root die Kopfaufgabe, bei sibling der neue
+// Schritt (für created_task_id — so lässt sich auch bei normalen Schritten messen, ob Übernommenes
+// erledigt wird). stepId ist immer der angelegte Schritt (für created_step_id, Bauplan 8309c961 C1:
+// der Daily ordnet Kinder so über die ID statt über den Titel zu).
 // Unter einer Kopfaufgabe erbt alles deren Bereich: die Übersicht baut den Baum je Bereich, ein
 // Kind mit abweichendem area_id wäre dort unsichtbar (vgl. cascadeAreaChange in js/tasks.js).
 // headCache (optional): Map über einen Annahme-Vorgang hinweg. Mehrere Vorschläge mit gleicher
@@ -110,7 +111,7 @@ async function createFromSuggestion(suggestion, parent, headCache = new Map()) {
   if (s.placement === "deepen" || s.placement === "new_root") {
     // effort nur auf dem Schritt — die Kopfaufgabe ist ein Container, kein Plan-Kandidat.
     const headKey = `${parentId || "root"}|${s.area_id || ""}|${s.topic_title}`;
-    let head = headCache.get(headKey);
+    let head = headCache.get(headKey) || (await findExistingHead(s, parentId));
     if (!head) {
       head = await createTask({
         title: s.topic_title,
@@ -119,9 +120,9 @@ async function createFromSuggestion(suggestion, parent, headCache = new Map()) {
         parentTaskId: parentId,
         followupSourceId,
       });
-      headCache.set(headKey, head);
     }
-    await createTask({
+    headCache.set(headKey, head);
+    const step = await createTask({
       title: s.title,
       areaId: s.area_id,
       isBrainstorm: !s.area_id,
@@ -129,7 +130,7 @@ async function createFromSuggestion(suggestion, parent, headCache = new Map()) {
       parentTaskId: head.id,
       followupSourceId,
     });
-    return head.id;
+    return { taskId: head.id, stepId: step.id };
   }
   const step = await createTask({
     title: s.title,
@@ -139,7 +140,62 @@ async function createFromSuggestion(suggestion, parent, headCache = new Map()) {
     parentTaskId: parentId,
     followupSourceId,
   });
-  return step.id;
+  return { taskId: step.id, stepId: step.id };
+}
+
+// Sucht eine schon angelegte Kopfaufgabe gleichen Themas am gleichen Ort, z. B. aus einer früheren,
+// mittendrin abgebrochenen Annahme (headCache gilt nur für einen Vorgang, das Popup kommt danach mit
+// den Resten wieder). Weg dorthin: angenommene deepen/new_root-Vorschläge mit gleicher topic_title,
+// deren created_task_id die Kopfaufgabe ist. Gelöschte Aufgaben fallen von selbst heraus
+// (created_task_id ist on delete set null), erledigte bewusst auch — dann beginnt ein neuer Stamm.
+async function findExistingHead(s, parentId) {
+  if (!s.topic_title) return null;
+  const { data: rows, error } = await supabase
+    .from("task_followup_suggestions")
+    .select("created_task_id")
+    .eq("status", "accepted")
+    .eq("topic_title", s.topic_title)
+    .in("placement", ["deepen", "new_root"])
+    .not("created_task_id", "is", null);
+  if (error) throw error;
+  const ids = [...new Set((rows || []).map((r) => r.created_task_id))];
+  if (ids.length === 0) return null;
+  let query = supabase.from("tasks").select("id, area_id").in("id", ids).neq("status", "done");
+  query = parentId ? query.eq("parent_task_id", parentId) : query.is("parent_task_id", null);
+  query = s.area_id ? query.eq("area_id", s.area_id) : query.is("area_id", null);
+  const { data: heads, error: headError } = await query.limit(1);
+  if (headError) throw headError;
+  return heads && heads.length ? heads[0] : null;
+}
+
+// Nimmt einen Vorschlag an: erst per bedingtem Update von 'open' auf 'accepted' beanspruchen, dann
+// anlegen. Läuft dieselbe Annahme ein zweites Mal (Abbruch mittendrin + Popup erneut, Doppeltipp),
+// ist der Vorschlag schon beansprucht und es entsteht nichts doppelt. Scheitert das Anlegen, wird der
+// Anspruch zurückgegeben (Vorschlag wieder open) — so geht kein Schritt still verloren.
+async function acceptSuggestion(s, parent, headCache) {
+  const { data: claimed, error } = await supabase
+    .from("task_followup_suggestions")
+    .update({ status: "accepted" })
+    .eq("id", s.id)
+    .eq("status", "open")
+    .select("id");
+  if (error) throw error;
+  if (!claimed || claimed.length === 0) return;
+  let created;
+  try {
+    created = await createFromSuggestion(s, parent, headCache);
+  } catch (err) {
+    // Anlegen gescheitert: Anspruch zurückgeben, damit das Popup den Vorschlag wieder zeigt, statt ihn
+    // still als angenommen ohne Aufgabe liegen zu lassen. Die Kopfaufgabe findet findExistingHead dann.
+    await supabase
+      .from("task_followup_suggestions")
+      .update({ status: "open" })
+      .eq("id", s.id)
+      .eq("status", "accepted")
+      .is("created_task_id", null);
+    throw err;
+  }
+  await updateSuggestion(s.id, { created_task_id: created.taskId, created_step_id: created.stepId });
 }
 
 // ----- Erstaufgaben ("Neue Mutteraufgaben") -----
@@ -174,8 +230,7 @@ export async function resolveErstaufgaben(suggestions, acceptedIds) {
   const headCache = new Map();
   for (const s of suggestions) {
     if (accepted.has(s.id)) {
-      const createdTaskId = await createFromSuggestion(s, null, headCache);
-      await updateSuggestion(s.id, { status: "accepted", created_task_id: createdTaskId });
+      await acceptSuggestion(s, null, headCache);
     } else {
       await updateSuggestion(s.id, { status: "dismissed" });
     }
