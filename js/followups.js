@@ -170,8 +170,8 @@ async function findExistingHead(s, parentId) {
 
 // Nimmt einen Vorschlag an: erst per bedingtem Update von 'open' auf 'accepted' beanspruchen, dann
 // anlegen. Läuft dieselbe Annahme ein zweites Mal (Abbruch mittendrin + Popup erneut, Doppeltipp),
-// ist der Vorschlag schon beansprucht und es entsteht nichts doppelt. Bricht es genau zwischen
-// Beanspruchen und Anlegen ab, fehlt im schlimmsten Fall dieser eine Schritt — keine Dublette.
+// ist der Vorschlag schon beansprucht und es entsteht nichts doppelt. Scheitert das Anlegen, wird der
+// Anspruch zurückgegeben (Vorschlag wieder open) — so geht kein Schritt still verloren.
 async function acceptSuggestion(s, parent, headCache) {
   const { data: claimed, error } = await supabase
     .from("task_followup_suggestions")
@@ -181,7 +181,20 @@ async function acceptSuggestion(s, parent, headCache) {
     .select("id");
   if (error) throw error;
   if (!claimed || claimed.length === 0) return;
-  const created = await createFromSuggestion(s, parent, headCache);
+  let created;
+  try {
+    created = await createFromSuggestion(s, parent, headCache);
+  } catch (err) {
+    // Anlegen gescheitert: Anspruch zurückgeben, damit das Popup den Vorschlag wieder zeigt, statt ihn
+    // still als angenommen ohne Aufgabe liegen zu lassen. Die Kopfaufgabe findet findExistingHead dann.
+    await supabase
+      .from("task_followup_suggestions")
+      .update({ status: "open" })
+      .eq("id", s.id)
+      .eq("status", "accepted")
+      .is("created_task_id", null);
+    throw err;
+  }
   await updateSuggestion(s.id, { created_task_id: created.taskId, created_step_id: created.stepId });
 }
 
