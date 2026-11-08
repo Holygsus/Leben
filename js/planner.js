@@ -19,7 +19,7 @@ function rank(task) {
 // Sterne-Teil = Sternesumme / (Anzahl + 3): Start bei 0, jede Bewertung hebt, viele gute heben am
 // meisten (tiefe Themen bekommen mehr Input), wenige zählen schwach. Dazu ein kleiner Ruhe-Bonus
 // (+0,03 je Tag ohne Erledigtes im Thema, höchstens +0,5), damit schwach bewertete Themen
-// irgendwann wiederkommen. Neues ohne Bewertung kommt über den festen Platz (FRESH_SLOT_INDEX) rein.
+// irgendwann wiederkommen. Neues ohne Bewertung kommt über die 30 Neu-Minuten (isFreshSlot) rein.
 export const SCORE_PRIOR_COUNT = 3;
 export const REST_BONUS_PER_DAY = 0.03;
 export const REST_BONUS_MAX = 0.5;
@@ -65,9 +65,14 @@ export function buildFreshThemeQueue(openTasks, scores, effortValue = null, excl
       isPlannableCandidate(t, openTasks)
   );
   const cmp = byScore(scores);
+  // Jedes Thema nur einmal in der Neu-Zeit: Themen, aus denen schon etwas gewählt ist, fallen raus.
+  const usedRoots = new Set(
+    openTasks.filter((t) => excludeTaskIds.has(t.id)).map((t) => themeInfo(t, scores).rootId)
+  );
   const byRoot = new Map();
   for (const task of pool) {
     const { rootId } = themeInfo(task, scores);
+    if (usedRoots.has(rootId)) continue;
     const current = byRoot.get(rootId);
     if (!current || cmp(task, current) < 0) byRoot.set(rootId, task);
   }
@@ -77,11 +82,12 @@ export function buildFreshThemeQueue(openTasks, scores, effortValue = null, excl
     .map((candidate) => ({ areaId: candidate.area_id ?? null, candidate, fresh: true }));
 }
 
-// Erster 5-Min-Slot jeder Runde ist der feste Platz für das am längsten nicht angefasste Thema —
-// 5 Min., weil neue Themen mit Mini-Erstschritten (5 Min.) starten und ein 10er-Slot sie nie träfe.
-export const FRESH_SLOT_INDEX = 6;
+// 30 Minuten je Runde gehören dem Neuen (Planungsrunde 08.11.2026): die sechs 5-Min-Slots jeder
+// Runde (6×5 = 30) gehen an die am längsten nicht angefassten Themen, je Thema einer. 5 Min., weil
+// neue Themen mit Mini-Erstschritten starten. Wochenende = zwei Runden = 60 Minuten.
+export const FRESH_MINUTES_PER_PASS = 30;
 export function isFreshSlot(slotIndex) {
-  return slotIndex % 12 === FRESH_SLOT_INDEX;
+  return EFFORT_CLASS_PASS[slotIndex % EFFORT_CLASS_PASS.length] === 5;
 }
 
 // "T00:00:00" (ohne "Z") erzwingt lokale statt UTC-Interpretation, wie in habits.js/app.js üblich.
@@ -148,12 +154,21 @@ export function suggestTasksForPlan(openTasks, targetDateIso, scores = new Map()
     totalMinutes += task.effort;
   }
 
+  // Phase 1b: 30 Minuten für Neues (Wochenende 60) — die am längsten nicht angefassten Themen, je Thema
+  // einer, fest gesichert wie das Bereichs-Minimum (ignoriert Bereichs-Cap, zählt aber aufs Budget).
+  const freshBudget = (totalBudget / BUDGET_MINUTES.weekday) * FRESH_MINUTES_PER_PASS;
+  let freshMinutes = 0;
+  for (const { candidate } of buildFreshThemeQueue(openTasks, scores, 5, consumed)) {
+    if (freshMinutes + candidate.effort > freshBudget) break;
+    selected.push(candidate);
+    consumed.add(candidate.id);
+    areaMinutes.set(candidate.area_id, (areaMinutes.get(candidate.area_id) || 0) + candidate.effort);
+    totalMinutes += candidate.effort;
+    freshMinutes += candidate.effort;
+  }
+
   // Phase 2: global nach Priorität/Themen-Score auffüllen, bis Bereichs-Cap oder Gesamtbudget erreicht ist.
-  // Fester Platz für Neues: das am längsten nicht angefasste Thema steht vorne in der Auffüll-Reihe
-  // (respektiert Bereichs-Cap und Budget wie alle anderen).
   const remaining = pool.filter((t) => !consumed.has(t.id)).sort(cmp);
-  const fresh = buildFreshThemeQueue(openTasks, scores, null, consumed)[0]?.candidate;
-  if (fresh) remaining.unshift(...remaining.splice(remaining.indexOf(fresh), 1));
 
   for (const task of remaining) {
     const usedInArea = areaMinutes.get(task.area_id) || 0;

@@ -217,10 +217,12 @@ function assertEqual(actual, expected, label) {
   const twoInTheme = [...tasks, { ...base, id: "top2", created_at: "2026-10-05" }];
   const scores2 = new Map([...scores, ["top2", { root_id: "R-top", rating_sum: 16, rating_count: 4, last_touched_at: day(0) }]]);
   assertEqual(buildFreshThemeQueue(twoInTheme, scores2, 5).length, 3, "buildFreshThemeQueue: je Thema nur ein Kandidat");
-  assertEqual([0, 3, 6, 7, 18].map(isFreshSlot), [false, false, true, false, true], "isFreshSlot: erster 5-Min-Slot jeder Runde (auch Wochenend-Runde 2)");
+  assertEqual([0, 3, 5, 6, 11, 12, 18].map(isFreshSlot), [false, false, false, true, true, false, true], "isFreshSlot: alle 5-Min-Slots jeder Runde = 30 Min. Neues (Wochenende zwei Runden = 60)");
+  const usedTheme = buildFreshThemeQueue(twoInTheme, scores2, 5, new Set(["top"]));
+  assertEqual(usedTheme.map((e) => e.candidate.id), ["new", "deep"], "buildFreshThemeQueue: Thema mit schon gewählter Aufgabe fällt raus (jedes Thema nur einmal)");
 
   const picked = suggestTasksForPlan(tasks, "2026-11-09", scores);
-  assertEqual(picked.map((t) => t.id).includes("new"), true, "suggestTasksForPlan: Neues kommt über den festen Platz rein");
+  assertEqual(picked.map((t) => t.id).includes("new"), true, "suggestTasksForPlan: Neues kommt über die 30 Neu-Minuten rein");
 }
 
 // ---------- isPlannableCandidate (effort = Planbarkeits-Signal, auch für Unteraufgaben) ----------

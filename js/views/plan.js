@@ -602,8 +602,8 @@ function advanceToNextSlot() {
   }
   const effortValue = planState.slotSequence[planState.slotIndex];
   const selectedIds = new Set(planState.selected.map((t) => t.id));
-  // Fester Platz für Neues (Auftrag 09a878da): erster 5-Min-Slot je Runde geht an das am längsten
-  // nicht angefasste Thema, egal wie sein Score ist. Ohne passenden Kandidaten normale Rotation.
+  // 30 Minuten für Neues (Auftrag 09a878da): die 5-Min-Slots jeder Runde gehen an die am längsten
+  // nicht angefassten Themen, je Thema einer, egal wie ihr Score ist. Ohne Kandidaten normale Rotation.
   const freshQueue = isFreshSlot(planState.slotIndex)
     ? buildFreshThemeQueue(planState.pool, planState.scores, effortValue, selectedIds)
     : [];
