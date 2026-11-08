@@ -1,5 +1,5 @@
 import { buildTaskTree, collectDescendantIds, countDescendantsRecursive } from "./js/tasks.js";
-import { suggestTasksForPlan, formatTasksForExport, buildEffortClassSlots, buildAreaRotationQueue, isPlannableCandidate } from "./js/planner.js";
+import { suggestTasksForPlan, formatTasksForExport, buildEffortClassSlots, buildAreaRotationQueue, isPlannableCandidate, themeScore, buildFreshThemeQueue, isFreshSlot } from "./js/planner.js";
 import {
   DEFAULT_DURATION_MIN,
   isWatchlistTask,
@@ -182,6 +182,47 @@ function assertEqual(actual, expected, label) {
     ["a3", "a1"],
     "buildAreaRotationQueue: excludeTaskIds schließt bereits gewählte Aufgaben aus, Bereich ohne verbleibenden Kandidaten fällt komplett raus"
   );
+}
+
+// ---------- Themen-Score aus Bewertungen (Auftrag 09a878da, Variante C) ----------
+{
+  const now = new Date("2026-11-08T00:00:00Z").getTime();
+  const day = (n) => new Date(now - n * 86400000).toISOString();
+  const base = { status: "open", effort: 5, priority: "medium", area_id: "a1", parent_task_id: null };
+  const tasks = [
+    { ...base, id: "deep", created_at: "2026-10-01" }, // 9 Bewertungen, Ø 3
+    { ...base, id: "top", created_at: "2026-10-02" }, // 4 Bewertungen, Ø 4
+    { ...base, id: "new", created_at: "2026-10-03" }, // keine Bewertung, nie erledigt
+  ];
+  const scores = new Map([
+    ["deep", { root_id: "R-deep", rating_sum: 27, rating_count: 9, last_touched_at: day(0) }],
+    ["top", { root_id: "R-top", rating_sum: 16, rating_count: 4, last_touched_at: day(0) }],
+    ["new", { root_id: "R-new", rating_sum: 0, rating_count: 0, last_touched_at: day(10) }],
+  ]);
+  const round2 = (x) => Math.round(x * 100) / 100;
+  assertEqual(round2(themeScore(tasks[1], scores, now)), 2.29, "themeScore: 16 Sterne / (4+3) = 2,29, frisch angefasst kein Ruhe-Bonus");
+  assertEqual(round2(themeScore(tasks[0], scores, now)), 2.25, "themeScore: 27 / (9+3) = 2,25, viele Bewertungen zählen fast voll");
+  assertEqual(round2(themeScore(tasks[2], scores, now)), 0.3, "themeScore: Start bei 0, 10 Tage Ruhe = +0,3");
+  const longIdle = new Map([["x", { root_id: "x", rating_sum: 0, rating_count: 0, last_touched_at: day(100) }]]);
+  assertEqual(themeScore({ id: "x" }, longIdle, now), 0.5, "themeScore: Ruhe-Bonus höchstens +0,5");
+  assertEqual(themeScore({ id: "y", created_at: day(0) }, new Map(), now) < 0.01, true, "themeScore: ohne Kennzahlen Score 0 (Fallback)");
+
+  const queue = buildAreaRotationQueue(tasks, [{ id: "a1", last_served_at: null }], 5, new Set(), scores);
+  assertEqual(queue[0].candidate.id, "top", "buildAreaRotationQueue: bester Themen-Score ist Kandidat des Bereichs");
+  const queueNoScores = buildAreaRotationQueue(tasks, [{ id: "a1", last_served_at: null }], 5);
+  assertEqual(queueNoScores[0].candidate.id, "deep", "buildAreaRotationQueue: ohne Bewertungen älteste Aufgabe zuerst (wie bisher)");
+
+  const fresh = buildFreshThemeQueue(tasks, scores, 5);
+  assertEqual(fresh.map((e) => e.candidate.id), ["new", "deep", "top"], "buildFreshThemeQueue: am längsten nicht angefasstes Thema zuerst, egal wie sein Score");
+  const twoInTheme = [...tasks, { ...base, id: "top2", created_at: "2026-10-05" }];
+  const scores2 = new Map([...scores, ["top2", { root_id: "R-top", rating_sum: 16, rating_count: 4, last_touched_at: day(0) }]]);
+  assertEqual(buildFreshThemeQueue(twoInTheme, scores2, 5).length, 3, "buildFreshThemeQueue: je Thema nur ein Kandidat");
+  assertEqual([0, 3, 5, 6, 11, 12, 18].map(isFreshSlot), [false, false, false, true, true, false, true], "isFreshSlot: alle 5-Min-Slots jeder Runde = 30 Min. Neues (Wochenende zwei Runden = 60)");
+  const usedTheme = buildFreshThemeQueue(twoInTheme, scores2, 5, new Set(["top"]));
+  assertEqual(usedTheme.map((e) => e.candidate.id), ["new", "deep"], "buildFreshThemeQueue: Thema mit schon gewählter Aufgabe fällt raus (jedes Thema nur einmal)");
+
+  const picked = suggestTasksForPlan(tasks, "2026-11-09", scores);
+  assertEqual(picked.map((t) => t.id).includes("new"), true, "suggestTasksForPlan: Neues kommt über die 30 Neu-Minuten rein");
 }
 
 // ---------- isPlannableCandidate (effort = Planbarkeits-Signal, auch für Unteraufgaben) ----------

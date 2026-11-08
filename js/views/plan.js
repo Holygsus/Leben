@@ -8,7 +8,10 @@ import {
   budgetForDate,
   buildEffortClassSlots,
   buildAreaRotationQueue,
+  buildFreshThemeQueue,
+  isFreshSlot,
   isPlannableCandidate,
+  listThemeScores,
 } from "../planner.js";
 import { listTransactions, listFixedCosts, listCommittedExpenses, getFinanceModuleSettings } from "../finance.js";
 import { listWishlistItems, listSavingsPotEntries } from "../wishlist.js";
@@ -23,6 +26,7 @@ const planState = {
   areas: [],
   areaColorById: {},
   pool: [],
+  scores: new Map(), // task_id → Themen-Kennzahlen (View task_theme_scores), leer = Fallback ohne Bewertungen
   selected: [],
   targetDate: null,
   calendarMonth: null, // "YYYY-MM-01" — erster Tag des aktuell angezeigten Kalendermonats
@@ -255,14 +259,15 @@ function withTimeout(promise, ms, message) {
 async function loadPlanData(dateInput) {
   showLoading("suggested-task-list");
   try {
-    const [areas, pool, watchlistItems] = await withTimeout(
-      Promise.all([listAreas(), listTasks({ status: "open" }), listWatchlistItems()]),
+    const [areas, pool, watchlistItems, scores] = await withTimeout(
+      Promise.all([listAreas(), listTasks({ status: "open" }), listWatchlistItems(), listThemeScores()]),
       15000,
       "Zeitüberschreitung beim Laden."
     );
     planState.areas = areas;
     planState.areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
     planState.pool = pool;
+    planState.scores = scores;
     planState.watchlistItemsById = new Map(watchlistItems.map((i) => [i.id, i]));
     // Startauswahl ist jetzt leer (kein Bereichs-Minimum mehr) — die abschließende Restrunde
     // übernimmt die alte "garantiert"-Funktion, siehe startRestrunde(). Die volle Automatik von
@@ -395,7 +400,7 @@ export async function renderPlanView() {
   await loadPlanData(dateInput);
 
   document.getElementById("refresh-suggestion").addEventListener("click", () => {
-    planState.selected = suggestTasksForPlan(planState.pool, planState.targetDate);
+    planState.selected = suggestTasksForPlan(planState.pool, planState.targetDate, planState.scores);
     renderPlanTaskList();
     renderAddTaskSelect();
   });
@@ -597,7 +602,14 @@ function advanceToNextSlot() {
   }
   const effortValue = planState.slotSequence[planState.slotIndex];
   const selectedIds = new Set(planState.selected.map((t) => t.id));
-  planState.currentQueue = buildAreaRotationQueue(planState.pool, planState.areas, effortValue, selectedIds);
+  // 30 Minuten für Neues (Auftrag 09a878da): die 5-Min-Slots jeder Runde gehen an die am längsten
+  // nicht angefassten Themen, je Thema einer, egal wie ihr Score ist. Ohne Kandidaten normale Rotation.
+  const freshQueue = isFreshSlot(planState.slotIndex)
+    ? buildFreshThemeQueue(planState.pool, planState.scores, effortValue, selectedIds)
+    : [];
+  planState.currentQueue = freshQueue.length
+    ? freshQueue
+    : buildAreaRotationQueue(planState.pool, planState.areas, effortValue, selectedIds, planState.scores);
   planState.currentQueueIndex = 0;
   if (planState.currentQueue.length === 0) {
     advanceToNextSlot(); // stiller Skip, "kein Gate" — keine offenen Aufgaben dieser Klasse übrig
@@ -608,12 +620,13 @@ function advanceToNextSlot() {
 
 function renderEffortSlotStep() {
   const effortValue = planState.slotSequence[planState.slotIndex];
-  const { areaId, candidate } = planState.currentQueue[planState.currentQueueIndex];
+  const { areaId, candidate, fresh } = planState.currentQueue[planState.currentQueueIndex];
   const area = planState.areas.find((a) => a.id === areaId);
   const areaName = area ? area.name : "Ohne Bereich";
 
-  document.getElementById("effort-progress").textContent =
-    `${effortValue} Min. · Bereich ${planState.currentQueueIndex + 1} von ${planState.currentQueue.length}`;
+  document.getElementById("effort-progress").textContent = fresh
+    ? `${effortValue} Min. · Lange nicht dran · Thema ${planState.currentQueueIndex + 1} von ${planState.currentQueue.length}`
+    : `${effortValue} Min. · Bereich ${planState.currentQueueIndex + 1} von ${planState.currentQueue.length}`;
   document.getElementById("effort-area-name").textContent = areaName;
 
   const row = document.getElementById("effort-candidate-row");
