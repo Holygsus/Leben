@@ -14,10 +14,74 @@ function rank(task) {
   return PRIORITY_RANK[task.priority] ?? 1;
 }
 
-// Priorität absteigend, bei Gleichstand ältere Aufgabe zuerst (Fairness-Tiebreaker gegen
-// dauerhaft im Zufall untergehende liegen gebliebene Aufgaben).
-function byPriorityThenAge(a, b) {
-  return rank(b) - rank(a) || new Date(a.created_at) - new Date(b.created_at);
+// Themen-Score aus Bewertungen (Auftrag 09a878da, Planungsrunde 08.11.2026, Variante C). Ein Thema
+// ist die Mutteraufgabe samt aller Unteraufgaben (Kennzahlen aus der View task_theme_scores).
+// Sterne-Teil = Sternesumme / (Anzahl + 3): Start bei 0, jede Bewertung hebt, viele gute heben am
+// meisten (tiefe Themen bekommen mehr Input), wenige zählen schwach. Dazu ein kleiner Ruhe-Bonus
+// (+0,03 je Tag ohne Erledigtes im Thema, höchstens +0,5), damit schwach bewertete Themen
+// irgendwann wiederkommen. Neues ohne Bewertung kommt über den festen Platz (FRESH_SLOT_INDEX) rein.
+export const SCORE_PRIOR_COUNT = 3;
+export const REST_BONUS_PER_DAY = 0.03;
+export const REST_BONUS_MAX = 0.5;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// scores: Map task_id → { root_id, rating_sum, rating_count, last_touched_at }. Fehlt ein Eintrag
+// (View nicht geladen, Aufgabe neu), zählt die Aufgabe als eigenes Thema ohne Bewertung, zuletzt
+// angefasst bei Anlage — damit bleibt ohne Bewertungen fast das alte "älteste zuerst".
+export function themeInfo(task, scores) {
+  const s = scores?.get(task.id);
+  return {
+    rootId: s?.root_id ?? task.id,
+    ratingSum: s?.rating_sum ?? 0,
+    ratingCount: s?.rating_count ?? 0,
+    lastTouchedAt: s?.last_touched_at ?? task.created_at,
+  };
+}
+
+export function themeScore(task, scores, nowMs = Date.now()) {
+  const info = themeInfo(task, scores);
+  const stars = info.ratingSum / (info.ratingCount + SCORE_PRIOR_COUNT);
+  const touched = new Date(info.lastTouchedAt).getTime();
+  const days = Number.isFinite(touched) ? Math.max(0, (nowMs - touched) / DAY_MS) : 0;
+  return stars + Math.min(REST_BONUS_MAX, REST_BONUS_PER_DAY * days);
+}
+
+// Manuelle Prio "hoch" zieht weiter vor, dann Themen-Score absteigend, bei Gleichstand ältere
+// Aufgabe zuerst (Fairness-Tiebreaker).
+function byScore(scores, nowMs = Date.now()) {
+  return (a, b) =>
+    rank(b) - rank(a) ||
+    themeScore(b, scores, nowMs) - themeScore(a, scores, nowMs) ||
+    new Date(a.created_at) - new Date(b.created_at);
+}
+
+// Fester Platz für Neues: Kandidaten je Thema, das am längsten nicht angefasste Thema zuerst, egal
+// wie sein Score ist. Pro Thema nur der beste Kandidat. Format wie buildAreaRotationQueue.
+export function buildFreshThemeQueue(openTasks, scores, effortValue = null, excludeTaskIds = new Set()) {
+  const pool = openTasks.filter(
+    (t) =>
+      (effortValue == null || t.effort === effortValue) &&
+      !excludeTaskIds.has(t.id) &&
+      isPlannableCandidate(t, openTasks)
+  );
+  const cmp = byScore(scores);
+  const byRoot = new Map();
+  for (const task of pool) {
+    const { rootId } = themeInfo(task, scores);
+    const current = byRoot.get(rootId);
+    if (!current || cmp(task, current) < 0) byRoot.set(rootId, task);
+  }
+  const touchedMs = (t) => new Date(themeInfo(t, scores).lastTouchedAt).getTime() || 0;
+  return [...byRoot.values()]
+    .sort((a, b) => touchedMs(a) - touchedMs(b) || new Date(a.created_at) - new Date(b.created_at))
+    .map((candidate) => ({ areaId: candidate.area_id ?? null, candidate, fresh: true }));
+}
+
+// Erster 5-Min-Slot jeder Runde ist der feste Platz für das am längsten nicht angefasste Thema —
+// 5 Min., weil neue Themen mit Mini-Erstschritten (5 Min.) starten und ein 10er-Slot sie nie träfe.
+export const FRESH_SLOT_INDEX = 6;
+export function isFreshSlot(slotIndex) {
+  return slotIndex % 12 === FRESH_SLOT_INDEX;
 }
 
 // "T00:00:00" (ohne "Z") erzwingt lokale statt UTC-Interpretation, wie in habits.js/app.js üblich.
@@ -48,7 +112,8 @@ export function isPlannableCandidate(task, allTasks) {
   return true;
 }
 
-export function suggestTasksForPlan(openTasks, targetDateIso) {
+export function suggestTasksForPlan(openTasks, targetDateIso, scores = new Map()) {
+  const cmp = byScore(scores);
   const pool = openTasks.filter((t) => isPlannableCandidate(t, openTasks));
 
   const totalBudget = budgetForDate(targetDateIso);
@@ -59,7 +124,7 @@ export function suggestTasksForPlan(openTasks, targetDateIso) {
     byArea.get(task.area_id).push(task);
   }
   for (const list of byArea.values()) {
-    list.sort(byPriorityThenAge);
+    list.sort(cmp);
   }
 
   // Kein round5 mehr: eine gerundete Bereichs-Cap-Schwelle verschenkt Budget systematisch (z. B. 10
@@ -83,8 +148,12 @@ export function suggestTasksForPlan(openTasks, targetDateIso) {
     totalMinutes += task.effort;
   }
 
-  // Phase 2: global nach Priorität/Alter auffüllen, bis Bereichs-Cap oder Gesamtbudget erreicht ist.
-  const remaining = pool.filter((t) => !consumed.has(t.id)).sort(byPriorityThenAge);
+  // Phase 2: global nach Priorität/Themen-Score auffüllen, bis Bereichs-Cap oder Gesamtbudget erreicht ist.
+  // Fester Platz für Neues: das am längsten nicht angefasste Thema steht vorne in der Auffüll-Reihe
+  // (respektiert Bereichs-Cap und Budget wie alle anderen).
+  const remaining = pool.filter((t) => !consumed.has(t.id)).sort(cmp);
+  const fresh = buildFreshThemeQueue(openTasks, scores, null, consumed)[0]?.candidate;
+  if (fresh) remaining.unshift(...remaining.splice(remaining.indexOf(fresh), 1));
 
   for (const task of remaining) {
     const usedInArea = areaMinutes.get(task.area_id) || 0;
@@ -118,7 +187,7 @@ export function buildEffortClassSlots(targetDateIso) {
 // hochpriorisierte Aufgabe als Top-Kandidat dieser Klasse — der zieht ganz nach vorne, vor die reine
 // Recency-Reihenfolge (Nutzer-Entscheidung, siehe Plan-Datei). "Ohne Bereich" (area_id null) hat kein
 // last_served_at-Konzept und wird wie "nie bedient" behandelt (immer vorne in seiner Gruppe).
-export function buildAreaRotationQueue(openTasks, areas, effortValue, excludeTaskIds = new Set()) {
+export function buildAreaRotationQueue(openTasks, areas, effortValue, excludeTaskIds = new Set(), scores = new Map()) {
   const pool = openTasks.filter(
     (t) => t.effort === effortValue && !excludeTaskIds.has(t.id) && isPlannableCandidate(t, openTasks)
   );
@@ -136,7 +205,7 @@ export function buildAreaRotationQueue(openTasks, areas, effortValue, excludeTas
   };
 
   const entries = [...byArea.entries()].map(([areaId, list]) => {
-    const candidate = [...list].sort(byPriorityThenAge)[0];
+    const candidate = [...list].sort(byScore(scores))[0];
     return { areaId, candidate };
   });
 
@@ -158,6 +227,21 @@ export function formatTasksForExport(tasks, areaNameById) {
       return `- [${effort}] ${t.title}${area}`;
     })
     .join("\n");
+}
+
+// Lädt die Themen-Kennzahlen. Scheitert das, läuft der Plan ohne Bewertungen weiter (leere Map →
+// alle Score 0, Ruhe-Bonus entscheidet), statt hängen zu bleiben.
+export async function listThemeScores() {
+  try {
+    const { data, error } = await supabase
+      .from("task_theme_scores")
+      .select("task_id, root_id, rating_sum, rating_count, last_touched_at");
+    if (error) throw error;
+    return new Map((data || []).map((r) => [r.task_id, r]));
+  } catch (err) {
+    console.warn("Themen-Scores nicht geladen, Plan läuft ohne Bewertungen:", err);
+    return new Map();
+  }
 }
 
 export async function savePlanForDate(planDate, taskIds) {
