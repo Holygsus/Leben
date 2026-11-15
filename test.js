@@ -24,6 +24,7 @@ import { buildMoodStrip, averageMood, averageRatingByArea, moodByHabitDays, shif
 import { computeBudgetTrend, computeCategoryBreakdown, slugifyCategoryKey } from "./js/finance.js";
 import { formatIngredientsForShoppingList } from "./js/recipes.js";
 import { sumPagesInMonth, sumChaptersInMonth } from "./js/books.js";
+import { extractLink, searchTermFromTitle, buildQuestDoor } from "./js/questmarker.js";
 
 const results = document.getElementById("results");
 let passCount = 0;
@@ -648,6 +649,38 @@ function assertEqual(actual, expected, label) {
     "moodByHabitDays: Skip zählt nicht als Habit-Tag"
   );
   assertEqual(moodByHabitDays(reflections.slice(0, 4), completions), null, "moodByHabitDays: null bei zu wenig Daten");
+}
+
+// Questmarker (Experiment Meyerdinger bis 29.11.2026): echte Gründe aus dem Daily 15.11.2026.
+{
+  assertEqual(
+    extractLink("Direkter Link: https://mein-mmo.de/digimon-story-time-stranger-test-review/."),
+    "https://mein-mmo.de/digimon-story-time-stranger-test-review/",
+    "extractLink: Satzpunkt am Ende fällt weg"
+  );
+  assertEqual(extractLink("Gratis auf YouTube (Kanal @GMTK), englisch"), null, "extractLink: kein Link → null");
+  assertEqual(
+    searchTermFromTitle("Die ersten 5 Minuten von Terra X: Säugetiere schauen"),
+    "Terra X: Säugetiere",
+    "searchTermFromTitle: Rahmen und Verb fallen weg"
+  );
+  assertEqual(
+    searchTermFromTitle("Das GMTK-Video Boss Keys über gute Dungeons ganz schauen"),
+    "GMTK-Video Boss Keys über gute Dungeons",
+    "searchTermFromTitle: Artikel und „ganz schauen“ fallen weg"
+  );
+  const gmtk = buildQuestDoor(
+    "Das GMTK-Video Boss Keys über gute Dungeons ganz schauen",
+    "Du hast dir das Roguelike-Video ganz angeschaut. Gratis auf YouTube (Kanal @GMTK)"
+  );
+  assertEqual([gmtk.kind, gmtk.href.startsWith("https://www.youtube.com/results?")], ["search", true], "buildQuestDoor: Video ohne Link → YouTube-Suche");
+  const cron = buildQuestDoor(
+    "In der Supabase-Doku zu Cron nur das Beispiel lesen, was von selbst zeitgesteuert laufen kann",
+    "Dich fasziniert der schleichende Prozess der Automation. Fakt: englisch, gratis."
+  );
+  assertEqual([cron.kind, cron.href.startsWith("https://www.google.com/search?")], ["search", true], "buildQuestDoor: Doku ohne Link → Websuche");
+  const mmo = buildQuestDoor("Den mein-mmo-Test lesen", "Direkter Link: https://mein-mmo.de/digimon-story-time-stranger-test-review/");
+  assertEqual([mmo.kind, mmo.label], ["link", "▶ Link öffnen: mein-mmo.de"], "buildQuestDoor: echter Link hat Vorrang");
 }
 
 const summary = document.getElementById("summary");

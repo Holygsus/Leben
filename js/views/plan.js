@@ -1,5 +1,6 @@
 // Ansicht "Plan" (#/plan) inkl. Monatskalender und Aufwandsklassen-Durchgang.
 import { listTasks, createTask, planTaskCascade } from "../tasks.js";
+import { attachQuestMarker, refreshQuestReasons } from "../questmarker.js";
 import { listAreas, updateArea } from "../areas.js";
 import {
   suggestTasksForPlan,
@@ -186,6 +187,7 @@ function buildPlanRowBase(task, areaColorById, titleText = task.title) {
   title.textContent = titleText;
 
   li.append(dot, title);
+  attachQuestMarker(li, task);
   return li;
 }
 
@@ -260,7 +262,13 @@ async function loadPlanData(dateInput) {
   showLoading("suggested-task-list");
   try {
     const [areas, pool, watchlistItems, scores] = await withTimeout(
-      Promise.all([listAreas(), listTasks({ status: "open" }), listWatchlistItems(), listThemeScores()]),
+      Promise.all([
+        listAreas(),
+        listTasks({ status: "open" }),
+        listWatchlistItems(),
+        listThemeScores(),
+        refreshQuestReasons(),
+      ]),
       15000,
       "Zeitüberschreitung beim Laden."
     );
