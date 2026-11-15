@@ -31,6 +31,7 @@ import { state, FILTER_STORAGE_KEY, overviewState } from "../ui/state.js";
 import { restoreTaskSnapshot, showCompleteUndoToast } from "../ui/task-actions.js";
 import { isTaskOverdue, isTaskDueSoon, compareByUrgency, filterTreeNodes } from "../ui/task-helpers.js";
 import { openTaskDetail } from "./task-detail.js";
+import { attachQuestMarker, refreshQuestReasons } from "../questmarker.js";
 
 function saveStoredFilters() {
   const { effort, status, search } = overviewState.filters;
@@ -120,7 +121,12 @@ function renderOverviewBody() {
 }
 
 async function loadOverviewData() {
-  const [areas, tasks, commentedTaskIds] = await Promise.all([listAreas(), listTasks(), listAllCommentedTaskIds()]);
+  const [areas, tasks, commentedTaskIds] = await Promise.all([
+    listAreas(),
+    listTasks(),
+    listAllCommentedTaskIds(),
+    refreshQuestReasons(),
+  ]);
   overviewState.areas = areas;
   overviewState.tasks = tasks;
   overviewState.commentedTaskIds = commentedTaskIds;
@@ -719,6 +725,7 @@ function buildTaskNodeEl(node, area, depth) {
   }
 
   header.append(toggle, checkbox, buildTaskNameEl(node), nodeCount);
+  attachQuestMarker(header, node);
   if (isTaskOverdue(node)) {
     const overdueBadge = document.createElement("span");
     overdueBadge.className = "badge badge-overdue";

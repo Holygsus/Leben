@@ -33,6 +33,7 @@ import { isTaskOverdue, isTaskDueSoon, compareByPriority, filterTreeNodes } from
 import { promptWatchlistRating } from "./fernsehprogramm.js";
 import { renderBuyReadyAlert } from "./finance.js";
 import { openTaskDetail } from "./task-detail.js";
+import { attachQuestMarker, refreshQuestReasons } from "../questmarker.js";
 
 /* ---------- Today ---------- */
 
@@ -58,6 +59,7 @@ export async function renderTodayView() {
     listWishlistItems(),
     getSavingsPotBalance(),
     listBirthdays(),
+    refreshQuestReasons(),
   ]);
   todayViewState.areaColorById = Object.fromEntries(areas.map((a) => [a.id, a.color]));
   todayViewState.areaNameById = Object.fromEntries(areas.map((a) => [a.id, a.name]));
@@ -656,6 +658,7 @@ function appendTaskRowContent(el, task, areaColorById, allTasks, onChange) {
   });
 
   el.append(dot, checkbox, title);
+  attachQuestMarker(el, task);
 
   if (isOverdue) {
     const badge = document.createElement("span");
