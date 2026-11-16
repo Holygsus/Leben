@@ -25,6 +25,8 @@ import { computeBudgetTrend, computeCategoryBreakdown, slugifyCategoryKey } from
 import { formatIngredientsForShoppingList } from "./js/recipes.js";
 import { sumPagesInMonth, sumChaptersInMonth } from "./js/books.js";
 import { extractLink, searchTermFromTitle, buildQuestDoor } from "./js/questmarker.js";
+import { linkifyHtml } from "./js/ui/dom.js";
+import { suggestionNoteBody } from "./js/followups.js";
 
 const results = document.getElementById("results");
 let passCount = 0;
@@ -649,6 +651,27 @@ function assertEqual(actual, expected, label) {
     "moodByHabitDays: Skip zählt nicht als Habit-Tag"
   );
   assertEqual(moodByHabitDays(reflections.slice(0, 4), completions), null, "moodByHabitDays: null bei zu wenig Daten");
+}
+
+// Notiz-Brücke (Bauplan e0086927 Schritt 1).
+{
+  assertEqual(
+    linkifyHtml("Anleitung: https://support.apple.com/de-de/guide/iphone/x/ios."),
+    'Anleitung: <a href="https://support.apple.com/de-de/guide/iphone/x/ios" target="_blank" rel="noopener noreferrer">https://support.apple.com/de-de/guide/iphone/x/ios</a>.',
+    "linkifyHtml: Link klickbar, Satzpunkt bleibt draußen"
+  );
+  assertEqual(linkifyHtml("<b>x</b>\nzwei"), "&lt;b&gt;x&lt;/b&gt;<br>zwei", "linkifyHtml: escaped, Zeilenumbruch wird <br>");
+  assertEqual(
+    linkifyHtml('https://a.de/?q=1&x="y"'),
+    '<a href="https://a.de/?q=1&amp;x=" target="_blank" rel="noopener noreferrer">https://a.de/?q=1&amp;x=</a>&quot;y&quot;',
+    "linkifyHtml: Anführungszeichen beenden die URL, & wird escaped"
+  );
+  assertEqual(
+    suggestionNoteBody({ frame: "Link: https://x.de", reason: "Weil du X notiert hast." }),
+    "Link: https://x.de\nWeil du X notiert hast.",
+    "suggestionNoteBody: frame und reason untereinander"
+  );
+  assertEqual(suggestionNoteBody({ frame: null, reason: "Ohne Link" }), null, "suggestionNoteBody: kein Link → keine Notiz");
 }
 
 // Questmarker (Experiment Meyerdinger bis 29.11.2026): echte Gründe aus dem Daily 15.11.2026.

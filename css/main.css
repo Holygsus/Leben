@@ -4602,3 +4602,13 @@ body.has-bg-image .task-item {
   border-radius: 999px;
   padding: 1px 8px;
 }
+
+/* Notiz-Brücke: Notizen können lange Links enthalten (aus angenommenen Vorschlägen). */
+.task-comment-body {
+  overflow-wrap: anywhere;
+}
+
+.task-comment-body a {
+  color: var(--color-accent);
+  text-decoration: underline;
+}

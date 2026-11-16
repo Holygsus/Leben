@@ -1,5 +1,6 @@
 import { supabase } from "./supabase.js";
 import { createTask } from "./tasks.js";
+import { createComment } from "./comments.js";
 
 // Folgeaufgaben-Vorschläge (wissensdatenbank/features/folgeaufgaben-vorschlaege.md).
 // Der manuell ausgelöste Skill schreibt Vorschläge in task_followup_suggestions (status 'open');
@@ -196,6 +197,23 @@ async function acceptSuggestion(s, parent, headCache) {
     throw err;
   }
   await updateSuggestion(s.id, { created_task_id: created.taskId, created_step_id: created.stepId });
+  // Notiz-Brücke (Bauplan e0086927 Schritt 1): Hat der Vorschlag einen Link, landet sein Text als
+  // Notiz am angelegten Schritt — so ist der Link nach dem Annehmen an der Aufgabe selbst abrufbar,
+  // nicht nur im Popup. Erst nach updateSuggestion, damit ein Fehler hier keine Annahme ohne
+  // created_task_id hinterlässt; er geht trotzdem als Fehler-Toast nach oben, nicht still verloren.
+  const note = suggestionNoteBody(s);
+  if (note) await createComment({ taskId: created.stepId, body: note });
+}
+
+// Text der Notiz zu einem Vorschlag: frame und reason untereinander, aber nur, wenn darin ein
+// http(s)-Link steht (sonst null). Gleiche Regel wie das einmalige Nachholen in
+// supabase/migrations/20261116011946_notiz_bruecke_nachholen.sql.
+export function suggestionNoteBody(s) {
+  const text = [s.frame, s.reason]
+    .map((t) => (t || "").trim())
+    .filter(Boolean)
+    .join("\n");
+  return /https?:\/\//i.test(text) ? text : null;
 }
 
 // ----- Erstaufgaben ("Neue Mutteraufgaben") -----

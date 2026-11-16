@@ -22,6 +22,22 @@ export function escapeHtml(s) {
   }[c]));
 }
 
+// Notiz-Text als HTML: escaped, http(s)-Links werden anklickbar (neuer Tab), Zeilenumbrüche
+// bleiben erhalten. Satzzeichen direkt hinter dem Link gehören nicht zur URL (wie extractLink in
+// js/questmarker.js). Jedes Stück wird einzeln escaped, so kann kein Markup aus dem Text entstehen.
+export function linkifyHtml(text) {
+  const parts = String(text ?? "").split(/(https?:\/\/[^\s<>"„“]+)/i);
+  return parts
+    .map((part, i) => {
+      if (i % 2 === 0) return escapeHtml(part);
+      const url = part.replace(/[.,;:!?)\]»“]+$/, "");
+      const tail = part.slice(url.length);
+      return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>${escapeHtml(tail)}`;
+    })
+    .join("")
+    .replace(/\r?\n/g, "<br>");
+}
+
 // Kleine Inline-SVG-Icons statt Emoji (📌/💪 rendern je nach Betriebssystem unterschiedlich
 // bunt/inkonsistent) — erben ihre Farbe über currentColor vom umgebenden Element.
 function buildInlineIcon(pathMarkup) {
