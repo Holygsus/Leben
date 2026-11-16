@@ -27,6 +27,7 @@ import { sumPagesInMonth, sumChaptersInMonth } from "./js/books.js";
 import { extractLink, searchTermFromTitle, buildQuestDoor } from "./js/questmarker.js";
 import { linkifyHtml } from "./js/ui/dom.js";
 import { suggestionNoteBody } from "./js/followups.js";
+import { berlinDay, mondayOf, buildGhostRace, raceStanding, overtakeDay, formatRaceValue } from "./js/ghostrace.js";
 
 const results = document.getElementById("results");
 let passCount = 0;
@@ -704,6 +705,34 @@ function assertEqual(actual, expected, label) {
   assertEqual([cron.kind, cron.href.startsWith("https://www.google.com/search?")], ["search", true], "buildQuestDoor: Doku ohne Link → Websuche");
   const mmo = buildQuestDoor("Den mein-mmo-Test lesen", "Direkter Link: https://mein-mmo.de/digimon-story-time-stranger-test-review/");
   assertEqual([mmo.kind, mmo.label], ["link", "▶ Link öffnen: mein-mmo.de"], "buildQuestDoor: echter Link hat Vorrang");
+}
+
+{
+  // Ghost-Rennen (Experiment bis 22.11.2026)
+  assertEqual(berlinDay("2026-11-15T23:30:00Z"), "2026-11-16", "berlinDay: 23:30 UTC ist in Berlin schon der nächste Tag");
+  assertEqual(berlinDay("2026-07-14T22:30:00Z"), "2026-07-15", "berlinDay: Sommerzeit (UTC+2)");
+  assertEqual(mondayOf("2026-11-22"), "2026-11-16", "mondayOf: Sonntag gehört zur Woche ab Montag");
+  assertEqual(mondayOf("2026-11-16"), "2026-11-16", "mondayOf: Montag bleibt Montag");
+  const fb = (d, r, a) => ({ rating: r, created_at: d + "T10:00:00Z", area_id: a });
+  const feedback = [
+    fb("2026-11-09", 3, "a"), fb("2026-11-10", 4, "b"), fb("2026-11-11", 2, "c"), fb("2026-11-13", 5, "d"),
+    fb("2026-11-16", 4, "a"), fb("2026-11-17", 4, "b"), fb("2026-11-18", 3, "x"), fb("2026-11-18", 5, "y"),
+    fb("2026-11-19", 5, "z"), // nach „heute“, zählt nicht
+  ];
+  const race = buildGhostRace(feedback, "2026-11-18");
+  assertEqual([race.curStart, race.prevStart, race.dayIdx], ["2026-11-16", "2026-11-09", 2], "buildGhostRace: Wochen ab Montag, Mittwoch = Index 2");
+  assertEqual(race.cur.map((d) => d.breite), [1, 2, 4, null, null, null, null], "buildGhostRace: Breite der laufenden Woche bis heute");
+  assertEqual(race.ghost.map((d) => d.breite), [1, 2, 3, null, null, null, null], "buildGhostRace: Geist nur bis zum gleichen Wochentag");
+  assertEqual(race.cur[2].menge, 4, "buildGhostRace: Menge aufaddiert");
+  assertEqual(formatRaceValue("spass", race.cur[2].spass), "4,0", "buildGhostRace: Spaß als laufender Schnitt");
+  assertEqual(race.cur[2].newAreas, ["x", "y"], "buildGhostRace: neue Bereiche des Tages");
+  assertEqual(raceStanding(race, "breite"), "ahead", "raceStanding: mehr Bereiche → du vorn");
+  assertEqual(raceStanding(race, "menge"), "ahead", "raceStanding: Menge");
+  assertEqual(overtakeDay(race), 2, "overtakeDay: Überholen am Mittwoch");
+  const behind = buildGhostRace(feedback.slice(0, 5), "2026-11-18");
+  assertEqual([raceStanding(behind, "breite"), overtakeDay(behind)], ["behind", null], "raceStanding: Geist vorn, keine Funken");
+  const noGhost = buildGhostRace([fb("2026-11-16", 4, "a")], "2026-11-18");
+  assertEqual([noGhost.hasGhost, raceStanding(noGhost, "breite")], [false, "none"], "raceStanding: ohne Vorwoche kein Geist");
 }
 
 const summary = document.getElementById("summary");
