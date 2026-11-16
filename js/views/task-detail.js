@@ -19,6 +19,7 @@ import {
   BADGE_ICON_HABIT,
   BADGE_ICON_OVERDUE,
   escapeHtml,
+  linkifyHtml,
   buildPinIcon,
   buildEditIcon,
   buildTrashIcon,
@@ -147,7 +148,7 @@ function commentListHtml(comments) {
     .map(
       (c) => `
         <li class="task-item">
-          <span class="task-title">${escapeHtml(c.body)}</span>
+          <span class="task-title task-comment-body">${linkifyHtml(c.body)}</span>
           <span class="count">${formatShortDate(c.created_at.slice(0, 10))}</span>
           <button type="button" class="icon-btn icon-btn-danger td-comment-delete" data-comment-id="${c.id}" aria-label="Notiz löschen">×</button>
         </li>`
