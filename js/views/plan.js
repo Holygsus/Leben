@@ -1,6 +1,7 @@
 // Ansicht "Plan" (#/plan) inkl. Monatskalender und Aufwandsklassen-Durchgang.
 import { listTasks, createTask, planTaskCascade } from "../tasks.js";
 import { attachQuestMarker, refreshQuestReasons } from "../questmarker.js";
+import { mountGhostRace } from "../ghostrace.js";
 import { listAreas, updateArea } from "../areas.js";
 import {
   suggestTasksForPlan,
@@ -404,6 +405,9 @@ export async function renderPlanView() {
   document.getElementById("effort-skip-class").addEventListener("click", skipEffortClass);
   document.getElementById("restrunde-next").addEventListener("click", finishWalkthrough);
   wirePlanQuickAdd();
+
+  // Läuft neben dem Laden des Plans her und blockiert ihn nicht (Experiment, siehe ghostrace.js).
+  mountGhostRace(document.getElementById("ghost-race"));
 
   await loadPlanData(dateInput);
 

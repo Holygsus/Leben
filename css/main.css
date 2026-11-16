@@ -4612,3 +4612,244 @@ body.has-bg-image .task-item {
   color: var(--color-accent);
   text-decoration: underline;
 }
+
+/* ----- Ghost-Rennen (EXPERIMENT Meyerdinger bis 22.11.2026, siehe js/ghostrace.js) ----- */
+/* Kompakt: eingeklappt eine Zeile, offen zwei (Kopf + Strecke), Tagesdetail nur nach Tipp. */
+.ghost-race {
+  margin-top: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.ghost-race[hidden] {
+  display: none;
+}
+.ghost-race-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.ghost-race-title {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.ghost-race-score {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+.ghost-race-score b {
+  color: var(--color-text);
+}
+.ghost-race-pill {
+  margin-left: auto;
+  flex: none;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--color-text-muted) 14%, transparent);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.ghost-race-pill[data-standing="ahead"] {
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  color: var(--color-accent);
+}
+.ghost-race-chevron {
+  flex: none;
+  color: var(--color-text-subtle);
+  transition: transform 0.15s;
+}
+.ghost-race.is-collapsed .ghost-race-chevron {
+  transform: rotate(-90deg);
+}
+.ghost-race-body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.ghost-race-body[hidden] {
+  display: none;
+}
+.ghost-race-modes {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-text-muted) 12%, transparent);
+}
+.ghost-race-mode {
+  border: 0;
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 8px;
+  min-height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ghost-race-mode[aria-pressed="true"] {
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.ghost-race-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 36px;
+}
+.ghost-race-svg {
+  position: absolute;
+  inset: 0 0 11px 0;
+  width: 100%;
+  height: calc(100% - 11px);
+  overflow: visible;
+}
+.ghost-race-fx {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: -40px;
+  width: 100%;
+  height: calc(100% + 40px);
+  pointer-events: none;
+}
+.ghost-race-line {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.ghost-race-line.is-ghost {
+  stroke: var(--color-success);
+  stroke-dasharray: 4 3;
+  opacity: 0.6;
+}
+.ghost-race-dot {
+  fill: var(--color-accent);
+}
+.ghost-race-dot.is-ghost {
+  fill: var(--color-success);
+  opacity: 0.6;
+}
+.ghost-race-sel {
+  fill: color-mix(in srgb, var(--color-text-muted) 14%, transparent);
+}
+.ghost-race-days {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+.ghost-race-day {
+  border: 0;
+  background: none;
+  padding: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  font-size: 9px;
+  line-height: 11px;
+  color: var(--color-text-subtle);
+  cursor: pointer;
+}
+.ghost-race-day[data-selected="true"] {
+  color: var(--color-text);
+  font-weight: 700;
+}
+.ghost-race-day:focus-visible,
+.ghost-race-mode:focus-visible,
+.ghost-race-toggle:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.ghost-race-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-2);
+}
+.ghost-race-detail[hidden] {
+  display: none;
+}
+.ghost-race-detail-head {
+  font-weight: 600;
+}
+.ghost-race-detail-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+.ghost-race-who {
+  flex: none;
+  width: 3.2em;
+  color: var(--color-text-muted);
+}
+.ghost-race-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ghost-race-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--color-text-muted) 12%, transparent);
+}
+.ghost-race-chip i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.ghost-race-chip em {
+  font-style: normal;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+.ghost-race-empty {
+  color: var(--color-text-subtle);
+}
+/* Sehr schmale Handys: Name weg, damit der Stand (du · Geist) ganz lesbar bleibt. */
+@media (max-width: 379px) {
+  .ghost-race-title {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ghost-race-chevron {
+    transition: none;
+  }
+}
